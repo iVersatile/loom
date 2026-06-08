@@ -166,14 +166,17 @@ func provisionScript(tools []ToolInstall) string {
 	b.WriteString("apt-get update\n")
 	pkgs := append([]string{"ca-certificates", "curl", "git", "tar"}, filterOut(apt, "git")...)
 	b.WriteString("apt-get install -y --no-install-recommends " + strings.Join(pkgs, " ") + "\n")
+	b.WriteString("apt-get clean && rm -rf /var/lib/apt/lists/*\n")
 
 	if needGo {
 		b.WriteString(`ARCH="$(dpkg --print-architecture)"
 GOVER="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)"
 curl -fsSL "https://go.dev/dl/${GOVER}.linux-${ARCH}.tar.gz" -o /tmp/go.tgz
-rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz
+rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz && rm -f /tmp/go.tgz
 export PATH="$PATH:/usr/local/go/bin:/root/go/bin"
 echo 'export PATH=$PATH:/usr/local/go/bin:/root/go/bin' >> /root/.profile
+# Limit compile parallelism so memory-heavy installs (gopls) fit a small VM.
+export GOFLAGS=-p=2
 `)
 	}
 	for _, m := range goInstall {
