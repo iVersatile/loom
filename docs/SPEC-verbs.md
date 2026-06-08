@@ -1,8 +1,9 @@
-# SPEC — Verb Contracts (draft)
+# SPEC — Verb Contracts
 
-> Status: draft for discussion. The engine is mechanism (ADR-0006); these verbs
-> reconcile reality to the playbook. Every verb supports human output and
-> `--json` (ADR-0005). All verbs are idempotent and safe to re-run.
+> Status: **frozen for Phase 1** (reviewed 2026-06-08). The engine is mechanism
+> (ADR-0006); these verbs reconcile reality to the playbook. Every verb supports
+> human output and `--json` (ADR-0005). All verbs are idempotent and safe to
+> re-run.
 
 ## Global conventions
 
@@ -112,9 +113,17 @@ lockfile consistent with the playbook, are guardrails active. `--json` for agent
   environment; an agent cannot weaken guardrails or perform prohibited actions
   via a verb without an explicit gate.
 
+## Deferred (decided not to decide yet)
+
+1. **MCP vs direct verbs — deferred to Phase 3, deliberately.** Phase 1 agents
+   operate the verbs directly via `--json`; the verb surface is the contract. We
+   revisit an MCP wrapper once the verbs are stable, so we wrap a known-good
+   surface rather than designing two at once (PLAN Phase 3, ADR-0005).
+2. **Action-log location/format — deferred until `build` first mutates.** The log
+   is a hard requirement for mutating verbs (Cross-cutting), but its concrete
+   shape (per-project vs machine-wide; JSONL) is decided when we write the first
+   mutation in Phase 1, against a real append site rather than in the abstract.
+
 ## Open questions
 
-1. Does the AI operate verbs directly, or through an MCP server wrapping them?
-   (MCP would give a typed tool surface — possibly the cleanest agent interface.)
-2. Action-log location/format (per-project vs machine-wide; JSONL?).
-3. Should `plan` check-mode (`exit 2`) be the default in CI contexts?
+1. Should `plan` check-mode (`exit 2`) be the default in CI contexts?

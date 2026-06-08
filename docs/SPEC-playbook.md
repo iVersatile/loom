@@ -1,8 +1,21 @@
-# SPEC — Playbook Schema (draft)
+# SPEC — Playbook Schema
 
-> Status: draft for discussion. Examples are illustrative, not final. The schema
-> is **thin** (intent by name@version), with a generated lockfile for exact pins
-> (see ADR-0002). Two tiers (ADR-0004): a base playbook + per-project overlays.
+> Status: **frozen for Phase 1** (reviewed 2026-06-08). Examples are illustrative;
+> field shapes may still gain detail, but the decisions below are settled and code
+> implements them (RULES §2). The schema is **thin** (intent by name@version), with
+> a generated lockfile for exact pins (see ADR-0002). Two tiers (ADR-0004): a base
+> playbook + per-project overlays.
+
+## Frozen decisions (2026-06-08)
+
+- **Format (was Q1).** YAML is the authored format; JSON is also accepted on
+  **input** (parser reads either). Loom emits YAML. This keeps authoring friendly
+  for humans and AI while letting programmatic producers hand Loom JSON directly.
+- **Lockfile granularity (was Q3).** Record **both** per-tool (intent + resolved
+  version + digest + source) **and** the base-image digest. Per-tool digests catch
+  drift in individual installs; the image digest pins the floor. This is what
+  reproducibility actually needs and mirrors Devbox's lock. The example below
+  already reflects this shape.
 
 ## Principles
 
@@ -119,12 +132,14 @@ playbook fields); the two-tier base, rules, hooks, and AI-context are *added* on
 top (Loom's value layer). Export (later, lossy) emits a `devcontainer.json` from
 the environment fields only; policy/intent do not map and stay in repo docs.
 
-## Open questions (resolve before freezing schema)
+## Open questions
 
-1. Playbook format: YAML (shown) vs TOML vs JSON. YAML is friendliest for humans
-   and AI; JSON is easiest to emit/consume programmatically. Likely YAML authored,
-   JSON also accepted.
-2. How explicit should `rules:` references be vs auto-included by `stack:`?
-3. Lockfile granularity — per-tool digest vs whole-image digest vs both.
-4. Where the env-wide base playbook lives when the cloud track is in play
+Format (Q1) and lockfile granularity (Q3) are frozen — see *Frozen decisions*
+above. Remaining:
+
+1. How explicit should `rules:` references be vs auto-included by `stack:`?
+   (Touches the Phase 1 parser; lean toward explicit-by-reference with `stack:`
+   contributing defaults, but not yet frozen.)
+2. Where the env-wide base playbook lives when the cloud track is in play
    (ADR-0007): on the VM, in a volume, or fetched from the config source.
+   (Phase 5; not blocking.)
