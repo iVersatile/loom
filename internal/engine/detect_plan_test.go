@@ -16,6 +16,8 @@ func (f fakeProber) probe(binary string) (bool, string) {
 type fakeRuntime struct {
 	exists          bool
 	err             error
+	resolveDigest   string
+	resolveErr      error
 	ensureInfo      ContainerInfo
 	ensureErr       error
 	teardownRemoved Removed
@@ -23,6 +25,10 @@ type fakeRuntime struct {
 }
 
 func (r fakeRuntime) Exists(string) (bool, error) { return r.exists, r.err }
+
+func (r fakeRuntime) ResolveBaseDigest(string) (string, error) {
+	return r.resolveDigest, r.resolveErr
+}
 
 func (r fakeRuntime) Ensure(ContainerSpec) (ContainerInfo, error) {
 	return r.ensureInfo, r.ensureErr

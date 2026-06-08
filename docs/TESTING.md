@@ -17,12 +17,20 @@ Two tiers, one shared entry point (`make gate` / `make gate-integration`, RULES 
 | Agent can `plan` then `build` unattended | `engine.TestPlanDriftAndConverged` + `cli.TestPlanEmitsJSONAndExitCode` (exit 2/0, valid `--json`, no prompt); `cli.TestSpecConformance` (every verb's `--json` matches SPEC-verbs.md) |
 | Guardrails block a destructive test | `guard.TestGuardBashBlocksDangerousAllowsBenign`, `guard.TestBranchGuardBlocksMainAllowsOverrideAndBranch`, `guard.TestProtectPathsBlocksFrozenContract` (real hook scripts, incl. audited override); in-container parity in the integration tier |
 
-## Known Phase 1 boundary (needs docker to finish + validate)
+## Docker-validated pieces (integration tier)
 
-`build`'s container step (`dockerRuntime.Ensure`) creates the base container and
-seeds `$HOME`, but **installing the resolved tool set into the container** (apt /
-go install per source) is not yet implemented — it requires a docker environment
-to develop and validate, which the dev sandbox lacks. Until then, the built
-container is the shared base with materialized config, not yet a fully provisioned
-Go toolchain. The host-side spine (resolve → lock → materialize → audit) is fully
-implemented and tested.
+These run only on a docker host (CI / a one-off `make gate-integration` locally),
+never the dev sandbox, which has no daemon:
+
+- **In-container provisioning** (`dockerRuntime.Ensure` → `provisionScript`): apt
+  packages, Go from the official tarball, `go install` for gopls/gitleaks, the uv
+  installer; `$HOME` seeded and `~/.bashrc` wired to load the prompt. Asserted by
+  `TestE2EBuildAndSurviveRebuild` (go usable, gopls present).
+- **Manifest-list digest pinning** (`ResolveBaseDigest`): `loom.lock` base image
+  is `…@sha256:<index-digest>`, reproducible across arm64/amd64.
+- **ghcr base mirror**: CI builds against `ghcr.io/<owner>/loom-base` via
+  `LOOM_BASE_IMAGE`; local defaults to Docker Hub.
+
+The host-side spine (resolve → lock → materialize → audit) and the digest/
+provisioning *logic* are unit-tested in the normal gate; the docker execution is
+validated by the integration tier.

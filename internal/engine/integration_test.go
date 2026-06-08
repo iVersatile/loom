@@ -8,7 +8,10 @@ package engine
 import (
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/iVersatile/loom/internal/lock"
 )
 
 func requireDocker(t *testing.T) {
@@ -48,6 +51,20 @@ func TestE2EBuildAndSurviveRebuild(t *testing.T) {
 	}
 	assertInContainer("/root/.claude/settings.json")
 	assertInContainer("/root/.claude/statusline.sh")
+
+	// The lock pins the base image by manifest digest.
+	if l, err := lock.Read(filepath.Join(root, "loom.lock")); err != nil || l == nil {
+		t.Errorf("read lock: %v", err)
+	} else if !strings.Contains(l.BaseImage, "@sha256:") {
+		t.Errorf("lock base_image %q should be digest-pinned", l.BaseImage)
+	}
+
+	// Provisioned toolchain is usable inside the container.
+	if out, err := exec.Command("docker", "exec", name, "sh", "-lc",
+		"PATH=$PATH:/usr/local/go/bin go version").CombinedOutput(); err != nil {
+		t.Errorf("go not provisioned in container: %v: %s", err, out)
+	}
+	assertInContainer("/root/go/bin/gopls")
 
 	// Tear the container down, rebuild, and confirm $HOME config returns.
 	if _, err := Teardown(TeardownOpts{PlaybookPath: pb, Level: "stop"}); err != nil {

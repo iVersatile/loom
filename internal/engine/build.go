@@ -79,7 +79,12 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 	if err != nil {
 		return res, fmt.Errorf("read lock: %w", err)
 	}
+	// Pin the base image to its manifest-list digest when a daemon can resolve
+	// it (reproducible across arches); fall back to the plain tag otherwise.
 	img := baseImage()
+	if digest, derr := rt.ResolveBaseDigest(img); derr == nil && digest != "" {
+		img = img + "@" + digest
+	}
 	newLock := resolution.Lock(img, ts)
 	if lock.ContentEqual(existing, newLock) {
 		res.LockWritten = false
@@ -121,7 +126,7 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 	// 4. Container — create or converge via the runtime.
 	cname := containerName(pb.Name)
 	info, err := rt.Ensure(ContainerSpec{
-		Name: cname, BaseImage: img, HomeDir: home, Tools: toolNames(resolution),
+		Name: cname, BaseImage: img, HomeDir: home, Tools: toolInstalls(resolution),
 	})
 	if err != nil {
 		return res, fmt.Errorf("container step: %w", err)
@@ -143,11 +148,11 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 	return res, nil
 }
 
-func toolNames(r *resolver.Resolution) []string {
-	names := make([]string, 0, len(r.Tools))
-	for name := range r.Tools {
-		names = append(names, name)
+func toolInstalls(r *resolver.Resolution) []ToolInstall {
+	out := make([]ToolInstall, 0, len(r.Tools))
+	for name, lt := range r.Tools {
+		out = append(out, ToolInstall{Name: name, Source: lt.Source})
 	}
-	sort.Strings(names)
-	return names
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }

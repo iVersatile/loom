@@ -3,6 +3,7 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,6 +124,45 @@ func TestBuildBaseImageOverride(t *testing.T) {
 	}
 	if l.BaseImage != "ghcr.io/iversatile/loom-base:bookworm-slim" {
 		t.Errorf("lock base_image = %q, want the LOOM_BASE_IMAGE override", l.BaseImage)
+	}
+}
+
+func TestBuildPinsBaseDigest(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{resolveDigest: "sha256:deadbeef", ensureInfo: ContainerInfo{Status: "created"}}
+
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	l, err := lock.Read(filepath.Join(root, "loom.lock"))
+	if err != nil || l == nil {
+		t.Fatalf("read lock: %v", err)
+	}
+	if l.BaseImage != "debian:bookworm-slim@sha256:deadbeef" {
+		t.Errorf("lock base_image = %q, want the pinned manifest digest", l.BaseImage)
+	}
+}
+
+func TestProvisionScriptCoversSources(t *testing.T) {
+	tools := []ToolInstall{
+		{Name: "git", Source: "apt"},
+		{Name: "jq", Source: "apt"},
+		{Name: "go", Source: "go-tarball"},
+		{Name: "gopls", Source: "go-install"},
+		{Name: "gitleaks", Source: "go-install"},
+		{Name: "uv", Source: "uv-installer"},
+	}
+	s := provisionScript(tools)
+	for _, want := range []string{
+		"apt-get install", " jq", "go.dev/dl",
+		"go install golang.org/x/tools/gopls@latest",
+		"go install github.com/gitleaks/gitleaks/v8@latest",
+		"astral.sh/uv/install.sh", "bashrc.d",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("provision script missing %q\n---\n%s", want, s)
+		}
 	}
 }
 
