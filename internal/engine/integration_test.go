@@ -32,6 +32,9 @@ func TestE2EBuildAndSurviveRebuild(t *testing.T) {
 	root := tempProject(t)
 	pb := filepath.Join(root, "loom.yml")
 	name := containerName("loom")
+	// Remove any leftover from a prior interrupted run so the build is fresh, and
+	// clean up afterward.
+	_ = exec.Command("docker", "rm", "-f", name).Run()
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
 
 	if _, err := Detect(DetectOpts{PlaybookPath: pb}); err != nil {

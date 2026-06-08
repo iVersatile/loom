@@ -126,7 +126,7 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 	// 4. Container — create or converge via the runtime.
 	cname := containerName(pb.Name)
 	info, err := rt.Ensure(ContainerSpec{
-		Name: cname, BaseImage: img, HomeDir: home, Tools: toolInstalls(resolution),
+		Name: cname, BaseImage: img, HomeDir: home, Tools: toolInstalls(resolution), Force: opts.Force,
 	})
 	if err != nil {
 		return res, fmt.Errorf("container step: %w", err)

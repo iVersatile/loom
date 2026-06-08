@@ -19,6 +19,7 @@ type ContainerSpec struct {
 	BaseImage string
 	Tools     []ToolInstall // resolved tools to install, by source
 	HomeDir   string        // host staging dir seeding the container $HOME
+	Force     bool          // rebuild from scratch even if the container exists
 }
 
 // ContainerRuntime is the engine's view of a container engine. Docker hides
@@ -74,8 +75,14 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return ContainerInfo{}, fmt.Errorf("docker not available: %w", err)
 	}
-	if err := exec.Command("docker", "container", "inspect", spec.Name).Run(); err == nil {
-		return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "exists"}, nil
+	if exec.Command("docker", "container", "inspect", spec.Name).Run() == nil {
+		if !spec.Force {
+			return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "exists"}, nil
+		}
+		// --force: rebuild from scratch — remove the existing container first.
+		if out, err := exec.Command("docker", "rm", "-f", spec.Name).CombinedOutput(); err != nil {
+			return ContainerInfo{}, fmt.Errorf("docker rm (force): %v: %s", err, out)
+		}
 	}
 	if out, err := exec.Command("docker", "run", "-d", "--name", spec.Name,
 		spec.BaseImage, "sleep", "infinity").CombinedOutput(); err != nil {
