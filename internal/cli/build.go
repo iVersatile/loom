@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/iVersatile/loom/internal/engine"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +20,11 @@ func newBuildCmd() *cobra.Command {
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
 		res, err := engine.Build(engine.BuildOpts{PlaybookPath: playbookPath(cmd), Force: force})
-		return emit(cmd, res, err)
+		out := emit(cmd, res, err)
+		if res.LogPath != "" {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "loom: build log: %s\n", res.LogPath)
+		}
+		return out
 	}
 	return cmd
 }

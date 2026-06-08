@@ -6,6 +6,7 @@
 package engine
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,11 @@ func TestE2EBuildAndSurviveRebuild(t *testing.T) {
 	if out, err := exec.Command("docker", "exec", name, "sh", "-lc",
 		"PATH=$PATH:/usr/local/go/bin go version").CombinedOutput(); err != nil {
 		t.Errorf("go not provisioned in container: %v: %s", err, out)
+		// Dump the diagnostic log so the provisioning trace is visible (the temp
+		// project dir is removed after the test).
+		if data, e := os.ReadFile(filepath.Join(root, ".loom", "logs", "build.log")); e == nil {
+			t.Logf("=== build.log ===\n%s", data)
+		}
 	}
 	assertInContainer("/root/go/bin/gopls")
 

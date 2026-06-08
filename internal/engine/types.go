@@ -114,6 +114,10 @@ type BuildResult struct {
 	Materialized []string                `json:"materialized"`
 	Actions      []string                `json:"actions"`
 	Result       string                  `json:"result"` // created | converged | noop
+
+	// LogPath is the diagnostic log for this run. Excluded from --json (the
+	// shape is frozen); the CLI surfaces it on stderr for troubleshooting.
+	LogPath string `json:"-"`
 }
 
 func (r BuildResult) Human() string {

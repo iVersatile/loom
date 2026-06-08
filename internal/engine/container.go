@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -21,6 +22,17 @@ type ContainerSpec struct {
 	Tools     []ToolInstall // resolved tools to install, by source
 	HomeDir   string        // host staging dir seeding the container $HOME
 	Force     bool          // rebuild from scratch even if the container exists
+	LogW      io.Writer     // diagnostic log sink for raw docker/provision output
+}
+
+// dockerLogged runs a docker command, tees its combined output to logw (when
+// set), and returns it. This is the diagnostic trail for troubleshooting.
+func dockerLogged(logw io.Writer, args ...string) ([]byte, error) {
+	out, err := exec.Command("docker", args...).CombinedOutput()
+	if logw != nil {
+		_, _ = fmt.Fprintf(logw, "$ docker %s\n%s\n", strings.Join(args, " "), out)
+	}
+	return out, err
 }
 
 // ContainerRuntime is the engine's view of a container engine. Docker hides
@@ -85,17 +97,17 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 			return ContainerInfo{}, fmt.Errorf("docker rm (force): %v: %s", err, out)
 		}
 	}
-	if out, err := exec.Command("docker", "run", "-d", "--name", spec.Name,
-		spec.BaseImage, "sleep", "infinity").CombinedOutput(); err != nil {
+	if out, err := dockerLogged(spec.LogW, "run", "-d", "--name", spec.Name,
+		spec.BaseImage, "sleep", "infinity"); err != nil {
 		return ContainerInfo{}, fmt.Errorf("docker run: %v: %s", err, out)
 	}
 	if spec.HomeDir != "" {
-		if out, err := exec.Command("docker", "cp", spec.HomeDir+"/.", spec.Name+":/root/").CombinedOutput(); err != nil {
+		if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
 			return ContainerInfo{}, fmt.Errorf("docker cp home: %v: %s", err, out)
 		}
 	}
 	if len(spec.Tools) > 0 {
-		if err := provision(spec.Name, provisionScript(spec.Tools)); err != nil {
+		if err := provision(spec.Name, provisionScript(spec.Tools), spec.LogW); err != nil {
 			return ContainerInfo{}, err
 		}
 	}
@@ -130,7 +142,7 @@ func (dockerRuntime) Teardown(name, level string) (Removed, error) {
 // provision copies the script into the container as a file and execs it (more
 // robust than piping via `sh -s` on stdin). With `set -x` in the script, the
 // combined output ends at the exact command that failed.
-func provision(name, script string) error {
+func provision(name, script string, logw io.Writer) error {
 	tmp, err := os.CreateTemp("", "loom-provision-*.sh")
 	if err != nil {
 		return fmt.Errorf("provision tmp: %w", err)
@@ -143,10 +155,10 @@ func provision(name, script string) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("provision close: %w", err)
 	}
-	if out, err := exec.Command("docker", "cp", tmp.Name(), name+":/tmp/loom-provision.sh").CombinedOutput(); err != nil {
+	if out, err := dockerLogged(logw, "cp", tmp.Name(), name+":/tmp/loom-provision.sh"); err != nil {
 		return fmt.Errorf("cp provision: %v: %s", err, out)
 	}
-	if out, err := exec.Command("docker", "exec", name, "sh", "/tmp/loom-provision.sh").CombinedOutput(); err != nil {
+	if out, err := dockerLogged(logw, "exec", name, "sh", "/tmp/loom-provision.sh"); err != nil {
 		return fmt.Errorf("provision: %v: %s", err, out)
 	}
 	return nil

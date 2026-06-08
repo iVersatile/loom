@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -123,10 +124,23 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 		}
 	}
 
+	// Diagnostic log for troubleshooting: raw docker + provision output, written
+	// always (success or failure), separate from the structured action log.
+	logDir := filepath.Join(root, ".loom", "logs")
+	var logw io.Writer
+	if mkErr := os.MkdirAll(logDir, 0o755); mkErr == nil {
+		if lf, e := os.Create(filepath.Join(logDir, "build.log")); e == nil {
+			defer func() { _ = lf.Close() }()
+			logw = lf
+			res.LogPath = filepath.Join(logDir, "build.log")
+			_, _ = fmt.Fprintf(lf, "loom build %s base=%s\n", ts, img)
+		}
+	}
+
 	// 4. Container — create or converge via the runtime.
 	cname := containerName(pb.Name)
 	info, err := rt.Ensure(ContainerSpec{
-		Name: cname, BaseImage: img, HomeDir: home, Tools: toolInstalls(resolution), Force: opts.Force,
+		Name: cname, BaseImage: img, HomeDir: home, Tools: toolInstalls(resolution), Force: opts.Force, LogW: logw,
 	})
 	if err != nil {
 		return res, fmt.Errorf("container step: %w", err)
