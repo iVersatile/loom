@@ -40,10 +40,10 @@ func planImpl(opts PlanOpts, p prober, rt ContainerRuntime) (PlanResult, error) 
 
 	for _, intent := range pb.Tools {
 		name, want := playbook.SplitTool(intent)
-		present, version := p.probe(binaryName(name))
+		present, version := p.probe(playbook.BinaryName(name))
 		switch {
 		case !present:
-			res.Install = append(res.Install, InstallItem{Tool: name, From: nil, To: wantOrLatest(want)})
+			res.Install = append(res.Install, InstallItem{Tool: name, From: nil, To: playbook.WantOrLatest(want)})
 		case !versionSatisfies(want, version):
 			have := version
 			res.Install = append(res.Install, InstallItem{Tool: name, From: &have, To: want})

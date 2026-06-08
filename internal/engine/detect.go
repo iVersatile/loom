@@ -51,14 +51,14 @@ func detectImpl(opts DetectOpts, p prober) (DetectResult, error) {
 
 	for _, intent := range toolIntents {
 		name, want := playbook.SplitTool(intent)
-		present, version := p.probe(binaryName(name))
+		present, version := p.probe(playbook.BinaryName(name))
 		res.Tools = append(res.Tools, Tool{Name: name, Present: present, Version: version})
 		if desired == nil {
 			continue
 		}
 		switch {
 		case !present:
-			res.Drift = append(res.Drift, Drift{Tool: name, Want: wantOrLatest(want), Have: nil})
+			res.Drift = append(res.Drift, Drift{Tool: name, Want: playbook.WantOrLatest(want), Have: nil})
 		case !versionSatisfies(want, version):
 			have := version
 			res.Drift = append(res.Drift, Drift{Tool: name, Want: want, Have: &have})
@@ -66,7 +66,7 @@ func detectImpl(opts DetectOpts, p prober) (DetectResult, error) {
 	}
 
 	for _, a := range agentNames {
-		present, _ := p.probe(binaryName(a))
+		present, _ := p.probe(playbook.BinaryName(a))
 		res.Agents = append(res.Agents, Agent{Name: a, Present: present})
 	}
 

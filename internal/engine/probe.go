@@ -28,18 +28,6 @@ func (execProber) probe(binary string) (bool, string) {
 	return true, "" // present, version unknown
 }
 
-// binaryAlias maps a playbook tool name to its actual binary when they differ.
-var binaryAlias = map[string]string{
-	"ripgrep": "rg",
-}
-
-func binaryName(tool string) string {
-	if b, ok := binaryAlias[tool]; ok {
-		return b
-	}
-	return tool
-}
-
 func firstLine(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
@@ -56,11 +44,4 @@ func versionSatisfies(want, installed string) bool {
 		return true
 	}
 	return strings.Contains(installed, want)
-}
-
-func wantOrLatest(want string) string {
-	if want == "" {
-		return "latest"
-	}
-	return want
 }
