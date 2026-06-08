@@ -8,3 +8,6 @@
 .scratch/
 *.log
 .DS_Store
+
+# built engine binary (bootstrap output)
+/bin/
