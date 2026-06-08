@@ -13,6 +13,7 @@ choices.
 - ADR-0005 — AI agent as first-class user (machine surface + enforced guardrails)
 - ADR-0006 — Build engine vs playbook (mechanism/policy separation)
 - ADR-0007 — Cloud sandbox as a sibling track, not an installer mode
+- ADR-0008 — Engine language: Go (thin POSIX-sh bootstrap)
 
 ## Template
 
