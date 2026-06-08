@@ -1,0 +1,11 @@
+#!/bin/sh
+# Loom pre-commit hook (tracked; enabled via `make hooks`).
+# Two layers run before every commit, both enforced by mechanism (RULES §5/§7):
+#   1. protect-paths — frozen contracts (specs/ADRs) change deliberately only.
+#   2. gate          — format, vet, lint, spec-conformance, unit tests, secrets.
+set -eu
+
+ROOT="$(git rev-parse --show-toplevel)"
+
+sh "$ROOT/config/hooks/protect-paths"
+make -C "$ROOT" gate

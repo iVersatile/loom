@@ -1,0 +1,40 @@
+# CI invokes the SAME `make` targets the local pre-commit hook does, so the gate
+# cannot drift between a developer's machine and CI (RULES §7). The blocking core
+# is `make gate`; the docker-backed e2e tier is `make gate-integration`.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Install gate tools
+        run: make tools
+      - name: Gate (format, vet, lint, spec-conformance, unit tests, secrets)
+        run: make gate
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: gate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      # ubuntu-latest runners ship docker, which the e2e tier needs.
+      - name: Integration gate (docker-backed e2e)
+        run: make gate-integration
+
+  # Advisory, non-blocking layer (RULES §7): adversarial review + security review
+  # land here in a later phase; kept out of the blocking gate by design.

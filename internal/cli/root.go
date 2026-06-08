@@ -68,7 +68,8 @@ func emit(cmd *cobra.Command, v render.Renderable, err error) error {
 		return e
 	}
 	if errors.Is(err, engine.ErrNotImplemented) {
-		fmt.Fprintf(cmd.ErrOrStderr(), "loom: %s: %v\n", cmd.Name(), err)
+		// Best-effort stderr note; a failed stderr write is not actionable.
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "loom: %s: %v\n", cmd.Name(), err)
 		return nil
 	}
 	return err

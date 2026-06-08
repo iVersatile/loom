@@ -1,0 +1,22 @@
+# golangci-lint v2 config. Conservative set: the v2 defaults (errcheck, govet,
+# ineffassign, staticcheck, unused) plus a few high-signal linters. Keep it quiet
+# enough that the gate stays trustworthy rather than ignored (RULES §7).
+version: "2"
+
+linters:
+  enable:
+    - misspell
+    - unconvert
+    - revive
+  settings:
+    revive:
+      rules:
+        # Types are documented as a group (see types.go); don't require a comment
+        # on every exported symbol — that noise just gets the gate ignored.
+        - name: exported
+          disabled: true
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

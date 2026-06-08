@@ -1,0 +1,40 @@
+#!/bin/sh
+# protect-paths — guardrail enforced by mechanism (RULES §5, ADR-0005).
+#
+# Refuses commits that change FROZEN CONTRACT paths (specs + ADRs) unless an
+# explicit, audited override is set. Specs/decisions change deliberately via
+# PR + ADR (RULES §2/§3), never silently — including by an agent. This is the
+# canonical script; the engine bakes it into built environments (Work 6) and the
+# Loom repo itself dogfoods it via .githooks/pre-commit (RULES §8).
+set -eu
+
+OVERRIDE="${ALLOW_SPEC_CHANGE:-0}"
+
+# Frozen-contract path patterns. (Phase 1: hardcoded to Loom's own contracts;
+# later these come from the playbook's protect list.)
+is_protected() {
+	case "$1" in
+	docs/SPEC-*.md) return 0 ;;
+	docs/decisions/*.md) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+violations=""
+for f in $(git diff --cached --name-only); do
+	if is_protected "$f"; then
+		violations="$violations $f"
+	fi
+done
+
+[ -z "$violations" ] && exit 0
+
+if [ "$OVERRIDE" = "1" ]; then
+	echo "protect-paths: ALLOW_SPEC_CHANGE=1 override — permitting frozen-contract changes:$violations" >&2
+	exit 0
+fi
+
+echo "protect-paths: BLOCKED — staged changes touch frozen contracts:$violations" >&2
+echo "  Specs/ADRs change via PR + ADR (RULES §2/§3). To override (audited):" >&2
+echo "    ALLOW_SPEC_CHANGE=1 git commit ..." >&2
+exit 1
