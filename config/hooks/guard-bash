@@ -1,0 +1,23 @@
+#!/bin/sh
+# guard-bash — deny-list guardrail enforced by mechanism (RULES §5/§6, ADR-0005).
+# Blocks dangerous shell commands. The candidate command comes from "$@", or from
+# stdin if no args. Exit non-zero = blocked. An agent cannot weaken this: it is a
+# mechanism in the path, not a policy it can choose to ignore.
+set -eu
+
+cmd="$*"
+[ -n "$cmd" ] || cmd="$(cat 2>/dev/null || true)"
+
+case "$cmd" in
+*"sudo "* | \
+*"--dangerously-skip-permissions"* | \
+*"--no-verify"* | \
+*"git push --force"* | \
+*"git push -f "* | \
+*"rm -rf /"* | \
+*"rm -rf ~"*)
+	echo "guard-bash: BLOCKED dangerous command: $cmd" >&2
+	exit 1
+	;;
+esac
+exit 0

@@ -29,7 +29,12 @@ func newTeardownCmd() *cobra.Command {
 		}
 		cleanState, _ := cmd.Flags().GetBool("clean-state")
 		wipe, _ := cmd.Flags().GetBool("wipe-project")
-		res, err := engine.Teardown(engine.TeardownOpts{Level: level, CleanState: cleanState, WipeProject: wipe})
+		res, err := engine.Teardown(engine.TeardownOpts{
+			PlaybookPath: playbookPath(cmd),
+			Level:        level,
+			CleanState:   cleanState,
+			WipeProject:  wipe,
+		})
 		return emit(cmd, res, err)
 	}
 	return cmd

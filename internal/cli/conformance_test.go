@@ -27,7 +27,9 @@ const fixturePlaybook = "../playbook/testdata/proj/loom.yml"
 func TestSpecConformance(t *testing.T) {
 	spec := specShapeKeys(t)
 
+	// build and teardown mutate / open the action log — sandbox them in temp copies.
 	build := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
+	teardown := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
 	cases := []struct {
 		verb string
 		args []string
@@ -35,7 +37,7 @@ func TestSpecConformance(t *testing.T) {
 		{"detect", []string{"detect", "--json", "-f", fixturePlaybook}},
 		{"plan", []string{"plan", "--json", "-f", fixturePlaybook}},
 		{"build", []string{"build", "--json", "-f", build}},
-		{"teardown", []string{"teardown", "stop", "--json", "-f", fixturePlaybook}},
+		{"teardown", []string{"teardown", "stop", "--json", "-f", teardown}},
 	}
 
 	for _, c := range cases {

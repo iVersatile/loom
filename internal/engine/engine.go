@@ -37,9 +37,12 @@ type BuildOpts struct {
 }
 
 type TeardownOpts struct {
-	Level       string // stop | volumes | reset
-	CleanState  bool   // --clean-state (Mac-side)
-	WipeProject bool   // --wipe-project (typed confirmation)
+	PlaybookPath string // --playbook/-f; falls back to defaultPlaybookPath
+	Level        string // stop | volumes | reset
+	CleanState   bool   // --clean-state (Mac-side)
+	WipeProject  bool   // --wipe-project (typed confirmation)
 }
 
-type DoctorOpts struct{}
+type DoctorOpts struct {
+	PlaybookPath string // --playbook/-f; falls back to defaultPlaybookPath
+}

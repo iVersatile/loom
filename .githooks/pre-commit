@@ -8,4 +8,5 @@ set -eu
 ROOT="$(git rev-parse --show-toplevel)"
 
 sh "$ROOT/config/hooks/protect-paths"
+sh "$ROOT/config/hooks/branch-guard"
 make -C "$ROOT" gate

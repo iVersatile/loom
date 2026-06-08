@@ -1,0 +1,5 @@
+# Loom's own project overlay (the dogfood overlay). Most-specific layer.
+rules:
+  - loom/project
+dotfiles:
+  - bash/prompt.go.sh

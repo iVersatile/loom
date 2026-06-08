@@ -14,16 +14,22 @@ func (f fakeProber) probe(binary string) (bool, string) {
 }
 
 type fakeRuntime struct {
-	exists     bool
-	err        error
-	ensureInfo ContainerInfo
-	ensureErr  error
+	exists          bool
+	err             error
+	ensureInfo      ContainerInfo
+	ensureErr       error
+	teardownRemoved Removed
+	teardownErr     error
 }
 
 func (r fakeRuntime) Exists(string) (bool, error) { return r.exists, r.err }
 
 func (r fakeRuntime) Ensure(ContainerSpec) (ContainerInfo, error) {
 	return r.ensureInfo, r.ensureErr
+}
+
+func (r fakeRuntime) Teardown(string, string) (Removed, error) {
+	return r.teardownRemoved, r.teardownErr
 }
 
 // The fixture playbook resolves to tools: git, jq, go@1.26, gopls.

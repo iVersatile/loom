@@ -25,6 +25,9 @@ type ContainerRuntime interface {
 	// Ensure creates or converges the container, returning its info. Status is
 	// "created" when newly made, "exists" when already present.
 	Ensure(spec ContainerSpec) (ContainerInfo, error)
+	// Teardown removes the environment to the given tier (stop|volumes|reset)
+	// and reports what was removed.
+	Teardown(name, level string) (Removed, error)
 }
 
 type dockerRuntime struct{}
@@ -60,6 +63,31 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		}
 	}
 	return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "created"}, nil
+}
+
+// Teardown removes the per-project container, and (by tier) its volume and image.
+// NOTE: the docker path is integration-validated (Work 7 / CI), not the local gate.
+func (dockerRuntime) Teardown(name, level string) (Removed, error) {
+	r := Removed{Containers: []string{}, Volumes: []string{}, Images: []string{}}
+	if _, err := exec.LookPath("docker"); err != nil {
+		return r, fmt.Errorf("docker not available: %w", err)
+	}
+	_ = exec.Command("docker", "stop", name).Run()
+	if exec.Command("docker", "rm", name).Run() == nil {
+		r.Containers = append(r.Containers, name)
+	}
+	if level == "volumes" || level == "reset" {
+		vol := name + "-data"
+		if exec.Command("docker", "volume", "rm", vol).Run() == nil {
+			r.Volumes = append(r.Volumes, vol)
+		}
+	}
+	if level == "reset" {
+		if exec.Command("docker", "image", "rm", "loom-"+name).Run() == nil {
+			r.Images = append(r.Images, "loom-"+name)
+		}
+	}
+	return r, nil
 }
 
 func defaultRuntime() ContainerRuntime { return dockerRuntime{} }

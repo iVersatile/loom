@@ -11,7 +11,7 @@ func newDoctorCmd() *cobra.Command {
 		Short: "Self-check: tools present, hooks executable, lock consistent, guardrails active",
 	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		res, err := engine.Doctor(engine.DoctorOpts{})
+		res, err := engine.Doctor(engine.DoctorOpts{PlaybookPath: playbookPath(cmd)})
 		if e := emit(cmd, res, err); e != nil {
 			return e
 		}

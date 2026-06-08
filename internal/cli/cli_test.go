@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -71,9 +72,13 @@ func TestTeardownInvalidLevel(t *testing.T) {
 }
 
 func TestTeardownValidLevels(t *testing.T) {
+	proj := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
 	for _, lvl := range []string{"stop", "volumes", "reset"} {
-		if _, _, err := runCmd(t, "teardown", lvl, "--json"); err != nil {
-			t.Errorf("teardown %s: unexpected error %v", lvl, err)
+		// docker is absent here, so a container-step error is expected; only an
+		// "invalid level" rejection would be a real bug.
+		_, _, err := runCmd(t, "teardown", lvl, "-f", proj, "--json")
+		if err != nil && strings.Contains(err.Error(), "invalid level") {
+			t.Errorf("teardown %s wrongly rejected: %v", lvl, err)
 		}
 	}
 }
