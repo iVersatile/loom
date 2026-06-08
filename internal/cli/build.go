@@ -17,7 +17,7 @@ func newBuildCmd() *cobra.Command {
 	cmd.Flags().String("overlay", "", "overlay for first scaffold only")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
-		res, err := engine.Build(engine.BuildOpts{Force: force})
+		res, err := engine.Build(engine.BuildOpts{PlaybookPath: playbookPath(cmd), Force: force})
 		return emit(cmd, res, err)
 	}
 	return cmd

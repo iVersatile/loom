@@ -1,0 +1,125 @@
+package engine
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+// tempProject copies the fixture project into a temp dir so build's writes
+// (loom.lock, .loom/) never touch the committed testdata.
+func tempProject(t *testing.T) string {
+	t.Helper()
+	dst := t.TempDir()
+	if err := os.CopyFS(dst, os.DirFS("../playbook/testdata/proj")); err != nil {
+		t.Fatalf("copy fixture: %v", err)
+	}
+	return dst
+}
+
+func fixedClock() time.Time { return time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC) }
+
+func buildProber() fakeProber {
+	return fakeProber{"git": "2.43", "jq": "1.7", "go": "go1.26.4", "gopls": "v0.16", "claude-code": "1.2.3"}
+}
+
+func TestBuildWritesLockMaterializesAndAudits(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-loom-dev", Image: defaultBaseImage, Status: "created"}}
+
+	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if res.Result != "created" || !res.LockWritten {
+		t.Errorf("result=%q lockWritten=%t, want created/true", res.Result, res.LockWritten)
+	}
+
+	// loom.lock written with resolved pins.
+	if _, err := os.Stat(filepath.Join(root, "loom.lock")); err != nil {
+		t.Errorf("loom.lock not written: %v", err)
+	}
+
+	// $HOME materialized (the survive-rebuild artifacts, Q1/Q2).
+	home := filepath.Join(root, ".loom", "home")
+	settings := filepath.Join(home, ".claude", "settings.json")
+	statusline := filepath.Join(home, ".claude", "statusline.sh")
+	prompt := filepath.Join(home, ".bashrc.d", "prompt.go.sh")
+	for _, f := range []string{settings, statusline, prompt} {
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("expected materialized %s: %v", f, err)
+		}
+	}
+	// Shell script is executable.
+	if fi, err := os.Stat(statusline); err == nil && fi.Mode().Perm()&0o100 == 0 {
+		t.Errorf("statusline.sh should be executable, mode=%v", fi.Mode())
+	}
+
+	// Audit log has an entry per mutation.
+	if logged := countLogLines(t, root); logged == 0 {
+		t.Error("expected action-log entries after build")
+	}
+	if len(res.Actions) == 0 {
+		t.Error("BuildResult.Actions should reference the logged entries")
+	}
+}
+
+func TestBuildIdempotent(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-loom-dev", Image: defaultBaseImage, Status: "created"}}
+
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock); err != nil {
+		t.Fatalf("first build: %v", err)
+	}
+	first := countLogLines(t, root)
+
+	// Second build: lock unchanged, dotfiles unchanged, container now "exists".
+	rt2 := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-loom-dev", Image: defaultBaseImage, Status: "exists"}}
+	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt2, fixedClock)
+	if err != nil {
+		t.Fatalf("second build: %v", err)
+	}
+	if res.Result != "converged" || res.LockWritten {
+		t.Errorf("re-build should converge with no lock write, got result=%q lockWritten=%t", res.Result, res.LockWritten)
+	}
+	if got := countLogLines(t, root); got != first {
+		t.Errorf("idempotent re-build appended %d new audit entries, want 0", got-first)
+	}
+}
+
+func TestBuildContainerErrorAfterLock(t *testing.T) {
+	// If the container step fails (e.g. no docker), the lock + materialize are
+	// still written — a recoverable, re-runnable state (SPEC-verbs cross-cutting).
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{ensureErr: os.ErrPermission}
+
+	_, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock)
+	if err == nil {
+		t.Fatal("expected container-step error")
+	}
+	if _, err := os.Stat(filepath.Join(root, "loom.lock")); err != nil {
+		t.Errorf("lock should be written before the container step: %v", err)
+	}
+}
+
+func countLogLines(t *testing.T, root string) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, ".loom", "actions.log"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0
+		}
+		t.Fatal(err)
+	}
+	n := 0
+	for _, b := range data {
+		if b == '\n' {
+			n++
+		}
+	}
+	return n
+}

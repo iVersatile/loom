@@ -32,7 +32,8 @@ type PlanOpts struct {
 }
 
 type BuildOpts struct {
-	Force bool // --force: rebuild from scratch
+	PlaybookPath string // --playbook/-f; falls back to defaultPlaybookPath
+	Force        bool   // --force: rebuild from scratch
 }
 
 type TeardownOpts struct {

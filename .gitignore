@@ -11,3 +11,6 @@
 
 # built engine binary (bootstrap output)
 /bin/
+
+# per-project runtime state: action log + materialized $HOME staging
+.loom/

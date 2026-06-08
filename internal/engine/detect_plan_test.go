@@ -14,11 +14,17 @@ func (f fakeProber) probe(binary string) (bool, string) {
 }
 
 type fakeRuntime struct {
-	exists bool
-	err    error
+	exists     bool
+	err        error
+	ensureInfo ContainerInfo
+	ensureErr  error
 }
 
 func (r fakeRuntime) Exists(string) (bool, error) { return r.exists, r.err }
+
+func (r fakeRuntime) Ensure(ContainerSpec) (ContainerInfo, error) {
+	return r.ensureInfo, r.ensureErr
+}
 
 // The fixture playbook resolves to tools: git, jq, go@1.26, gopls.
 const testFixture = "../playbook/testdata/proj/loom.yml"
