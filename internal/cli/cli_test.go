@@ -3,7 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"strings"
+	"errors"
 	"testing"
 )
 
@@ -20,7 +20,7 @@ func runCmd(t *testing.T, args ...string) (stdout, stderr string, err error) {
 }
 
 func TestDetectJSONContract(t *testing.T) {
-	out, errs, err := runCmd(t, "detect", "--json")
+	out, _, err := runCmd(t, "detect", "--json", "-f", fixturePlaybook)
 	if err != nil {
 		t.Fatalf("detect: unexpected error %v", err)
 	}
@@ -33,16 +33,33 @@ func TestDetectJSONContract(t *testing.T) {
 			t.Errorf("detect --json missing key %q", k)
 		}
 	}
-	// Stub honesty: the note belongs on stderr, never polluting --json stdout.
-	if !strings.Contains(errs, "stub") {
-		t.Errorf("expected a stub note on stderr, got %q", errs)
+}
+
+func TestPlanEmitsJSONAndExitCode(t *testing.T) {
+	// Against the fixture (nothing built), plan reports drift → valid JSON on
+	// stdout and an exit-2 signal, never a hard error.
+	out, _, err := runCmd(t, "plan", "--json", "-f", fixturePlaybook)
+	var ee *exitError
+	if err != nil && !errors.As(err, &ee) {
+		t.Fatalf("plan should only fail via exit code, got %v", err)
+	}
+	if ee != nil && ee.code != 2 {
+		t.Errorf("plan drift exit code = %d, want 2", ee.code)
+	}
+	if !json.Valid([]byte(out)) {
+		t.Errorf("plan --json stdout is not valid JSON:\n%s", out)
 	}
 }
 
-func TestConvergedPlanNoError(t *testing.T) {
-	// The stub plan is converged → no error → Execute would map to exit 0.
-	if _, _, err := runCmd(t, "plan", "--json"); err != nil {
-		t.Fatalf("converged plan should not error, got %v", err)
+func TestPlanMissingPlaybookErrors(t *testing.T) {
+	// No playbook at the given path → a real error (exit 1), not exit 2.
+	_, _, err := runCmd(t, "plan", "--json", "-f", "testdata/does-not-exist.yml")
+	if err == nil {
+		t.Fatal("plan with no playbook should error")
+	}
+	var ee *exitError
+	if errors.As(err, &ee) {
+		t.Errorf("missing playbook should be a hard error, not an exit-code signal")
 	}
 }
 

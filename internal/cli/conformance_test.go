@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"slices"
 	"sort"
@@ -15,6 +16,10 @@ import (
 // SPEC-verbs.md and the engine fails the gate (RULES §2, ADR-0006).
 const specPath = "../../docs/SPEC-verbs.md"
 
+// fixturePlaybook is a fully-formed project playbook (with a config tree) used by
+// verbs that require one. Reused from the playbook package's testdata.
+const fixturePlaybook = "../playbook/testdata/proj/loom.yml"
+
 // TestSpecConformance asserts each verb's live --json top-level keys match the
 // shape documented under its section in SPEC-verbs.md.
 func TestSpecConformance(t *testing.T) {
@@ -24,10 +29,10 @@ func TestSpecConformance(t *testing.T) {
 		verb string
 		args []string
 	}{
-		{"detect", []string{"detect", "--json"}},
-		{"plan", []string{"plan", "--json"}},
-		{"build", []string{"build", "--json"}},
-		{"teardown", []string{"teardown", "stop", "--json"}},
+		{"detect", []string{"detect", "--json", "-f", fixturePlaybook}},
+		{"plan", []string{"plan", "--json", "-f", fixturePlaybook}},
+		{"build", []string{"build", "--json", "-f", fixturePlaybook}},
+		{"teardown", []string{"teardown", "stop", "--json", "-f", fixturePlaybook}},
 	}
 
 	for _, c := range cases {
@@ -37,7 +42,10 @@ func TestSpecConformance(t *testing.T) {
 			continue
 		}
 		out, _, err := runCmd(t, c.args...)
-		if err != nil {
+		// plan exits 2 on drift but still emits a valid shape; tolerate exit
+		// codes, fail only on real errors.
+		var ee *exitError
+		if err != nil && !errors.As(err, &ee) {
 			t.Fatalf("%s: unexpected error %v", c.verb, err)
 		}
 		got := jsonTopKeys(t, out)

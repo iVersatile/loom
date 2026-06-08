@@ -15,7 +15,11 @@ func newDetectCmd() *cobra.Command {
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		emitPB, _ := cmd.Flags().GetBool("emit-playbook")
 		migrate, _ := cmd.Flags().GetBool("migrate")
-		res, err := engine.Detect(engine.DetectOpts{EmitPlaybook: emitPB, Migrate: migrate})
+		res, err := engine.Detect(engine.DetectOpts{
+			PlaybookPath: playbookPath(cmd),
+			EmitPlaybook: emitPB,
+			Migrate:      migrate,
+		})
 		return emit(cmd, res, err)
 	}
 	return cmd

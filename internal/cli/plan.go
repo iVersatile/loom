@@ -11,7 +11,7 @@ func newPlanCmd() *cobra.Command {
 		Short: "Compute the diff between current state and the playbook (never mutates)",
 	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		res, err := engine.Plan(engine.PlanOpts{})
+		res, err := engine.Plan(engine.PlanOpts{PlaybookPath: playbookPath(cmd)})
 		if e := emit(cmd, res, err); e != nil {
 			return e
 		}

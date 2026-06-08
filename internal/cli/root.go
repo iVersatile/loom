@@ -45,6 +45,7 @@ func newRootCmd() *cobra.Command {
 	// Global flags inherited by every verb (RULES §5: --json on every verb).
 	root.PersistentFlags().Bool("json", false, "machine-readable JSON on stdout; logs on stderr")
 	root.PersistentFlags().Bool("dry-run", false, "preview changes without applying (plan semantics)")
+	root.PersistentFlags().StringP("playbook", "f", "loom.yml", "path to the project playbook")
 	root.AddCommand(
 		newDetectCmd(),
 		newPlanCmd(),
@@ -57,6 +58,11 @@ func newRootCmd() *cobra.Command {
 
 func jsonMode(cmd *cobra.Command) bool {
 	v, _ := cmd.Flags().GetBool("json")
+	return v
+}
+
+func playbookPath(cmd *cobra.Command) string {
+	v, _ := cmd.Flags().GetString("playbook")
 	return v
 }
 
