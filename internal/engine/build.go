@@ -124,17 +124,14 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 		}
 	}
 
-	// Diagnostic log for troubleshooting: raw docker + provision output, written
-	// always (success or failure), separate from the structured action log.
-	logDir := filepath.Join(root, ".loom", "logs")
+	// Diagnostic log for troubleshooting (ADR-0010): raw docker + provision output,
+	// written always, separate from the structured action log.
 	var logw io.Writer
-	if mkErr := os.MkdirAll(logDir, 0o755); mkErr == nil {
-		if lf, e := os.Create(filepath.Join(logDir, "build.log")); e == nil {
-			defer func() { _ = lf.Close() }()
-			logw = lf
-			res.LogPath = filepath.Join(logDir, "build.log")
-			_, _ = fmt.Fprintf(lf, "loom build %s base=%s\n", ts, img)
-		}
+	if lf, path := openDiagLog(root, "build"); lf != nil {
+		defer func() { _ = lf.Close() }()
+		logw = lf
+		res.LogPath = path
+		_, _ = fmt.Fprintf(lf, "loom build %s base=%s\n", ts, img)
 	}
 
 	// 4. Container — create or converge via the runtime.

@@ -35,7 +35,11 @@ func newTeardownCmd() *cobra.Command {
 			CleanState:   cleanState,
 			WipeProject:  wipe,
 		})
-		return emit(cmd, res, err)
+		out := emit(cmd, res, err)
+		if res.LogPath != "" {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "loom: teardown log: %s\n", res.LogPath)
+		}
+		return out
 	}
 	return cmd
 }

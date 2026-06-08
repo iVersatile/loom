@@ -126,6 +126,9 @@ lockfile consistent with the playbook, are guardrails active. `--json` for agent
 - **Auditable** — append an entry to the action log (what/when/diff) for every
   mutating verb; an autonomous run must be reviewable after the fact. Shape and
   location are frozen below (Action log).
+- **Observable** — every mutating verb also writes a diagnostic log (raw step
+  output) for troubleshooting; see Diagnostic log (ADR-0010). Distinct from the
+  audit log: *how it ran*, not *what changed*.
 - **Guarded** — mutating verbs respect the same deny/gate philosophy as the
   environment; an agent cannot weaken guardrails or perform prohibited actions
   via a verb without an explicit gate.
@@ -143,6 +146,15 @@ crash-safe (one line = one committed action) and trivially greppable by an agent
   "target":"loom-loom-dev", "before":null, "after":{"image":"...@sha256:..."},
   "result":"created", "actor":"cli" }   // actor: cli | agent
 ```
+
+## Diagnostic log (ADR-0010)
+
+Separate from the audit log: a per-project, free-form **diagnostic log** at
+`<repo>/.loom/logs/<verb>.log`, written by every mutating verb, capturing raw step
+output (the docker commands, provisioning `set -x` trace, etc.) for
+troubleshooting. **Contract:** it exists, its location, and that mutating verbs
+produce it. **Not frozen:** its content/format — it is an operability aid and may
+change (ADR-0002 thin surface). Gitignored runtime state, like the action log.
 
 Every mutating verb appends one entry per discrete action. The `actions` array in a
 verb's `--json` output carries the entry ids written during that run.

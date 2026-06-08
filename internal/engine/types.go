@@ -136,6 +136,9 @@ type Removed struct {
 type TeardownResult struct {
 	Level   string  `json:"level"`
 	Removed Removed `json:"removed"`
+
+	// LogPath is the diagnostic log for this run (json:"-", no shape change).
+	LogPath string `json:"-"`
 }
 
 func (r TeardownResult) Human() string {

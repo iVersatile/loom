@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -50,8 +51,17 @@ func teardownImpl(opts TeardownOpts, rt ContainerRuntime, now func() time.Time, 
 
 	res := TeardownResult{Level: opts.Level, Removed: Removed{Containers: []string{}, Volumes: []string{}, Images: []string{}}}
 
+	// Diagnostic log (ADR-0010), like build.
+	var logw io.Writer
+	if lf, path := openDiagLog(root, "teardown"); lf != nil {
+		defer func() { _ = lf.Close() }()
+		logw = lf
+		res.LogPath = path
+		_, _ = fmt.Fprintf(lf, "loom teardown %s level=%s\n", ts, opts.Level)
+	}
+
 	cname := containerName(pb.Name)
-	removed, err := rt.Teardown(cname, opts.Level)
+	removed, err := rt.Teardown(cname, opts.Level, logw)
 	if err != nil {
 		return res, fmt.Errorf("container teardown: %w", err)
 	}

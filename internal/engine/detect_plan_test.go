@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"io"
 	"slices"
 	"testing"
 )
@@ -34,7 +35,7 @@ func (r fakeRuntime) Ensure(ContainerSpec) (ContainerInfo, error) {
 	return r.ensureInfo, r.ensureErr
 }
 
-func (r fakeRuntime) Teardown(string, string) (Removed, error) {
+func (r fakeRuntime) Teardown(string, string, io.Writer) (Removed, error) {
 	return r.teardownRemoved, r.teardownErr
 }
 
