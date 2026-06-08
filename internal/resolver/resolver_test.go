@@ -29,7 +29,7 @@ func TestResolveSourcesAndPins(t *testing.T) {
 	r := Resolve(pb, vp)
 
 	wantSource := map[string]string{
-		"go":      "base-image",
+		"go":      "go-tarball",
 		"git":     "apt",
 		"uv":      "uv-installer",
 		"gopls":   "go-install",
@@ -64,7 +64,7 @@ func TestResolutionToLock(t *testing.T) {
 	if l.LoomLock != 1 || l.BaseImage != "debian:bookworm-slim@sha256:x" {
 		t.Errorf("lock header wrong: %+v", l)
 	}
-	if l.Tools["go"].Resolved != "1.26.4" || l.Tools["go"].Source != "base-image" {
+	if l.Tools["go"].Resolved != "1.26.4" || l.Tools["go"].Source != "go-tarball" {
 		t.Errorf("lock tool wrong: %+v", l.Tools["go"])
 	}
 }

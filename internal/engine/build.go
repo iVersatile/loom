@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"time"
@@ -13,9 +14,17 @@ import (
 )
 
 // defaultBaseImage is the shared floor every project container builds on
-// (ADR-0001). Phase 1 uses the tag; the digest is pinned when build resolves
-// against the pulled image (later).
+// (ADR-0001). Overridable via LOOM_BASE_IMAGE so CI can point at the ghcr
+// mirror (avoiding Docker Hub rate limits) while local stays on Docker Hub.
 const defaultBaseImage = "debian:bookworm-slim"
+
+// baseImage returns the configured base image reference.
+func baseImage() string {
+	if v := os.Getenv("LOOM_BASE_IMAGE"); v != "" {
+		return v
+	}
+	return defaultBaseImage
+}
 
 // proberVersion adapts the engine prober to resolver.VersionProbe.
 type proberVersion struct{ p prober }
@@ -70,7 +79,8 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 	if err != nil {
 		return res, fmt.Errorf("read lock: %w", err)
 	}
-	newLock := resolution.Lock(defaultBaseImage, ts)
+	img := baseImage()
+	newLock := resolution.Lock(img, ts)
 	if lock.ContentEqual(existing, newLock) {
 		res.LockWritten = false
 	} else {
@@ -111,7 +121,7 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 	// 4. Container — create or converge via the runtime.
 	cname := containerName(pb.Name)
 	info, err := rt.Ensure(ContainerSpec{
-		Name: cname, BaseImage: defaultBaseImage, HomeDir: home, Tools: toolNames(resolution),
+		Name: cname, BaseImage: img, HomeDir: home, Tools: toolNames(resolution),
 	})
 	if err != nil {
 		return res, fmt.Errorf("container step: %w", err)

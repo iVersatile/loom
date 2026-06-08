@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/iVersatile/loom/internal/lock"
 )
 
 // tempProject copies the fixture project into a temp dir so build's writes
@@ -103,6 +105,24 @@ func TestBuildContainerErrorAfterLock(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "loom.lock")); err != nil {
 		t.Errorf("lock should be written before the container step: %v", err)
+	}
+}
+
+func TestBuildBaseImageOverride(t *testing.T) {
+	t.Setenv("LOOM_BASE_IMAGE", "ghcr.io/iversatile/loom-base:bookworm-slim")
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{ensureInfo: ContainerInfo{Status: "created"}}
+
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	l, err := lock.Read(filepath.Join(root, "loom.lock"))
+	if err != nil || l == nil {
+		t.Fatalf("read lock: %v", err)
+	}
+	if l.BaseImage != "ghcr.io/iversatile/loom-base:bookworm-slim" {
+		t.Errorf("lock base_image = %q, want the LOOM_BASE_IMAGE override", l.BaseImage)
 	}
 }
 
