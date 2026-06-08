@@ -1,0 +1,6 @@
+# stack fragment: partial playbook, no loom/tier (only meaningful once merged).
+tools:
+  - go@1.26
+  - gopls
+rules:
+  - go/strict
