@@ -8,18 +8,20 @@ code (ADR-0006: the contracts are the product).
 - No engine code yet. Freeze the schema + verb contracts via review first.
 
 ## Phase 1 — Spine (scenario 1, one stack, local)
-Goal: `detect → plan → build` end-to-end for a single Python project, with
-`--json` and guardrails wired. Dogfood: build Loom inside the container Loom builds.
+Goal: `detect → plan → build` end-to-end for a single Go project (Loom itself,
+ADR-0009), with `--json` and guardrails wired. Dogfood: build Loom inside the
+container Loom builds.
 - Playbook parser (base + one overlay; merge rule).
-- Resolver: intent → concrete (brew/uv) for a small tool set; write loom.lock.
+- Resolver: intent → concrete (apt/uv, go from base image) for a small tool set;
+  write loom.lock.
 - `build`: one container from a shared base + project overlay.
 - `detect` + `plan` with `--json`; `teardown` (reuse validated tiered script).
 - Guardrails: guard-bash, branch-guard, protect-paths active.
-Exit criteria: a fresh machine reaches a working Python env in one guided run;
+Exit criteria: a fresh machine reaches a working Go env in one guided run;
 an agent can `plan` then `build` unattended; guardrails block a destructive test.
 
 ## Phase 2 — Evolution + second stack
-- `update` (delta reconcile; real removal). Add a Go or TS stack to prove
+- `update` (delta reconcile; real removal). Add a Python or TS stack to prove
   container-per-project with different stacks side-by-side (ADR-0001).
 - Credential continuity: `detect --emit-playbook`, detect+report, `--migrate`.
 - Menu-driven `start` entry (situation detection) for scenario 1/2.

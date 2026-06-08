@@ -5,7 +5,7 @@ GEMINI.md symlink here. Thin pointer — detail lives in docs/.
 
 ## Orient yourself first
 1. docs/CHARTER.md — what Loom is, goals, north star, non-goals.
-2. docs/decisions/ — why the architecture is the way it is (ADR-0001..0008).
+2. docs/decisions/ — why the architecture is the way it is (ADR-0001..0009).
 3. docs/SPEC-playbook.md, docs/SPEC-verbs.md — the contracts you implement against.
 4. docs/RULES.md — how we work here (source of truth).
 5. docs/PLAN.md — current phase and exit criteria.

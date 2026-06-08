@@ -65,6 +65,16 @@ container(s) (one per project, shared base image) + the two-tier config.
 - Flags: `--force` (rebuild from scratch), `--stack`/`--overlay` (first scaffold
   only; thereafter read from the project playbook).
 
+```json
+// loom build --json (shape)
+{ "resolved": { "tools": { "ruff": {"resolved":"0.5.2","source":"uv"} } },
+  "lock_written": true,
+  "container": {"name":"loom-loom-dev","image":"...@sha256:...","status":"created"},
+  "materialized": ["~/.claude/settings.json","~/.claude/statusline.sh","~/.bashrc.d/10-prompt.sh"],
+  "actions": ["<audit-entry-id>", "..."],
+  "result": "created" }   // created | converged | noop
+```
+
 ## update
 
 Reconcile a running environment to the *current* (edited) playbook — apply only
@@ -84,6 +94,12 @@ Mac-side code/config.
 - Opt-in Mac-side: `--clean-state` (agent auth, memory, logs),
   `--wipe-project` (whole folder; typed confirmation, not bypassable by `--yes`).
 - `--json` reports what was removed.
+
+```json
+// loom teardown --json (shape)
+{ "level": "volumes",
+  "removed": { "containers": ["loom-loom-dev"], "volumes": ["loom-loom-data"], "images": [] } }
+```
 
 ## import  (ADR-0003, staged)
 
@@ -107,11 +123,29 @@ lockfile consistent with the playbook, are guardrails active. `--json` for agent
 ## Cross-cutting requirements (apply to all verbs)
 
 - **Idempotent & recoverable** — partial failure leaves a re-runnable state.
-- **Auditable** — append an entry to an action log (what/when/diff) for every
-  mutating verb; an autonomous run must be reviewable after the fact.
+- **Auditable** — append an entry to the action log (what/when/diff) for every
+  mutating verb; an autonomous run must be reviewable after the fact. Shape and
+  location are frozen below (Action log).
 - **Guarded** — mutating verbs respect the same deny/gate philosophy as the
   environment; an agent cannot weaken guardrails or perform prohibited actions
   via a verb without an explicit gate.
+
+## Action log (frozen 2026-06-08)
+
+`build` is the first mutating verb (Phase 1), so the log is decided now against a
+real append site. **Per-project, append-only JSONL** at `<repo>/.loom/actions.log`.
+Per-project (not machine-wide) so the trail travels with the repo and matches
+container-per-project isolation (ADR-0001). One JSON object per line — append-only is
+crash-safe (one line = one committed action) and trivially greppable by an agent.
+
+```json
+{ "ts":"2026-06-08T00:00:00Z", "verb":"build", "action":"container.create",
+  "target":"loom-loom-dev", "before":null, "after":{"image":"...@sha256:..."},
+  "result":"created", "actor":"cli" }   // actor: cli | agent
+```
+
+Every mutating verb appends one entry per discrete action. The `actions` array in a
+verb's `--json` output carries the entry ids written during that run.
 
 ## Deferred (decided not to decide yet)
 
@@ -119,10 +153,6 @@ lockfile consistent with the playbook, are guardrails active. `--json` for agent
    operate the verbs directly via `--json`; the verb surface is the contract. We
    revisit an MCP wrapper once the verbs are stable, so we wrap a known-good
    surface rather than designing two at once (PLAN Phase 3, ADR-0005).
-2. **Action-log location/format — deferred until `build` first mutates.** The log
-   is a hard requirement for mutating verbs (Cross-cutting), but its concrete
-   shape (per-project vs machine-wide; JSONL) is decided when we write the first
-   mutation in Phase 1, against a real append site rather than in the abstract.
 
 ## Open questions
 

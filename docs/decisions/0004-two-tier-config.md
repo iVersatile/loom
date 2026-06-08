@@ -21,3 +21,7 @@ files; lists concatenate).
   project config travels with its repo; clean layering for container-per-project.
 - Trade-offs: a small, well-defined merge rule must exist and stay simple.
 - Revisit if: layering needs richer merge semantics than whole-file + list-concat.
+  Known case, deferred: `~/.claude/settings.json` is a single JSON file, so whole-file
+  later-wins clobbers rather than key-merges. Phase 1 keeps it base-only (no override);
+  key-level JSON merge is a deliberate future addition (SPEC-playbook open question),
+  not to be added silently.

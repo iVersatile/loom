@@ -24,9 +24,15 @@
 - **Declarative desired-state.** The file describes the *end state*; the engine
   computes the diff. A tool's *absence* is meaningful (→ remove it).
 - **Self-describing for AI.** The playbook references the rules/skills/intent an
-  AI needs, not just the tools (ADR-0005).
+  AI needs, not just the tools (ADR-0005). This includes `dotfiles:` — a playbook
+  reader can see that a custom shell prompt or statusline exists, not just infer it.
 - **Two scopes.** A machine/base playbook + per-project overlay playbooks, merged
   at build time (later layer wins for whole files; lists concatenate).
+- **Declared `$HOME`, not hand-edited.** Shell/agent dotfiles (prompt, statusline)
+  are referenced via `dotfiles:` and materialized into the container `$HOME` by
+  `build`. Editing them inside a running container is ephemeral — they survive a
+  rebuild *because* they are reconciled from the config source every build, never
+  applied ad-hoc (ADR-0001, ADR-0006). Env-wide → base tier; per-project → overlay.
 
 ## Base playbook (machine/env-wide tier)
 
@@ -50,6 +56,10 @@ tools:                       # shared across all projects
 rules:                       # references, not inline bodies
   - common/safety            # resolves to a rules file in the config source
   # stack rules are added by overlays, not here
+
+dotfiles:                    # references, not inline bodies — materialized into $HOME
+  - claude/settings.json     # env-wide ~/.claude config (e.g. statusline)
+  - claude/statusline.sh     # the statusline command script
 
 hooks:                       # env-wide guardrails (enforced by mechanism)
   - guard-bash
@@ -84,6 +94,9 @@ overlay: prompiler           # most-specific layer (project rules/skills/CI)
 rules:
   - python/strict            # stack rule
   # project source-of-truth rules live in docs/RULES.md, referenced by AGENTS.md
+
+dotfiles:                    # per-project $HOME config (e.g. a project bash prompt)
+  - bash/prompt.py.sh        # overlay tier wins over base for the same target path
 
 ports:
   - 8000
@@ -121,8 +134,21 @@ Build-time merge order, later wins for whole files; lists concatenate:
 ```
 base  →  stack/<lang>  →  overlay/<project>  →  user-local overrides
 ```
-Example: a python project resolves `base + stacks/python + overlays/prompiler`.
-A go project resolves `base + stacks/go` (no overlay). No cross-contamination.
+Example: a go project resolves `base + stacks/go + overlays/loom` (the Phase 1
+dogfood path, ADR-0009). A python project resolves `base + stacks/python +
+overlays/<project>`. No cross-contamination.
+
+**`dotfiles:` resolution.** `dotfiles:` entries are reference names resolved against
+the config source (like `rules:`/`hooks:`), each mapping to a target path under
+`$HOME`. They follow the same layer order: a later tier referencing the same target
+path replaces the earlier file (whole-file, later-wins). One exception is called out
+below for `~/.claude/settings.json`.
+
+**`~/.claude/settings.json` merge (Phase 1).** This is a single JSON file, so the
+whole-file/later-wins rule means a base and an overlay `settings.json` would *clobber*
+rather than key-merge. For Phase 1 the statusline lives in the **base** tier only and
+no project overrides it; key-level JSON merge for `settings.json` is **deferred** (see
+Open questions and ADR-0004 "revisit if").
 
 ## Devcontainer compatibility (ADR-0003)
 
@@ -132,14 +158,22 @@ playbook fields); the two-tier base, rules, hooks, and AI-context are *added* on
 top (Loom's value layer). Export (later, lossy) emits a `devcontainer.json` from
 the environment fields only; policy/intent do not map and stay in repo docs.
 
+## Frozen decisions (2026-06-08, addendum)
+
+- **`rules:` resolution (was open Q1-remaining).** Frozen: **explicit-by-reference**.
+  A `stack:` contributes *default* rule references, and tiers may add more; the
+  resolved set is the union, deduplicated, in layer order. Authors always see the
+  references they get, rather than rules appearing by stack magic. (Phase 1 parser.)
+- **`dotfiles:` field.** Frozen for Phase 1: a reference list at both tiers,
+  materialized into `$HOME` at build with whole-file/later-wins layering.
+
 ## Open questions
 
-Format (Q1) and lockfile granularity (Q3) are frozen — see *Frozen decisions*
-above. Remaining:
+Format (Q1), lockfile granularity (Q3), `rules:` resolution, and the `dotfiles:`
+field are frozen (see *Frozen decisions*). Remaining:
 
-1. How explicit should `rules:` references be vs auto-included by `stack:`?
-   (Touches the Phase 1 parser; lean toward explicit-by-reference with `stack:`
-   contributing defaults, but not yet frozen.)
+1. Key-level merge for `~/.claude/settings.json` (so base + overlay can both set keys
+   instead of clobbering). Deferred past Phase 1; Phase 1 is base-only whole-file.
 2. Where the env-wide base playbook lives when the cloud track is in play
    (ADR-0007): on the VM, in a volume, or fetched from the config source.
    (Phase 5; not blocking.)

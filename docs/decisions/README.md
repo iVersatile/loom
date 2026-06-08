@@ -14,6 +14,7 @@ choices.
 - ADR-0006 — Build engine vs playbook (mechanism/policy separation)
 - ADR-0007 — Cloud sandbox as a sibling track, not an installer mode
 - ADR-0008 — Engine language: Go (thin POSIX-sh bootstrap)
+- ADR-0009 — Phase 1 dogfood stack is Go (Python/TS → Phase 2)
 
 ## Template
 
