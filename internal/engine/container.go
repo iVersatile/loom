@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -94,10 +95,8 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		}
 	}
 	if len(spec.Tools) > 0 {
-		c := exec.Command("docker", "exec", "-i", spec.Name, "sh", "-s")
-		c.Stdin = strings.NewReader(provisionScript(spec.Tools))
-		if out, err := c.CombinedOutput(); err != nil {
-			return ContainerInfo{}, fmt.Errorf("provision: %v: %s", err, out)
+		if err := provision(spec.Name, provisionScript(spec.Tools)); err != nil {
+			return ContainerInfo{}, err
 		}
 	}
 	return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "created"}, nil
@@ -126,6 +125,31 @@ func (dockerRuntime) Teardown(name, level string) (Removed, error) {
 		}
 	}
 	return r, nil
+}
+
+// provision copies the script into the container as a file and execs it (more
+// robust than piping via `sh -s` on stdin). With `set -x` in the script, the
+// combined output ends at the exact command that failed.
+func provision(name, script string) error {
+	tmp, err := os.CreateTemp("", "loom-provision-*.sh")
+	if err != nil {
+		return fmt.Errorf("provision tmp: %w", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if _, err := tmp.WriteString(script); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("provision write: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("provision close: %w", err)
+	}
+	if out, err := exec.Command("docker", "cp", tmp.Name(), name+":/tmp/loom-provision.sh").CombinedOutput(); err != nil {
+		return fmt.Errorf("cp provision: %v: %s", err, out)
+	}
+	if out, err := exec.Command("docker", "exec", name, "sh", "/tmp/loom-provision.sh").CombinedOutput(); err != nil {
+		return fmt.Errorf("provision: %v: %s", err, out)
+	}
+	return nil
 }
 
 func defaultRuntime() ContainerRuntime { return dockerRuntime{} }
@@ -162,7 +186,8 @@ func provisionScript(tools []ToolInstall) string {
 	sort.Strings(goInstall)
 
 	var b strings.Builder
-	b.WriteString("#!/bin/sh\nset -eu\nexport DEBIAN_FRONTEND=noninteractive\n")
+	// set -x traces each command so a failing provision pinpoints the exact line.
+	b.WriteString("#!/bin/sh\nset -eux\nexport DEBIAN_FRONTEND=noninteractive\n")
 	b.WriteString("apt-get update\n")
 	pkgs := append([]string{"ca-certificates", "curl", "git", "tar"}, filterOut(apt, "git")...)
 	b.WriteString("apt-get install -y --no-install-recommends " + strings.Join(pkgs, " ") + "\n")
