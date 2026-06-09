@@ -120,6 +120,12 @@ requirements:
     source: SPEC-verbs.md#build
     tests: [engine.TestBuildContainerErrorAfterLock]
     status: active
+  - id: FR-BUILD-006
+    kind: behavioral
+    statement: build installs declared agents during provision, and the provision sentinel digest covers the agent set (adding/removing an agent re-provisions an existing container).
+    source: [SPEC-playbook.md#base-playbook, SPEC-verbs.md#build]
+    tests: [engine.TestProvisionScriptInstallsAgent, engine.TestProvisionDigestCoversAgents, engine.TestAgentInstalls]
+    status: active
 
   # --- Behavioral: teardown (SPEC-verbs#teardown) ---
   - id: FR-TEARDOWN-001
