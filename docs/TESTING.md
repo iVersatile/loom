@@ -34,3 +34,41 @@ never the dev sandbox, which has no daemon:
 The host-side spine (resolve → lock → materialize → audit) and the digest/
 provisioning *logic* are unit-tested in the normal gate; the docker execution is
 validated by the integration tier.
+
+## Timing benchmark
+
+A `-timeout` guards each tier so a *hung* test fails fast instead of sitting at
+Go's 10-min default; it is a hang-guard, not the budget.
+
+| Tier | Budget (wall-clock) | Investigate if | Guard |
+|---|---|---|---|
+| Unit (`make gate` tests) | sub-second/pkg | > 5s total | `-timeout 120s` |
+| Integration (`make gate-integration`) | < 5 min | > 8 min | `-timeout 600s` |
+
+The integration tier is heavy because it provisions a real container — compiling
+`gopls`/`gitleaks` from source (measured 2026-06-09: `engine` ~122s, `cli` ~71s).
+**ADR-0012** (prebuilt base image with the toolchain baked in) is the lever that
+drops this from minutes to seconds; treat a rising integration time as a reason to
+prioritise it, not to trim tests.
+
+## Coverage baseline
+
+Measured with `make cover` (unit tier — what the gate exercises). Baseline as of
+2026-06-09, **total 68.2%**:
+
+| Package | Cov | | Package | Cov |
+|---|---|---|---|---|
+| `guard` | 100% | | `playbook` | 79.3% |
+| `render` | 100% | | `cli` | 77.5% |
+| `resolver` | 100% | | `lock` | 76.2% |
+| `source` | 81.2% | | `audit` | 74.2% |
+| | | | `engine` | 60.5% |
+| | | | `cmd/loom` | 0% |
+
+**Floor (soft):** no package regresses below its current %, and total stays ≥ 68%
+— coverage ratchets up, never down. Not wired into `gate` as a hard fail on
+purpose: `engine`'s 60.5% is understated because its docker paths (`Ensure`,
+`provision`, the reconcile branch) only execute under the integration tier, and
+`cmd/loom` is the thin `main` wrapper — a hard unit-tier floor would mis-police
+both. Check with `make cover` before merging; raise the baseline here when it
+improves.

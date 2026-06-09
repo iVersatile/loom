@@ -10,7 +10,7 @@ GOLANGCI ?= $(shell command -v golangci-lint 2>/dev/null || echo $(GOBIN)/golang
 GITLEAKS ?= $(shell command -v gitleaks 2>/dev/null)
 
 .PHONY: all build fmt fmt-check vet lint spec-check test test-integration secrets \
-        gate gate-integration hooks tools clean
+        cover gate gate-integration hooks tools clean
 
 all: gate
 
@@ -35,11 +35,21 @@ lint:
 spec-check:
 	$(GO) test -run TestSpecConformance ./internal/cli/
 
+# Unit tier is sub-second; the timeout only fails a *hung* test fast (vs Go's
+# 10-min default). Benchmark/baseline: docs/TESTING.md.
 test:
-	$(GO) test ./...
+	$(GO) test -timeout 120s ./...
 
+# Integration tier is docker-backed (provisions a real container). Budget < 5 min;
+# the timeout is a hang-guard, not the budget. ADR-0012 (baked base image) will
+# cut this from minutes to seconds.
 test-integration:
-	$(GO) test -tags integration ./...
+	$(GO) test -timeout 600s -tags integration ./...
+
+# Coverage report (unit tier). Baseline/floor recorded in docs/TESTING.md.
+cover:
+	$(GO) test -count=1 -coverprofile=coverage.out ./...
+	$(GO) tool cover -func=coverage.out | tail -1
 
 secrets:
 	@test -n "$(GITLEAKS)" || { echo "gitleaks not found"; exit 1; }
@@ -56,7 +66,9 @@ gate-integration: test-integration
 # Install pinned dev tools into GOPATH/bin.
 tools:
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-	$(GO) install github.com/gitleaks/gitleaks/v8@latest
+	# gitleaks v8's module path is the legacy zricethezav/ one (LL-004); the
+	# github.com/gitleaks/ path fails `go install` with a path conflict.
+	$(GO) install github.com/zricethezav/gitleaks/v8@latest
 
 # Enable the tracked git hooks.
 hooks:

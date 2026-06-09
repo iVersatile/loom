@@ -12,5 +12,8 @@
 # built engine binary (bootstrap output)
 /bin/
 
+# coverage report (make cover)
+coverage.out
+
 # per-project runtime state: action log + materialized $HOME staging
 .loom/
