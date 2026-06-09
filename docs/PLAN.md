@@ -30,6 +30,14 @@ an agent can `plan` then `build` unattended; guardrails block a destructive test
 - Full `--json` on all verbs; action log; `doctor`.
 - Decide + (maybe) build MCP server wrapping the verbs (open question Q1).
 - Playbook guards (agent can't weaken deny-rules / add exfiltrating tools).
+- **agent-debug-and-fix** (note, candidate — needs its own ADR before code):
+  close the autonomous loop. On a failed mutating verb, the agent reads the
+  diagnostic log (ADR-0010), diagnoses, and applies a *bounded* fix (edit
+  overlay / re-resolve / retry) unattended, inside guardrails. `doctor` is the
+  read side; this is the act side. Surfaced by Phase 1 build-troubleshooting:
+  diagnostics make failures legible, but legible ≠ self-healing. Open: how the
+  fix is bounded (which mutations an agent may self-authorize vs must escalate),
+  and whether it's a new verb or a `--fix` mode. Spec before building.
 
 ## Phase 4 — Devcontainer compatibility (staged, ADR-0003)
 - `import` (deterministic core; AI skill for awkward fields).
