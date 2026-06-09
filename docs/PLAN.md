@@ -25,6 +25,11 @@ an agent can `plan` then `build` unattended; guardrails block a destructive test
   container-per-project with different stacks side-by-side (ADR-0001).
 - Credential continuity: `detect --emit-playbook`, detect+report, `--migrate`.
 - Menu-driven `start` entry (situation detection) for scenario 1/2.
+- **Prebuilt base image (ADR-0012):** bake the toolchain (apt deps + Go + gopls +
+  uv) into a published, digest-pinned base so `build` provisioning is a thin
+  overlay — needs the build/publish/scan pipeline. The durable fix for the
+  constrained-VM / fragile-local-apt provisioning failures that ADR-0011's
+  resilience only bridges.
 
 ## Phase 3 — AI-first surface hardened
 - Full `--json` on all verbs; action log; `doctor`.
