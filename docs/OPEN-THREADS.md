@@ -251,8 +251,19 @@ Next step: trace where `--dry-run` is read in the `build` path (cmd/loom + the b
 engine) and confirm whether the flag reaches the mutating steps at all. Likely a
 guard missing before container create / materialize / lock-write.
 
-Promote to: a bugfix (honor `--dry-run` in `build`) + a regression test asserting a
-dry-run leaves container/lock/staging untouched; FR once `verify` covers it.
+**Note (audit 2026-06-09):** `--dry-run` does not appear in SPEC-verbs at all —
+`build`'s specced flags are `--force`, `--stack`/`--overlay`. The flag is unspecced
+implementation growth: today there is no contract for it to conform to, and fixing
+the behavior without a clause would leave the flag unspecced in the other direction.
+
+**Decision direction (user, 2026-06-09): spec the flag.** A **human-authored**
+SPEC-verbs clause (C3 — the AI must not author core specs) giving `build --dry-run`
+plan semantics: read-only — no container ops, no `loom.lock` write, no `.loom/home`
+staging writes; exit mirrors `plan` (2 on drift, 0 when converged). The engine fix
+then honors the clause, with a regression test asserting container/lock/staging are
+untouched; FR cites the new clause (sibling of FR-PLAN-001).
+
+Promote to: human spec clause → engine bugfix + regression test → FR.
 
 ---
 
@@ -422,8 +433,16 @@ the name.
 Options: (a) `<project>-dev` + labels [lean]; (b) keep prefix but de-dupe when
 `project == "loom"` (hacky, special-case); (c) `loom/<project>` (slashes are
 awkward in container names). 
-Promote to: an engine change (name template + labels) + a note in ADR-0001 (naming/
-namespacing convention); FR once covered.
+
+**Decision (user, 2026-06-09): option (a)** — container name is `<project>-dev`,
+loom-managed marker moves to docker labels. **Requires an audited SPEC-verbs edit:**
+the `build --json` example hardcodes `"name":"loom-loom-dev"` (`SPEC-verbs.md#build`),
+so the rename touches a frozen contract — human-authored or `ALLOW_SPEC_CHANGE=1` on
+explicit instruction, alongside the ADR-0001 naming note. Scheduled in the P0 engine
+batch with T13+T14 (all create-time changes: one rebuild, one re-login).
+
+Promote to: an engine change (name template + labels) + SPEC-verbs example edit +
+ADR-0001 naming note; FR once covered.
 
 ---
 
