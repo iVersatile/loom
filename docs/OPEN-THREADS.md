@@ -107,3 +107,19 @@ FRs; SPEC-playbook is a spec, so excluding it would blind verify's spec↔FR joi
 Execution order: seed FRs against EXISTING spec clauses (verbs + invariants +
 guardrails + playbook schema), each linking a passing test → build `verify` (both
 joints, tiered per C4/C5). No new spec authoring by the AI.
+
+**`verify` design (small delta — composes two patterns Loom already has).** Not a
+new binary or verb. It reuses:
+- *contract-check-as-a-Go-test* — like `cli.TestSpecConformance`, which parses
+  `SPEC-verbs.md` and enforces it; `verify` parses `FR-registry.yml` + the spec
+  files + scans `*_test.go` names.
+- *integration-tier tiering* — `-tags` + a separate make target + a separate CI
+  job, **absent from the per-commit gate**; this gives C4 (advisory by default via
+  `make fr-verify`; blocking at the merge boundary via a CI job; never per-commit).
+
+Delta ≈ one build-tagged test file (~150 LOC, modeled on `conformance_test.go`) +
+one Makefile target (mirrors `test-integration`) + one CI job (mirrors
+`integration`). Checks: dangling FR→test = blocking; missing spec section =
+blocking; orphan test = advisory (C5); `covers:`/`patterns:` checked as *declared*.
+Captured durably as the verify test's header docstring when built (this project's
+convention — cf. `conformance_test.go`'s header).
