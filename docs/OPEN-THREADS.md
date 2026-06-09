@@ -446,21 +446,78 @@ dev env. Its two real roles — *run the agent* and *provide the go toolchain* �
 move to `loom-dev`: go is already a loom-dev tool (`go@1.26`), and the agent arrives
 with T8.
 
-**Exit criteria before deleting `devenv` (not just archiving).**
-1. T8 — `loom-dev` installs the agent + has working credentials.
+**"Usable `loom-dev`" criteria (the bar for cutover).**
+1. T8 — `loom-dev` installs the agent + has working credentials (env token primary;
+   see ADR-0014 / the session verification finding).
 2. T9 — an entry path exists (verb, or documented `docker exec -it`).
-3. The loom **dogfood loop runs in `loom-dev`**: `make gate` (unit tier; go present)
+3. **T13 — the project repo is mounted into `loom-dev`** (today it is not; you
+   cannot work on code there without it).
+4. Harness home — the parts of `~/.claude` you depend on (hooks/guards, memory,
+   skills, permissions) are provided, not just `settings.json` + statusline.
+5. The loom **dogfood loop runs in `loom-dev`**: `make gate` (unit tier; go present)
    works; integration tier stays on **CI** (already true) or `loom-dev` gains docker
    access (DinD/socket — likely FC-001) if local integration is wanted.
-4. Credentials/config that `devenv` got via Mac bind-mounts are reproduced in
-   `loom-dev` (T8 creds decision).
 
 **Counter-argument considered & rejected:** "keep `devenv` to compile the loom
 engine (Mac has no go)." Rejected because `loom-dev` already declares `go@1.26`, so
 it can build the engine and run the unit gate itself; integration is a CI concern.
-Once 1–4 hold, `devenv` adds nothing.
+Once 1–5 hold, `devenv` adds nothing.
 
-**Sequencing:** archive now (stop investing in it; document it as legacy), remove
-after T8+T9 land and the dogfood loop is proven in `loom-dev`.
+**Operating model — NO side-by-side use (user decision).** `devenv` and `loom-dev`
+must **not** be used concurrently for real work: they share one credential and one
+subscription, with the contention/auth-rotation/quota risks catalogued in
+`.scratch/session-start-verification.md`. The plan is a clean **cutover**, not
+parallel operation. (Brief overlap is allowed *only* for the one-time verification
+pass — exec-in checks, then stop.)
+
+**Cutover + deletion timeline.**
+1. Reach criteria 1–5 → declare `loom-dev` usable. *(Not yet — T8 done; T13 +
+   harness home + verified auth pending.)*
+2. On that day: **archive `devenv`** — stop using it, move real work to `loom-dev`.
+   Keep it stopped (not deleted) as a rollback safety net.
+3. **Delete `devenv` ~2 weeks after archival** (archive-date + 14d), assuming no
+   rollback was needed. The 2-week clock starts at *archival*, not now — so no fixed
+   calendar date yet; set it when criteria 1–5 are met. Worth a `/schedule` reminder
+   at that point.
+
 Promote to: an ADR recording the single-dev-container model + `devenv` retirement
-(human-authored, since it touches the env/topology decision), once exit criteria met.
+(human-authored, since it touches the env/topology decision), once criteria met.
+
+---
+
+## T13 — `loom-dev` has no project/repo mount   🟢 recommendation
+Origin: session verification — a `claude` session in `loom-dev` had no code to work
+on. `docker inspect loom-loom-dev --format '{{json .Mounts}}'` returned `[]`, and
+`ls /workspace` → No such file. **Confirmed:** loom never mounts the project.
+
+**Root cause.** `Ensure`'s `docker run` is bare — `run -d --name <name> <image>
+sleep infinity` (`internal/engine/container.go`), with no `-v` for the project. The
+materialized `$HOME` is `docker cp`'d in, but the working tree is not. The
+`/workspace` seen in `devenv` is **devenv's** Docker-Desktop file share, not loom's
+and not shared with `loom-dev`.
+
+**Why it matters.** ADR-0001 is *container-per-project*, yet the project isn't in
+the container — so `loom-dev` can't host real dev work. This is a hard blocker for
+T12's "usable `loom-dev`" bar, alongside T8 (agent ✓) and the harness-home gap.
+
+**Recommendation.** Bind-mount the project root (the dir holding `loom.yml`) into
+the container at a fixed path, RW so edits sync host↔container (the devcontainer
+model, ADR-0003). Parameterize on the container user's `$HOME` (interacts with T10
+non-root) rather than hardcoding. Add to `ContainerSpec` (e.g. `ProjectMount{Host,
+Container}`) and to `docker run` as `-v host:container`. Set at create only
+(docker can't add `-v` live → `--force`, same constraint as T8 creds/env).
+
+**Options.**
+1. *Bind-mount host repo RW* [lean] — live edits both ways; matches devcontainer.
+2. *Copy/clone repo into the container* — more isolated, but edits don't reach the
+   host and drift from git; rejected for a dogfood loop.
+3. *Named volume* — persists across rebuilds but detaches from the host tree; wrong
+   for editing source you also touch from the host.
+
+**Caution (ties to T12 no-side-by-side).** With the repo bind-mounted **and**
+`devenv` live, two sessions share one working tree → `index.lock`/checkout races,
+clobbering edits (concurrency risk #8). The T12 cutover (no side-by-side) is what
+keeps this safe; the mount should land with that operating model, not parallel use.
+
+Promote to: an engine change (project mount in `ContainerSpec` + `docker run`),
+parameterized for T10; a note in ADR-0001/0003 (mount model); FR once covered.
