@@ -65,6 +65,16 @@ authoritative at PR/release) and ADR-0005 (guardrails by mechanism, not trust).
   is rejected as a rot-then-lie failure mode (a green matrix that no longer
   reflects reality is worse than none).
 
+**Coverage is automated — no `manual`, no `waiver`.** A required FR's only valid
+coverage is an automated test. A genuinely un-automatable behavior is **not** a
+required FR — reclassify it via an **automatable proxy** (test the mechanism) or
+**downgrade** to advisory (a checklist that does not count toward "done"). Human
+testing is welcomed as an out-of-band **feedback reference** but never counts as an
+FR's coverage and never gates "done" (a human finding returns as a new test, a new
+FR, or a bug). A `waiver` is a trust artifact, and ADR-0005 is mechanism-not-trust;
+the design test flags an agent waiving an FR to skip verification. The registry
+`status` is therefore `active | superseded` — no `manual`/`waiver`.
+
 **What `verify` checks — both joints of the chain.**
 - **FR → test:** every FR has ≥1 passing linked test; for invariant FRs, a passing
   parametrized suite covering all applicable verbs; for guardrail FRs, a passing
