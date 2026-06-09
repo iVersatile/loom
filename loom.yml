@@ -15,7 +15,6 @@ rules:
 
 env:
   - ANTHROPIC_API_KEY
-  - CLAUDE_CODE_OAUTH_TOKEN   # subscription auth for the in-container agent (T8/ADR-0014)
 
 ci:
   - ci
