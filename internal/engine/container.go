@@ -203,11 +203,23 @@ func provision(name, script string, logw io.Writer) error {
 			return nil
 		}
 		lastErr = fmt.Errorf("provision (attempt %d/%d): %v: %s", attempt, provisionAttempts, err, out)
+		// If the container itself exited (e.g. an OOM-kill of the whole cgroup, not
+		// just the exec'd process), retrying only yields a misleading "is not
+		// running" error — stop and surface THIS attempt's real trace.
+		if !containerRunning(name) {
+			return fmt.Errorf("%w [container exited during provisioning]", lastErr)
+		}
 		if logw != nil {
 			_, _ = fmt.Fprintf(logw, "provision attempt %d/%d failed (%v) — retrying\n", attempt, provisionAttempts, err)
 		}
 	}
 	return lastErr
+}
+
+// containerRunning reports whether the named container's main process is still up.
+func containerRunning(name string) bool {
+	out, err := exec.Command("docker", "container", "inspect", "-f", "{{.State.Running}}", name).Output()
+	return err == nil && strings.TrimSpace(string(out)) == "true"
 }
 
 // toolsetDigest is a stable fingerprint of the declared tool set, written into
@@ -329,7 +341,9 @@ func goModule(tool string) string {
 	case "gopls":
 		return "golang.org/x/tools/gopls@latest"
 	case "gitleaks":
-		return "github.com/gitleaks/gitleaks/v8@latest"
+		// The v8 module's go.mod still declares the legacy zricethezav path; the
+		// github.com/gitleaks/gitleaks/v8 path fails `go install` (path conflict).
+		return "github.com/zricethezav/gitleaks/v8@latest"
 	default:
 		return ""
 	}

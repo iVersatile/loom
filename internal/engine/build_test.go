@@ -157,7 +157,7 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 	for _, want := range []string{
 		"apt-get install", " jq", "go.dev/dl",
 		"go install golang.org/x/tools/gopls@latest",
-		"go install github.com/gitleaks/gitleaks/v8@latest",
+		"go install github.com/zricethezav/gitleaks/v8@latest",
 		"astral.sh/uv/install.sh", "bashrc.d",
 	} {
 		if !strings.Contains(s, want) {

@@ -42,6 +42,11 @@ func TestE2EBuildAndSurviveRebuild(t *testing.T) {
 		t.Fatalf("detect: %v", err)
 	}
 	if res, err := Build(BuildOpts{PlaybookPath: pb}); err != nil {
+		// Dump the diagnostic log so the provisioning trace is visible (the temp
+		// project dir is removed after the test).
+		if data, e := os.ReadFile(filepath.Join(root, ".loom", "logs", "build.log")); e == nil {
+			t.Logf("=== build.log ===\n%s", data)
+		}
 		t.Fatalf("build: %v (result=%+v)", err, res)
 	}
 
