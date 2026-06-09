@@ -123,3 +123,51 @@ one Makefile target (mirrors `test-integration`) + one CI job (mirrors
 blocking; orphan test = advisory (C5); `covers:`/`patterns:` checked as *declared*.
 Captured durably as the verify test's header docstring when built (this project's
 convention — cf. `conformance_test.go`'s header).
+
+---
+
+## T4 — Container PATH has no single declarative owner   🟡 open
+Origin: a dotfiles question — "can a project-tier `bash/path.go.sh` set PATH in the
+container?" Tracing `build` revealed PATH is wired in two unrelated places, neither
+playbook-declared, and they target different shell-init files.
+
+**Observation.** PATH inside the built container comes from two split sources:
+- **Hardcoded, login shell.** The provision script appends Go's PATH straight to
+  `~/.profile`: `export PATH=$PATH:/usr/local/go/bin:/root/go/bin`
+  (`internal/engine/container.go:312`). Stack/tool-specific, baked in engine code,
+  not declared by any playbook.
+- **Dotfile glob, interactive shell.** `bash/*` dotfiles materialize to
+  `~/.bashrc.d/<basename>` (`internal/engine/materialize.go:47-56`) and are sourced
+  by a loop appended to `~/.bashrc` (`container.go:327-329`). A new
+  `bash/path.go.sh` doing `export PATH=…` *would* be picked up — but only here.
+
+**Why it's a gap.**
+- **Shell-type divergence.** `.profile` is read by login shells; `.bashrc` by
+  interactive non-login; neither by non-interactive. So the two PATH sources apply
+  to *different* shells — a dotfile-set PATH and the hardcoded Go PATH can disagree
+  depending on how the shell is invoked.
+- **Conditional wiring.** The `.bashrc.d` sourcing loop is only appended when
+  `len(spec.Tools) > 0` (`container.go:127-147`); a toolless playbook copies
+  `bash/*` dotfiles into `~/.bashrc.d/` but never sources them.
+- **No declarative owner.** PATH is partly engine-hardcoded (Go), partly
+  dotfile-expressible (anything else), with no playbook field and no single file
+  that owns it. There is no `path:` field in the schema (SPEC-playbook: fields are
+  `tools/rules/dotfiles/hooks/env/ports/ci`; `env:` is names-only).
+
+**Options (no decision yet).**
+1. *Status quo + document.* Accept dotfiles-for-PATH as interactive-only; note the
+   `.profile` vs `.bashrc` split in SPEC-playbook so authors aren't surprised.
+2. *Converge the init files.* Have the provision script source `~/.bashrc.d/*.sh`
+   from `~/.profile` too (and unconditionally, not gated on `tools`), so one
+   dotfile dir owns shell config across login + interactive shells; move the Go
+   PATH line into a generated `bash/*` dotfile so it stops being a special case.
+3. *Declarative PATH field.* Add a playbook `path:` (or `env.path:`) the engine
+   renders deterministically — heavier; needs a spec change (ADR-0004/SPEC-playbook)
+   and an FR. Probably overkill for Phase 1.
+
+Lean: option 2 (engineering hardening, no spec authoring) if PATH-across-shells is
+wanted; option 1 if not. Either way the divergence should be written down before a
+`bash/path.*.sh` pattern is relied on.
+
+Promote to: a small engine change + SPEC-playbook note (opt 1/2), or an
+ADR-0004/SPEC-playbook edit + FR (opt 3).
