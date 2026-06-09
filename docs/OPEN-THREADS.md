@@ -338,6 +338,9 @@ a fix.
 3. Hybrid: install the binary (1), mount only credentials (2).
 
 Lean: (3) — own the binary so the container is self-contained, mount only secrets.
+PLAN link: realizes `docs/PLAN.md` → *Open items → "Working env for building Loom …
+Claude Code in-container (dogfood)"* (its fallback "mount loom + claude into
+/usr/local/bin in-container" is the agent half of that item).
 Promote to: an engine capability + a creds decision (possibly an ADR — interacts
 with ADR-0005 and the secret-store design); FR once `verify` covers agent install.
 
@@ -480,6 +483,11 @@ pass — exec-in checks, then stop.)
    calendar date yet; set it when criteria 1–5 are met. Worth a `/schedule` reminder
    at that point.
 
+PLAN link: realizes the `docs/PLAN.md` Phase-1 **goal** *"Dogfood: build Loom inside
+the container Loom builds"* and its *Open items → "Working env for building Loom …
+(dogfood)"*. NB: dogfood is a Phase-1 **goal + non-blocking open item**, NOT an
+enumerated exit criterion — so this gap does not gate Phase-1 close as PLAN is
+currently written (promoting it to an exit criterion is a human-authored PLAN edit).
 Promote to: an ADR recording the single-dev-container model + `devenv` retirement
 (human-authored, since it touches the env/topology decision), once criteria met.
 
@@ -519,6 +527,9 @@ Container}`) and to `docker run` as `-v host:container`. Set at create only
 clobbering edits (concurrency risk #8). The T12 cutover (no side-by-side) is what
 keeps this safe; the mount should land with that operating model, not parallel use.
 
+PLAN link: this is the `docs/PLAN.md` *Open items → "Working env for building Loom"*
+**fallback made concrete** — "mount loom … in-container" is exactly the project-mount
+this thread specifies (the repo half of the dogfood working env).
 Promote to: an engine change (project mount in `ContainerSpec` + `docker run`),
 parameterized for T10; a note in ADR-0001/0003 (mount model); FR once covered.
 
@@ -562,5 +573,10 @@ Lean: (1) for the dogfood loop now (a creds volume excluded from the reset tier)
 revisit (3) for a real secret-store integration. Interacts with the **harness-home**
 thread (memory/hooks/skills also need to survive rebuild) and **T13** (mounts).
 
+PLAN link: a specific case of `docs/PLAN.md` *Open items → "Agent-initiated container
+lifecycle with task continuity"* — that item observed (2026-06-09) a `docker stop
+devenv-dev` losing a live session mid-task; creds are one piece of the container
+state that must **persist outside and rehydrate on bring-up** (memory/session
+continuity are the rest, in the harness-home thread).
 Promote to: an engine change (persist `~/.claude` across rebuild) + an ADR-0014
 addendum; FR once covered.
