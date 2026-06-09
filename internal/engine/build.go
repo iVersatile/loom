@@ -137,7 +137,11 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 	// 4. Container — create or converge via the runtime.
 	cname := containerName(pb.Name)
 	info, err := rt.Ensure(ContainerSpec{
-		Name: cname, BaseImage: img, HomeDir: home, Tools: toolInstalls(resolution), Force: opts.Force, LogW: logw,
+		Name: cname, BaseImage: img, HomeDir: home,
+		Tools:  toolInstalls(resolution),
+		Agents: agentInstalls(resolution),
+		Env:    pb.Env,
+		Force:  opts.Force, LogW: logw,
 	})
 	if err != nil {
 		return res, fmt.Errorf("container step: %w", err)
@@ -182,4 +186,26 @@ func toolInstalls(r *resolver.Resolution) []ToolInstall {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// agentInstalls turns the resolved agent set into install specs for the container
+// (T8). Mirrors toolInstalls; sorted for a deterministic provision/digest.
+func agentInstalls(r *resolver.Resolution) []AgentInstall {
+	out := make([]AgentInstall, 0, len(r.Agents))
+	for name := range r.Agents {
+		out = append(out, AgentInstall{Name: name, Source: agentSource(name)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// agentSource picks an agent's install mechanism. Phase 1: claude-code ships a
+// native installer; other declared agents are recorded but have no installer yet.
+func agentSource(name string) string {
+	switch name {
+	case "claude-code":
+		return "native-installer"
+	default:
+		return ""
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/iVersatile/loom/internal/lock"
+	"github.com/iVersatile/loom/internal/resolver"
 )
 
 // tempProject copies the fixture project into a temp dir so build's writes
@@ -157,7 +158,7 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 		{Name: "gitleaks", Source: "go-install"},
 		{Name: "uv", Source: "uv-installer"},
 	}
-	s := provisionScript(tools)
+	s := provisionScript(tools, nil)
 	for _, want := range []string{
 		"apt-get install", " jq", "go.dev/dl",
 		"go install golang.org/x/tools/gopls@latest",
@@ -177,7 +178,7 @@ func TestProvisionScriptResilience(t *testing.T) {
 	s := provisionScript([]ToolInstall{
 		{Name: "git", Source: "apt"},
 		{Name: "gopls", Source: "go-install"},
-	})
+	}, nil)
 	for _, want := range []string{
 		"retry()",                         // the retry helper is defined
 		"Acquire::Languages=none",         // trimmed apt cache build (the OOM step)
@@ -201,18 +202,18 @@ func TestProvisionSentinelMatchesDigest(t *testing.T) {
 		{Name: "gopls", Source: "go-install"},
 		{Name: "git", Source: "apt"},
 	}
-	d := toolsetDigest(tools)
+	d := provisionDigest(tools, nil)
 	if d == "" {
 		t.Fatal("digest empty for a non-empty tool set")
 	}
 	// Order-stable: a reordered playbook must not read as drift.
-	if got := toolsetDigest([]ToolInstall{tools[2], tools[0], tools[1]}); got != d {
+	if got := provisionDigest([]ToolInstall{tools[2], tools[0], tools[1]}, nil); got != d {
 		t.Errorf("digest not order-stable: %q vs %q", got, d)
 	}
-	if toolsetDigest(nil) != "" {
+	if provisionDigest(nil, nil) != "" {
 		t.Error("empty tool set must yield an empty digest (nothing to provision)")
 	}
-	s := provisionScript(tools)
+	s := provisionScript(tools, nil)
 	if !strings.Contains(s, provisionSentinel) {
 		t.Errorf("provision script must write the sentinel %q", provisionSentinel)
 	}
@@ -235,6 +236,110 @@ func TestNeedsReprovision(t *testing.T) {
 		if got := needsReprovision(c.have, c.want); got != c.reprov {
 			t.Errorf("%s: needsReprovision(%q,%q)=%t want %t", c.name, c.have, c.want, got, c.reprov)
 		}
+	}
+}
+
+// TestProvisionScriptInstallsAgent pins T8: a declared agent yields its install
+// step + PATH wiring in the provision script (claude-code via the native installer,
+// no Node, landing on ~/.local/bin).
+func TestProvisionScriptInstallsAgent(t *testing.T) {
+	s := provisionScript(nil, []AgentInstall{{Name: "claude-code", Source: "native-installer"}})
+	for _, want := range []string{
+		"claude.ai/install.sh", // the native installer is invoked
+		"retry ",               // wrapped in the resilience retry helper
+		".local/bin",           // PATH wired so the binary is found
+		"/root/.profile",       // login shell
+		"/root/.bashrc",        // interactive shell
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("agent provision missing %q\n---\n%s", want, s)
+		}
+	}
+	// An unknown agent emits no install step (recorded in the digest, not installed).
+	if got := provisionScript(nil, []AgentInstall{{Name: "mystery", Source: ""}}); strings.Contains(got, "install.sh") {
+		t.Errorf("unknown agent should emit no installer\n---\n%s", got)
+	}
+}
+
+// TestProvisionDigestCoversAgents pins that the reconcile sentinel reflects agents,
+// so adding/removing an agent re-provisions an existing container (T8 + T7 trigger).
+func TestProvisionDigestCoversAgents(t *testing.T) {
+	tools := []ToolInstall{{Name: "go", Source: "go-tarball"}}
+	bare := provisionDigest(tools, nil)
+	withAgent := provisionDigest(tools, []AgentInstall{{Name: "claude-code", Source: "native-installer"}})
+	if bare == withAgent {
+		t.Error("adding an agent must change the provision digest")
+	}
+	// Order-stable across agents.
+	a := []AgentInstall{{Name: "claude-code", Source: "native-installer"}, {Name: "codex", Source: ""}}
+	if provisionDigest(tools, a) != provisionDigest(tools, []AgentInstall{a[1], a[0]}) {
+		t.Error("agent digest not order-stable")
+	}
+	if provisionDigest(nil, nil) != "" {
+		t.Error("empty tools+agents must yield an empty digest")
+	}
+}
+
+// TestAgentInstalls pins the resolution→install mapping: every resolved agent is
+// emitted, sorted, with claude-code carrying the native-installer source.
+func TestAgentInstalls(t *testing.T) {
+	r := &resolver.Resolution{Agents: map[string]lock.LockedAgent{
+		"codex":       {},
+		"claude-code": {},
+	}}
+	got := agentInstalls(r)
+	if len(got) != 2 || got[0].Name != "claude-code" || got[1].Name != "codex" {
+		t.Fatalf("agentInstalls not sorted/complete: %+v", got)
+	}
+	if got[0].Source != "native-installer" {
+		t.Errorf("claude-code source = %q, want native-installer", got[0].Source)
+	}
+	if got[1].Source != "" {
+		t.Errorf("unknown agent should have empty source, got %q", got[1].Source)
+	}
+}
+
+// TestEnvArgs pins the creds mechanism: declared env var NAMES become `-e NAME`
+// passthrough args (value forwarded by docker from loom's env; never embedded).
+func TestEnvArgs(t *testing.T) {
+	got := envArgs([]string{"ANTHROPIC_API_KEY", "", "CLAUDE_CODE_OAUTH_TOKEN"})
+	want := []string{"-e", "ANTHROPIC_API_KEY", "-e", "CLAUDE_CODE_OAUTH_TOKEN"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("envArgs = %v, want %v", got, want)
+	}
+	// No value is ever embedded (only the bare name follows -e).
+	for _, a := range got {
+		if strings.Contains(a, "=") {
+			t.Errorf("env arg %q must not carry a value", a)
+		}
+	}
+	if len(envArgs(nil)) != 0 {
+		t.Error("no declared env → no args")
+	}
+}
+
+// TestCredsMount pins the creds-reuse path (T8/ADR-0014): mount the host's
+// existing ~/.claude/.credentials.json read-only, only when claude-code is being
+// installed and the file is present — never mount a missing path.
+func TestCredsMount(t *testing.T) {
+	claude := []AgentInstall{{Name: "claude-code", Source: "native-installer"}}
+
+	got := credsMount("/host/.claude/.credentials.json", true, claude)
+	want := []string{"-v", "/host/.claude/.credentials.json:" + containerHome + "/.claude/.credentials.json:ro"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("credsMount = %v, want %v", got, want)
+	}
+	// Read-only, single file.
+	if !strings.HasSuffix(got[1], ":ro") {
+		t.Errorf("creds mount must be read-only: %q", got[1])
+	}
+	// No mount when the file is absent (would make docker create a dir).
+	if credsMount("/host/.claude/.credentials.json", false, claude) != nil {
+		t.Error("absent creds file must not be mounted")
+	}
+	// No mount when claude-code is not among the agents.
+	if credsMount("/host/.claude/.credentials.json", true, []AgentInstall{{Name: "codex"}}) != nil {
+		t.Error("creds mount only applies when claude-code is installed")
 	}
 }
 
