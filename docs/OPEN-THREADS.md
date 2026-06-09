@@ -229,7 +229,7 @@ once `verify` covers the lock producer.
 
 ---
 
-## T6 — `build --dry-run` mutates (violates plan-semantics contract)   🟡 open
+## T6 — `build --dry-run` mutates (violates plan-semantics contract)   ✅ resolved
 Origin: a Mac `./bin/loom build --dry-run` that was expected to preview but actually
 provisioned.
 
@@ -251,19 +251,23 @@ Next step: trace where `--dry-run` is read in the `build` path (cmd/loom + the b
 engine) and confirm whether the flag reaches the mutating steps at all. Likely a
 guard missing before container create / materialize / lock-write.
 
-**Note (audit 2026-06-09):** `--dry-run` does not appear in SPEC-verbs at all —
-`build`'s specced flags are `--force`, `--stack`/`--overlay`. The flag is unspecced
-implementation growth: today there is no contract for it to conform to, and fixing
-the behavior without a clause would leave the flag unspecced in the other direction.
+**Correction to an earlier audit note:** `--dry-run` WAS specced — SPEC-verbs
+*Global conventions* ("`--dry-run` where an action would change state (alias of
+`plan` semantics)") and `update` ("`--dry-run` == `plan`"). The thread title was
+right all along: a contract violation, not unspecced growth. (The earlier "spec
+the flag" direction was based on the wrong unspecced reading and is superseded.)
 
-**Decision direction (user, 2026-06-09): spec the flag.** A **human-authored**
-SPEC-verbs clause (C3 — the AI must not author core specs) giving `build --dry-run`
-plan semantics: read-only — no container ops, no `loom.lock` write, no `.loom/home`
-staging writes; exit mirrors `plan` (2 on drift, 0 when converged). The engine fix
-then honors the clause, with a regression test asserting container/lock/staging are
-untouched; FR cites the new clause (sibling of FR-PLAN-001).
+**Root cause (confirmed in PR #8):** the flag was registered as a persistent flag
+in `internal/cli/root.go` but **no verb ever read it** — `build` ran its full
+mutating path unconditionally. A promise with no mechanism.
 
-Promote to: human spec clause → engine bugfix + regression test → FR.
+**Resolution (user decision, 2026-06-09): abandon `--dry-run`; `plan` is the one
+preview path.** Implemented in **PR #8** (`fix/t6-remove-dry-run`): the flag is
+removed from the CLI, and SPEC-verbs is amended (audited `ALLOW_SPEC_CHANGE` on
+explicit instruction; merge = human acceptance) — the global convention now states
+"No `--dry-run`" with the T6 rationale, and `update` points at `plan`. One preview
+surface keeps the read-only promise enforceable; it stays covered by FR-PLAN-001/002
+(no FR cited the removed clause; `fr-verify` green).
 
 ---
 
