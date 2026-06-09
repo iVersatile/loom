@@ -580,3 +580,43 @@ state that must **persist outside and rehydrate on bring-up** (memory/session
 continuity are the rest, in the harness-home thread).
 Promote to: an engine change (persist `~/.claude` across rebuild) + an ADR-0014
 addendum; FR once covered.
+
+---
+
+## T15 — the working auth path is human-only; AI-first auth needed   🟡 open
+Origin: ADR-0014 landed on **interactive in-container OAuth login** as the only
+path that authenticates the interactive TUI — but completing that flow requires a
+human with a browser. An autonomous agent cannot perform it.
+
+**Observation.** Of the three mechanisms tested this session (ADR-0014): the host
+creds-file mount is dead on macOS (Keychain, no file); the env token authenticates
+headless `claude -p` only and leaks into `Config.Env`/`docker inspect`/shell
+history; the browser OAuth works but is human-gated. Net: the loom container
+becomes inhabitable only after a human ritual — repeated after every `--force`/
+`teardown` until T14 lands.
+
+**Why it matters.** ADR-0005 makes the AI agent a **first-class user**: the
+environment must be operable by an autonomous agent end-to-end. If the container
+loom builds can only be authenticated by a human, the AI-first premise breaks at
+step one — an agent cannot bring up (or recover, per the PLAN task-continuity
+item) its own working env. Non-interactive, **leak-free** credential acquisition
+is a first-class capability gap, not an ergonomic nit.
+
+**Options.**
+1. **Secret store + `apiKeyHelper`** — `settings.json` helper fetches a key per
+   request from a secret manager; non-interactive, no secret at rest in any loom
+   artifact or Docker metadata. The real AI-first shape (ADR-0014's "revisit if").
+2. **Human-minted long-lived token in a secret store** — `claude setup-token`
+   once, loom injects at exec-time (not `docker run -e`, avoiding the Config.Env
+   leak). Still headless-only for the TUI, and a year-long token is a wide blast
+   radius (ADR-0014 rejected it as default).
+3. **Creds volume (T14 option 1)** — one human login made durable across rebuilds;
+   reduces the ritual to token-expiry frequency but does not eliminate the human.
+
+Lean: (3) now, bundled with T14, to cut ritual frequency for the dogfood loop;
+(1) as the actual answer — the agent authenticates itself through mechanism, with
+no secret value an agent could exfiltrate from loom's artifacts (ADR-0005
+mechanism-not-trust design test).
+Promote to: an ADR-0014 addendum or successor ADR (credential-acquisition policy,
+interacts with the secret-store design); FR once a non-interactive auth path is
+covered by `verify`.
