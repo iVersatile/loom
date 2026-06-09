@@ -128,6 +128,10 @@ func TestBuildBaseImageOverride(t *testing.T) {
 }
 
 func TestBuildPinsBaseDigest(t *testing.T) {
+	// Hermetic: this asserts digest-pinning of the DEFAULT base, so clear any
+	// ambient LOOM_BASE_IMAGE (the integration job sets it for the ghcr e2e, which
+	// otherwise leaks into this unit test and changes the expected image) — LL-006.
+	t.Setenv("LOOM_BASE_IMAGE", "")
 	root := tempProject(t)
 	pbPath := filepath.Join(root, "loom.yml")
 	rt := fakeRuntime{resolveDigest: "sha256:deadbeef", ensureInfo: ContainerInfo{Status: "created"}}
