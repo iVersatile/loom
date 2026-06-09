@@ -25,6 +25,14 @@ const fixturePlaybook = "../playbook/testdata/proj/loom.yml"
 // non-zero (plan drift) or fails its container step (build without docker) still
 // proves its contract. build mutates, so it runs against a sandboxed temp copy.
 func TestSpecConformance(t *testing.T) {
+	// Shape-only, and it MUST stay hermetic to host tooling: this runs the real
+	// `build`/`teardown`, which on a host that HAS docker would provision a real
+	// container (compiling gopls) instead of failing fast — making the unit gate
+	// slow and, under -timeout, a hard timeout (it hit 120s in CI; local sandboxes
+	// have no docker so it looked fast). Point PATH at an empty dir so docker and
+	// the prober's tool lookups fail immediately; the result JSON is still emitted,
+	// which is all this test asserts. (LL-008)
+	t.Setenv("PATH", t.TempDir())
 	spec := specShapeKeys(t)
 
 	// build and teardown mutate / open the action log — sandbox them in temp copies.

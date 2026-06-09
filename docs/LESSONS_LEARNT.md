@@ -6,6 +6,26 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud`
 
+## LL-008 — Unit-tier tests must be hermetic to host-installed tooling
+- Date: 2026-06-09
+- Tags: `ci` · `cli` · `engine`
+- Symptom: `gate` (unit tier) passed locally and in early CI (taking 4–6 min!) but
+  **timed out at 120s** once `-timeout 120s` was added. `TestSpecConformance` hung
+  inside an `os/exec` call within the `build` verb.
+- Root cause: the test runs the *real* `build`, which **provisions a real
+  container (compiles gopls)** when docker is present on the host. Local sandboxes
+  have no docker, so `build` failed fast and the test looked like a quick unit
+  test; CI runners *have* docker, so the "unit" gate silently did minutes of real
+  provisioning. The `-timeout` didn't cause the problem — it surfaced the latent
+  host-dependence as a hard failure.
+- Fix: neuter `PATH` in the test (`t.Setenv("PATH", t.TempDir())`) so docker and
+  the prober's tool lookups fail fast; the result JSON shape is still emitted,
+  which is all the test asserts.
+- Prevention: a unit test that drives a verb touching docker/tools must force that
+  path off (empty `PATH`, or an injected fake runtime) so the gate is fast and
+  deterministic regardless of what the runner has installed. "Passes locally" is
+  not "hermetic" when local lacks a binary CI has (cf. LL-006).
+
 ## LL-007 — A job-level `permissions:` block replaces the workflow default
 - Date: 2026-06-09
 - Tags: `ci`
