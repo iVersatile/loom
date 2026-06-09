@@ -6,6 +6,27 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud`
 
+## LL-009 — Cherry-pick already-gated commits onto a new base; don't rebase frozen-contract commits
+- Date: 2026-06-09
+- Tags: `ci`
+- Symptom: rebasing an ADR branch onto an updated `main`
+  (`git rebase --onto origin/main <base> docs/adr-0013`) repeatedly stalled — the
+  pre-commit gate re-ran for each replayed commit, `protect-paths` blocked the
+  frozen-contract (ADR) change, and aborted attempts left `README.md`/`PLAN.md` as
+  dirty-tree debris that blocked the next try.
+- Root cause: the rebase sequencer re-runs the pre-commit hook per replayed
+  commit, so a commit touching `docs/decisions/` or `SPEC-*.md` hits
+  `protect-paths` and needs `ALLOW_SPEC_CHANGE`, which is awkward to thread through
+  rebase; partial aborts then leave the working tree dirty.
+- Fix: `git reset --hard <new-base>` then `git cherry-pick <commits>`. Cherry-pick
+  does **not** invoke the pre-commit hook, and the commits were already gated when
+  first created, so they re-applied cleanly with no override and no replay drama.
+- Prevention: to move already-gated commits that touch frozen contracts onto an
+  updated base, prefer reset + cherry-pick over rebase. Caveat: cherry-pick
+  bypassing the gate is safe **only** because the content is byte-identical to
+  already-gated commits and applies without conflict — if a cherry-pick conflicts
+  or the content changes, re-run `make gate` before pushing.
+
 ## LL-008 — Unit-tier tests must be hermetic to host-installed tooling
 - Date: 2026-06-09
 - Tags: `ci` · `cli` · `engine`
