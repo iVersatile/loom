@@ -18,6 +18,11 @@ import (
 // absent — letting the next build detect "exists but not converged" (ADR-0011).
 const provisionSentinel = "/var/lib/loom/provisioned"
 
+// provisionAttempts bounds how many times the whole provision exec is retried on
+// a transient failure (a constrained-VM kill). The script is idempotent, so a
+// retry is safe; bounded so a deterministic failure can't spin.
+const provisionAttempts = 2
+
 // ToolInstall is one resolved tool the container must provision, with its source.
 type ToolInstall struct {
 	Name   string
@@ -187,10 +192,22 @@ func provision(name, script string, logw io.Writer) error {
 	if out, err := dockerLogged(logw, "cp", tmp.Name(), name+":/tmp/loom-provision.sh"); err != nil {
 		return fmt.Errorf("cp provision: %v: %s", err, out)
 	}
-	if out, err := dockerLogged(logw, "exec", name, "sh", "/tmp/loom-provision.sh"); err != nil {
-		return fmt.Errorf("provision: %v: %s", err, out)
+	// The script is idempotent and retries its own flaky steps internally; this
+	// outer loop covers a transient kill of the whole exec (e.g. a SIGKILL/137 on
+	// a memory-pressured VM) by re-running the script fresh before giving up. A
+	// deterministic failure still fails — bounded so it can't spin (ADR-0011).
+	var lastErr error
+	for attempt := 1; attempt <= provisionAttempts; attempt++ {
+		out, err := dockerLogged(logw, "exec", name, "sh", "/tmp/loom-provision.sh")
+		if err == nil {
+			return nil
+		}
+		lastErr = fmt.Errorf("provision (attempt %d/%d): %v: %s", attempt, provisionAttempts, err, out)
+		if logw != nil {
+			_, _ = fmt.Fprintf(logw, "provision attempt %d/%d failed (%v) — retrying\n", attempt, provisionAttempts, err)
+		}
 	}
-	return nil
+	return lastErr
 }
 
 // toolsetDigest is a stable fingerprint of the declared tool set, written into
@@ -262,27 +279,38 @@ func provisionScript(tools []ToolInstall) string {
 	var b strings.Builder
 	// set -x traces each command so a failing provision pinpoints the exact line.
 	b.WriteString("#!/bin/sh\nset -eux\nexport DEBIAN_FRONTEND=noninteractive\n")
-	b.WriteString("apt-get update\n")
+	// retry wraps flaky/network/memory-heavy steps: re-attempt with linear backoff
+	// before aborting, so a transient blip (network, a kill on a constrained VM)
+	// doesn't fail the whole provision. The full trace stays in the diagnostic log.
+	b.WriteString("retry() { n=0; until \"$@\"; do n=$((n+1)); [ \"$n\" -ge 3 ] && return 1; echo \"retry $n: $*\"; sleep $((n*3)); done; }\n")
+	// Acquire::Languages=none trims the apt package-list cache build (skips
+	// translation indices) — the step that OOMs/kills on small Docker VMs; Retries
+	// rides out network blips.
+	b.WriteString("retry apt-get -o Acquire::Languages=none -o Acquire::Retries=3 update\n")
 	pkgs := append([]string{"ca-certificates", "curl", "git", "tar"}, filterOut(apt, "git")...)
-	b.WriteString("apt-get install -y --no-install-recommends " + strings.Join(pkgs, " ") + "\n")
+	b.WriteString("retry apt-get install -y --no-install-recommends " + strings.Join(pkgs, " ") + "\n")
 	b.WriteString("apt-get clean && rm -rf /var/lib/apt/lists/*\n")
 
 	if needGo {
 		b.WriteString(`ARCH="$(dpkg --print-architecture)"
-GOVER="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)"
-curl -fsSL "https://go.dev/dl/${GOVER}.linux-${ARCH}.tar.gz" -o /tmp/go.tgz
+GOVER="$(retry curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)"
+retry curl -fsSL "https://go.dev/dl/${GOVER}.linux-${ARCH}.tar.gz" -o /tmp/go.tgz
 rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz && rm -f /tmp/go.tgz
 export PATH="$PATH:/usr/local/go/bin:/root/go/bin"
 echo 'export PATH=$PATH:/usr/local/go/bin:/root/go/bin' >> /root/.profile
-# Limit compile parallelism so memory-heavy installs (gopls) fit a small VM.
-export GOFLAGS=-p=2
+# Keep memory-heavy installs (gopls) alive on a small VM / ~7GB CI box: serialize
+# the build (-p=1, GOMAXPROCS=1) and cap the Go heap (GOMEMLIMIT) so the GC stays
+# under the ceiling instead of OOMing. Trades build speed for survival.
+export GOFLAGS=-p=1
+export GOMAXPROCS=1
+export GOMEMLIMIT=1GiB
 `)
 	}
 	for _, m := range goInstall {
-		b.WriteString("go install " + m + "\n")
+		b.WriteString("retry go install " + m + "\n")
 	}
 	if needUv {
-		b.WriteString("curl -fsSL https://astral.sh/uv/install.sh | sh\n")
+		b.WriteString("retry sh -c 'curl -fsSL https://astral.sh/uv/install.sh | sh'\n")
 	}
 	// Make bash load the materialized per-project prompt from ~/.bashrc.d.
 	b.WriteString("grep -q bashrc.d /root/.bashrc 2>/dev/null || " +

@@ -166,6 +166,28 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 	}
 }
 
+// TestProvisionScriptResilience pins the constrained-VM hardening (ADR-0011/0012):
+// flaky steps are retried and the memory-heavy apt + Go steps are bounded so a
+// ~7GB CI box (or a small Docker Desktop VM) survives provisioning.
+func TestProvisionScriptResilience(t *testing.T) {
+	s := provisionScript([]ToolInstall{
+		{Name: "git", Source: "apt"},
+		{Name: "gopls", Source: "go-install"},
+	})
+	for _, want := range []string{
+		"retry()",                         // the retry helper is defined
+		"Acquire::Languages=none",         // trimmed apt cache build (the OOM step)
+		"retry apt-get",                   // apt is retried
+		"retry go install",                // go install is retried
+		"GOMEMLIMIT=1GiB", "GOMAXPROCS=1", // bounded Go memory footprint
+		"GOFLAGS=-p=1", // serialized compile
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("provision script missing resilience guard %q\n---\n%s", want, s)
+		}
+	}
+}
+
 // TestProvisionSentinelMatchesDigest pins the reconcile contract (ADR-0011): the
 // script writes, as its last step, exactly the toolset digest the runtime compares
 // on re-build — so "fully provisioned" is distinguishable from "interrupted".
