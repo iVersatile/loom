@@ -29,14 +29,23 @@ type ToolInstall struct {
 	Source string
 }
 
+// AgentInstall is one resolved agent harness the container must install, with its
+// install mechanism. Phase 1: claude-code via its native installer (no Node).
+type AgentInstall struct {
+	Name   string
+	Source string
+}
+
 // ContainerSpec describes the container build wants to converge to.
 type ContainerSpec struct {
 	Name      string
 	BaseImage string
-	Tools     []ToolInstall // resolved tools to install, by source
-	HomeDir   string        // host staging dir seeding the container $HOME
-	Force     bool          // rebuild from scratch even if the container exists
-	LogW      io.Writer     // diagnostic log sink for raw docker/provision output
+	Tools     []ToolInstall  // resolved tools to install, by source
+	Agents    []AgentInstall // resolved agent harnesses to install (T8)
+	Env       []string       // env var NAMES passed through at run; values from host (RULES: no secret values in code/lock/logs)
+	HomeDir   string         // host staging dir seeding the container $HOME
+	Force     bool           // rebuild from scratch even if the container exists
+	LogW      io.Writer      // diagnostic log sink for raw docker/provision output
 }
 
 // dockerLogged runs a docker command, tees its combined output to logw (when
@@ -102,7 +111,7 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return ContainerInfo{}, fmt.Errorf("docker not available: %w", err)
 	}
-	want := toolsetDigest(spec.Tools)
+	want := provisionDigest(spec.Tools, spec.Agents)
 	exists := exec.Command("docker", "container", "inspect", spec.Name).Run() == nil
 	if exists && spec.Force {
 		// --force: rebuild from scratch — remove the existing container first.
@@ -124,15 +133,20 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 				return ContainerInfo{}, fmt.Errorf("docker cp home (reconcile): %v: %s", err, out)
 			}
 		}
-		if len(spec.Tools) > 0 {
-			if err := provision(spec.Name, provisionScript(spec.Tools), spec.LogW); err != nil {
+		if len(spec.Tools) > 0 || len(spec.Agents) > 0 {
+			if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), spec.LogW); err != nil {
 				return ContainerInfo{}, err
 			}
 		}
 		return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "converged"}, nil
 	}
-	if out, err := dockerLogged(spec.LogW, "run", "-d", "--name", spec.Name,
-		spec.BaseImage, "sleep", "infinity"); err != nil {
+	// Env passthrough (-e NAME, no value) lets docker forward the value from loom's
+	// own environment at run time; values never enter loom's code, lock, image, or
+	// logs (RULES). Set at create only — docker can't add env to a live container,
+	// so changing env needs --force (a fresh container).
+	runArgs := append([]string{"run", "-d", "--name", spec.Name}, envArgs(spec.Env)...)
+	runArgs = append(runArgs, spec.BaseImage, "sleep", "infinity")
+	if out, err := dockerLogged(spec.LogW, runArgs...); err != nil {
 		return ContainerInfo{}, fmt.Errorf("docker run: %v: %s", err, out)
 	}
 	if spec.HomeDir != "" {
@@ -140,8 +154,8 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 			return ContainerInfo{}, fmt.Errorf("docker cp home: %v: %s", err, out)
 		}
 	}
-	if len(spec.Tools) > 0 {
-		if err := provision(spec.Name, provisionScript(spec.Tools), spec.LogW); err != nil {
+	if len(spec.Tools) > 0 || len(spec.Agents) > 0 {
+		if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), spec.LogW); err != nil {
 			return ContainerInfo{}, err
 		}
 	}
@@ -225,13 +239,20 @@ func containerRunning(name string) bool {
 // toolsetDigest is a stable fingerprint of the declared tool set, written into
 // the container as the provision sentinel and compared on re-build. Order-stable
 // (sorted) so a reordered playbook does not look like drift. Empty set ⇒ "".
-func toolsetDigest(tools []ToolInstall) string {
-	if len(tools) == 0 {
+// provisionDigest is the sentinel value: a stable hash of the exact tool AND agent
+// set the last completed provision installed (T8 folds agents in, so adding or
+// removing an agent re-provisions, not just a tool change). Order-stable; empty
+// when there is nothing to provision.
+func provisionDigest(tools []ToolInstall, agents []AgentInstall) string {
+	if len(tools) == 0 && len(agents) == 0 {
 		return ""
 	}
-	lines := make([]string, len(tools))
-	for i, t := range tools {
-		lines[i] = t.Name + "|" + t.Source
+	lines := make([]string, 0, len(tools)+len(agents))
+	for _, t := range tools {
+		lines = append(lines, "tool|"+t.Name+"|"+t.Source)
+	}
+	for _, a := range agents {
+		lines = append(lines, "agent|"+a.Name+"|"+a.Source)
 	}
 	sort.Strings(lines)
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
@@ -267,7 +288,7 @@ func containerName(project string) string {
 // tarball for the toolchain, `go install` for Go-distributed tools, the uv
 // installer for uv. Run on a minimal debian:bookworm-slim, so it installs its own
 // prerequisites (ca-certificates, curl) first.
-func provisionScript(tools []ToolInstall) string {
+func provisionScript(tools []ToolInstall, agents []AgentInstall) string {
 	var apt, goInstall []string
 	var needGo, needUv bool
 	for _, t := range tools {
@@ -324,6 +345,13 @@ export GOMEMLIMIT=1GiB
 	if needUv {
 		b.WriteString("retry sh -c 'curl -fsSL https://astral.sh/uv/install.sh | sh'\n")
 	}
+	// Install declared agent harnesses (T8). claude-code's native installer needs
+	// no Node; it lands at ~/.local/bin, so put that on PATH for both login
+	// (.profile) and interactive (.bashrc) shells (ties to T4's PATH split).
+	for _, a := range agents {
+		b.WriteString(agentInstallCmd(a))
+	}
+
 	// Make bash load the materialized per-project prompt from ~/.bashrc.d.
 	b.WriteString("grep -q bashrc.d /root/.bashrc 2>/dev/null || " +
 		"echo 'for f in ~/.bashrc.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done' >> /root/.bashrc\n")
@@ -331,8 +359,39 @@ export GOMEMLIMIT=1GiB
 	// tool set so a re-build can tell "fully provisioned" from "interrupted"
 	// (ADR-0011). set -e above guarantees we never reach here on a failed install.
 	fmt.Fprintf(&b, "mkdir -p %s\n", filepath.Dir(provisionSentinel))
-	fmt.Fprintf(&b, "printf '%%s' '%s' > %s\n", toolsetDigest(tools), provisionSentinel)
+	fmt.Fprintf(&b, "printf '%%s' '%s' > %s\n", provisionDigest(tools, agents), provisionSentinel)
 	return b.String()
+}
+
+// agentInstallCmd emits the provision step that installs one agent harness and
+// puts it on PATH. Unknown agents (no installer yet) emit nothing — they are
+// still recorded in the provision digest so the intent is tracked.
+func agentInstallCmd(a AgentInstall) string {
+	switch a.Name {
+	case "claude-code":
+		const localBin = "$PATH:$HOME/.local/bin"
+		return "retry sh -c 'curl -fsSL https://claude.ai/install.sh | bash'\n" +
+			"grep -q '.local/bin' /root/.profile 2>/dev/null || echo 'export PATH=" + localBin + "' >> /root/.profile\n" +
+			"grep -q '.local/bin' /root/.bashrc 2>/dev/null || echo 'export PATH=" + localBin + "' >> /root/.bashrc\n"
+	default:
+		return ""
+	}
+}
+
+// envArgs turns declared env var NAMES into `docker run -e NAME` passthrough args.
+// Only the name is passed, so docker forwards the value from loom's own
+// environment at run time — the value never enters loom's code, lock, image, or
+// logs (RULES: no secrets in code/logs). Docker drops names that are unset, so
+// the arg list stays deterministic regardless of which secrets are present.
+func envArgs(env []string) []string {
+	args := make([]string, 0, len(env)*2)
+	for _, name := range env {
+		if name == "" {
+			continue
+		}
+		args = append(args, "-e", name)
+	}
+	return args
 }
 
 // goModule maps a go-install tool name to its module path.
