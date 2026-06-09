@@ -16,6 +16,7 @@ choices.
 - ADR-0008 — Engine language: Go (thin POSIX-sh bootstrap)
 - ADR-0009 — Phase 1 dogfood stack is Go (Python/TS → Phase 2)
 - ADR-0010 — Two logs: audit (what) + diagnostic (how)
+- ADR-0011 — build reconciles by a provision sentinel (presence ≠ converged)
 
 ## Template
 

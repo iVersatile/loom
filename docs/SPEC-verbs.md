@@ -61,6 +61,10 @@ Materialize the playbook into reality: resolve intent → write lockfile → pro
 container(s) (one per project, shared base image) + the two-tier config.
 
 - Idempotent: re-running converges; already-correct items are no-ops.
+- **Presence is not convergence (ADR-0011):** an existing container that is
+  under-provisioned (a prior build interrupted mid-provision) or whose tool set
+  drifted is *re-provisioned* back to the playbook — container status `converged`,
+  audit action `container.reconcile` — not left wedged for `--force` to clear.
 - Writes/updates `loom.lock`.
 - Flags: `--force` (rebuild from scratch), `--stack`/`--overlay` (first scaffold
   only; thereafter read from the project playbook).
@@ -69,7 +73,8 @@ container(s) (one per project, shared base image) + the two-tier config.
 // loom build --json (shape)
 { "resolved": { "tools": { "ruff": {"resolved":"0.5.2","source":"uv"} } },
   "lock_written": true,
-  "container": {"name":"loom-loom-dev","image":"...@sha256:...","status":"created"},
+  "container": {"name":"loom-loom-dev","image":"...@sha256:...","status":"created"},  // status: created | exists | converged
+
   "materialized": ["~/.claude/settings.json","~/.claude/statusline.sh","~/.bashrc.d/10-prompt.sh"],
   "actions": ["<audit-entry-id>", "..."],
   "result": "created" }   // created | converged | noop
@@ -169,3 +174,10 @@ verb's `--json` output carries the entry ids written during that run.
 ## Open questions
 
 1. Should `plan` check-mode (`exit 2`) be the default in CI contexts?
+2. **Self-lifecycle continuity:** when the operating agent runs *inside* the
+   container, how does `teardown`/restart preserve and rehydrate the agent's
+   task-on-hand context? Candidate shape: task state lives on a durable surface
+   outside the container (host-mounted state dir / git / the cloud durable store,
+   ADR-0007), the agent checkpoints before a self-initiated down, and `build`
+   (or `start`) exposes a rehydrate hook on bring-up. Drives toward
+   agent-debug-and-fix (PLAN Phase 3). See PLAN open items.

@@ -52,3 +52,11 @@ an agent can `plan` then `build` unattended; guardrails block a destructive test
 - Working env for building Loom: cmux on Mac attached to the Loom dev container,
   Claude Code in-container (dogfood). Verify cmux holds a long-lived exec pane;
   fallback = mount loom + claude into /usr/local/bin in-container.
+- **Agent-initiated container lifecycle with task continuity.** The agent runs
+  *inside* the container it operates on; a `teardown`/restart (even `docker stop`)
+  kills the agent and its in-flight task context (observed 2026-06-09: a
+  `docker stop devenv-dev` lost a live session mid-task). For "operable by an
+  autonomous agent, no human in the loop" to hold, the agent's task state must
+  persist **outside** the container and **rehydrate** on bring-up. Relates to
+  ADR-0007 (durable state) and the agent-debug-and-fix note (Phase 3). See the
+  spec question below.
