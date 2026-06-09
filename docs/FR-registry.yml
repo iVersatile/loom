@@ -55,7 +55,194 @@ meta:
   version: 1
   spec_sources: [docs/SPEC-verbs.md, docs/SPEC-playbook.md, docs/RULES.md]
 
-# Phase-1 seeding (the one-time bootstrap retrofit, ADR-0013) fills this list,
-# extracting FRs from the frozen verb contracts, the invariants, and the
-# guardrail hooks, each linked to a test that already passes.
-requirements: []
+# Phase-1 seed (the one-time bootstrap retrofit, ADR-0013). Each FR is extracted
+# from a frozen Phase-1 spec clause and links a passing test. `gap: ...` marks an
+# FR whose suite is being added in this same seed PR (verify reports it uncovered
+# until linked).
+requirements:
+
+  # --- Behavioral: detect (SPEC-verbs#detect) ---
+  - id: FR-DETECT-001
+    kind: behavioral
+    statement: detect is read-only and emits --json with keys tools, agents, credentials, projects, drift.
+    source: SPEC-verbs.md#detect
+    tests: [cli.TestDetectJSONContract, engine.TestDetectJSONKeys]
+    status: active
+  - id: FR-DETECT-002
+    kind: behavioral
+    statement: detect computes per-tool drift (want vs have).
+    source: SPEC-verbs.md#detect
+    tests: [engine.TestDetectComputesDrift]
+    status: active
+
+  # --- Behavioral: plan (SPEC-verbs#plan) ---
+  - id: FR-PLAN-001
+    kind: behavioral
+    statement: plan never mutates; exits 2 on drift, 0 when converged.
+    source: SPEC-verbs.md#plan
+    tests: [engine.TestPlanDriftAndConverged, cli.TestPlanEmitsJSONAndExitCode]
+    status: active
+  - id: FR-PLAN-002
+    kind: behavioral
+    statement: plan emits a --json state document (the diff).
+    source: SPEC-verbs.md#plan
+    tests: [engine.TestPlanChanged, cli.TestPlanEmitsJSONAndExitCode]
+    status: active
+
+  # --- Behavioral: build (SPEC-verbs#build) ---
+  - id: FR-BUILD-001
+    kind: behavioral
+    statement: build resolves intent then writes loom.lock with resolved pins.
+    source: SPEC-verbs.md#build
+    tests: [engine.TestBuildWritesLockMaterializesAndAudits]
+    status: active
+  - id: FR-BUILD-002
+    kind: behavioral
+    statement: build materializes $HOME dotfiles that survive a rebuild.
+    source: SPEC-verbs.md#build
+    tests: [engine.TestE2EBuildAndSurviveRebuild]
+    status: active
+  - id: FR-BUILD-003
+    kind: behavioral
+    statement: build pins the base image by manifest-list digest.
+    source: SPEC-verbs.md#build
+    tests: [engine.TestBuildPinsBaseDigest]
+    status: active
+  - id: FR-BUILD-004
+    kind: behavioral
+    statement: build reconciles an under-provisioned or drifted container (presence is not convergence, ADR-0011).
+    source: SPEC-verbs.md#build
+    tests: [engine.TestProvisionSentinelMatchesDigest, engine.TestNeedsReprovision, engine.TestE2EBuildAndSurviveRebuild]
+    status: active
+  - id: FR-BUILD-005
+    kind: behavioral
+    statement: build is recoverable; lock and materialize persist even if the container step fails.
+    source: SPEC-verbs.md#build
+    tests: [engine.TestBuildContainerErrorAfterLock]
+    status: active
+
+  # --- Behavioral: teardown (SPEC-verbs#teardown) ---
+  - id: FR-TEARDOWN-001
+    kind: behavioral
+    statement: teardown removes by tier (stop|volumes|reset) and rejects invalid levels.
+    source: SPEC-verbs.md#teardown
+    tests: [engine.TestTeardownRemovesAndAudits, cli.TestTeardownValidLevels, cli.TestTeardownInvalidLevel]
+    status: active
+  - id: FR-TEARDOWN-002
+    kind: behavioral
+    statement: the reset/wipe tier requires explicit confirmation.
+    source: SPEC-verbs.md#teardown
+    tests: [engine.TestWipeProjectRequiresConfirmation, engine.TestWipeProjectWithConfirmation]
+    status: active
+
+  # --- Behavioral: doctor (SPEC-verbs#doctor) ---
+  - id: FR-DOCTOR-001
+    kind: behavioral
+    statement: doctor reports environment checks (ok/missing).
+    source: SPEC-verbs.md#doctor
+    tests: [engine.TestDoctorChecks, engine.TestDoctorMissingTool]
+    status: active
+
+  # --- AI-first invariants (RULES §5; global, parametrized suite) ---
+  - id: FR-INV-001
+    kind: invariant
+    statement: every verb emits human plus --json output.
+    source: RULES.md#§5
+    tests: { suite: cli.TestSpecConformance, covers: [detect, plan, build, teardown] }
+    status: active
+  - id: FR-INV-002
+    kind: invariant
+    statement: every mutating verb is audit-logged and diagnostic-logged.
+    source: RULES.md#§5
+    tests: { suite: engine.TestMutatingVerbsAreObservable, covers: [build, teardown] }
+    status: active
+  - id: FR-INV-003
+    kind: invariant
+    statement: every mutating verb is idempotent; re-running converges.
+    source: RULES.md#§5
+    tests: { suite: engine.TestMutatingVerbsIdempotent, covers: [build, teardown] }
+    status: active
+  - id: FR-INV-004
+    kind: invariant
+    statement: the unit gate is hermetic; same result regardless of host tooling/env (local equals CI).
+    source: RULES.md#§5
+    tests: [guard.TestGateIsHermetic]
+    status: active
+
+  # --- Guardrails (per-hook; test = the hook's full pattern suite) ---
+  - id: FR-GUARD-BASH
+    kind: guardrail
+    statement: guard-bash blocks its defined class of dangerous bash and allows benign commands.
+    source: [RULES.md#§5, config/hooks/guard-bash]
+    tests: { suite: guard.TestGuardBashBlocksDangerousAllowsBenign, patterns: all }
+    status: active
+  - id: FR-GUARD-BRANCH
+    kind: guardrail
+    statement: branch-guard blocks commits on main and allows the audited override and feature branches.
+    source: [RULES.md#§1, config/hooks/branch-guard]
+    tests: { suite: guard.TestBranchGuardBlocksMainAllowsOverrideAndBranch, patterns: all }
+    status: active
+  - id: FR-GUARD-PROTECT-PATHS
+    kind: guardrail
+    statement: protect-paths blocks staged frozen-contract changes absent an audited override.
+    source: [RULES.md#§2, config/hooks/protect-paths]
+    tests: { suite: guard.TestProtectPathsBlocksFrozenContract, patterns: all }
+    status: active
+
+  # --- Schema / resolution (SPEC-playbook; one per merge/resolution rule) ---
+  - id: FR-SCHEMA-001
+    kind: schema
+    statement: layer merge order is base->stack->overlay, later-wins for whole files.
+    source: SPEC-playbook.md#layer-resolution
+    tests: [playbook.TestLoadMergesLayers, playbook.TestMergeScalarLastNonEmptyWins]
+    status: active
+  - id: FR-SCHEMA-002
+    kind: schema
+    statement: lists concatenate and dedup across layers (rules union is this rule applied to rules).
+    source: SPEC-playbook.md#layer-resolution
+    tests: [playbook.TestMergeListsConcatAndDedup]
+    status: active
+  - id: FR-SCHEMA-003
+    kind: schema
+    statement: an empty or absent later scalar does not clobber an earlier value.
+    source: SPEC-playbook.md#layer-resolution
+    tests: [playbook.TestMergeEmptyScalarDoesNotClobber]
+    status: active
+  - id: FR-SCHEMA-004
+    kind: schema
+    statement: YAML is authored; JSON is also accepted on input (parser reads either).
+    source: SPEC-playbook.md#frozen-decisions
+    tests: [playbook.TestParseYAMLAndJSONAgree]
+    status: active
+  - id: FR-SCHEMA-005
+    kind: schema
+    statement: the lockfile records per-tool (intent/resolved/digest/source) AND the base-image digest.
+    source: SPEC-playbook.md#lockfile
+    tests: [resolver.TestResolutionToLock, lock.TestWriteReadRoundTrip, engine.TestBuildPinsBaseDigest]
+    status: active
+  - id: FR-SCHEMA-006
+    kind: schema
+    statement: config source resolves a local tree, rejects path-escape, and rejects unsupported types (git is Phase 2).
+    source: SPEC-playbook.md#base-playbook
+    tests: [source.TestResolveLocalReadsTree, source.TestResolvePathEscapeRejected, source.TestResolveGitUnsupported, source.TestResolveUnknownType]
+    status: active
+  - id: FR-SCHEMA-007
+    kind: schema
+    statement: dotfiles resolve by layer; a later tier referencing the same target path replaces the earlier file (whole-file).
+    source: SPEC-playbook.md#layer-resolution
+    tests: [engine.TestDotfilesLaterTierReplacesSameTarget]
+    status: active
+
+  # --- Logs (SPEC-verbs action log + diagnostic log, ADR-0010) ---
+  - id: FR-LOG-001
+    kind: behavioral
+    statement: mutating verbs append one structured audit entry per mutation (the action log).
+    source: SPEC-verbs.md#action-log
+    tests: [audit.TestAppendWritesJSONLAndIDs, audit.TestOpenContinuesSequence, engine.TestMutatingVerbsAreObservable]
+    status: active
+  - id: FR-LOG-002
+    kind: behavioral
+    statement: mutating verbs produce a per-verb diagnostic log.
+    source: SPEC-verbs.md#diagnostic-log
+    tests: [engine.TestMutatingVerbsAreObservable]
+    status: active

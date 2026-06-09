@@ -25,6 +25,19 @@ jobs:
       - name: Gate (format, vet, lint, spec-conformance, unit tests, secrets)
         run: make gate
 
+  # FR traceability (ADR-0013): blocking at the merge boundary; advisory locally
+  # via `make fr-verify` (kept out of the per-commit gate). Inherits the top-level
+  # contents:read — no job-level permissions block (LL-007).
+  fr-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: FR traceability (spec <-> FR <-> test)
+        run: make fr-verify
+
   # Mirror the multi-arch base image to ghcr (manifest copy preserves the
   # manifest-list digest). Keeps integration pulls off Docker Hub's rate limit.
   mirror-base:
