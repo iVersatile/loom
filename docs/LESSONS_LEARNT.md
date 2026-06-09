@@ -6,6 +6,23 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud`
 
+## LL-006 — Hook/guardrail tests must not inherit the ambient override env
+- Date: 2026-06-09
+- Tags: `ci` · `engine`
+- Symptom: `guard.TestProtectPathsBlocksFrozenContract` failed only inside a
+  `ALLOW_SPEC_CHANGE=1 git commit …` (the pre-commit gate), not in a bare
+  `make test`. Earlier spec commits passed only because `go test` had the guard
+  result **cached**; `-count=1` runs exposed it.
+- Root cause: `runHook` built the child env as `append(os.Environ(), …)`, so the
+  ambient `ALLOW_SPEC_CHANGE` leaked into the "should BLOCK" case — the protect-
+  paths guard's own test defeated by the very override it polices. The go test
+  cache (which ignores runtime `os.Getenv`) masked the non-determinism.
+- Fix: `runHook` strips `ALLOW_*` from the inherited env (`withoutOverrides`); an
+  override now only takes effect when a test passes it explicitly.
+- Prevention: tests that exec real hooks/tools must control the override
+  environment explicitly and never inherit it; don't trust a cached PASS for a
+  test whose behaviour depends on `os.Getenv`.
+
 ## LL-001 — A signal number says *how* a process died, not *why*
 - Date: 2026-06-09
 - Tags: `engine` · `ci`

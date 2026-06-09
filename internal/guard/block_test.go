@@ -24,8 +24,26 @@ func absHook(t *testing.T, name string) string {
 func runHook(dir string, env []string, args ...string) error {
 	c := exec.Command("sh", args...)
 	c.Dir = dir
-	c.Env = append(os.Environ(), env...)
+	// Hermetic: the audited ALLOW_* overrides must come ONLY from the test's
+	// explicit env, never leak in from the ambient shell. Otherwise running the
+	// suite under `ALLOW_SPEC_CHANGE=1 git commit ...` would make a "should BLOCK"
+	// assertion silently pass — the spec guard's own test defeated by the override
+	// it polices. Strip them from the inherited env first (LL-006).
+	c.Env = append(withoutOverrides(os.Environ()), env...)
 	return c.Run()
+}
+
+// withoutOverrides drops audited ALLOW_* override vars from an environment so a
+// hook test only sees the overrides a case passes explicitly.
+func withoutOverrides(env []string) []string {
+	out := env[:0:0]
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "ALLOW_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 func newGitRepo(t *testing.T, branch string) string {
