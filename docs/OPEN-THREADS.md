@@ -304,3 +304,163 @@ the home-sync fix should not depend on tools being present.
 Promote to: an engine bugfix (home-drift reconcile) + a status-accuracy fix, with a
 regression test (dotfile edit on an existing container → file present in container,
 status reflects it); FR once `verify` covers the build reconcile path.
+
+---
+
+## T8 — `agents:` are declared but never installed   🟡 open
+Origin: the container loom builds (`loom-loom-dev`) has the materialized `.claude/`
+config but **no `claude` binary** — investigating why the statusline/agent config
+was inert revealed agents are never provisioned.
+
+**Root cause (confirmed).** `ContainerSpec.Tools` is fed by `toolInstalls()`, which
+copies only `resolution.Tools` — **agents are excluded** (`internal/engine/build.go:178-184`).
+Agents are *only detected* (presence-probed, `internal/engine/detect.go:68-70`),
+never installed. So `agents: [claude-code]` (base playbook) produces nothing; the
+lock records `claude-code.resolved: ""`. The container has agent config without the
+agent program.
+
+**Why it matters.** This is the capability gap that makes `loom-loom-dev` an
+uninhabitable dev env: the whole AI-first premise (ADR-0005) is that the container
+hosts the agent, but loom installs none. Blocks "actually use the loom container."
+
+**Scope also needs credentials.** A `claude` binary still needs auth to run. The
+`devenv` sandbox gets this by bind-mounting the Mac's `~/.claude` (creds + settings).
+loom must either bind-mount `~/.claude` creds or inject a token via the secret store
+— **no baked secrets** (RULES). Installing the binary without solving creds is half
+a fix.
+
+**Options.**
+1. Provision agents like tools: add an agent install path (per-agent source — npm/
+   curl installer for claude-code, etc.), pin in the lock (`resolved`/`digest`),
+   gate reinstall on an agent-set digest (cf. toolset digest).
+2. Bind-mount the host agent install + `~/.claude` into the container instead of
+   installing (lighter; mirrors how `devenv` works today).
+3. Hybrid: install the binary (1), mount only credentials (2).
+
+Lean: (3) — own the binary so the container is self-contained, mount only secrets.
+Promote to: an engine capability + a creds decision (possibly an ADR — interacts
+with ADR-0005 and the secret-store design); FR once `verify` covers agent install.
+
+---
+
+## T9 — no verb to enter the container (`shell`/`enter`)   🟡 open
+Origin: after `build`, there is no loom-native way to get *into* `loom-loom-dev`;
+the user fell back to a separate sandbox.
+
+**Observation.** Verbs are `build / plan / detect / teardown / doctor`
+(`cmd/loom/main.go`) — none open a shell in the container. The container is built
+but has no door, so the materialized env (dotfiles, tools, future agent) is
+unreachable through loom. Today the only way in is raw `docker exec -it
+loom-loom-dev …`.
+
+**Why it matters.** "Container as dev env" requires an ergonomic entry point. Raw
+`docker exec` works as a stopgap (so this does *not* block first use), but a verb is
+what makes the loop loom-native and lets loom control the entry user/shell/env (ties
+to T10 non-root and T8 agent).
+
+**Note: this is a new verb = a contract change.** Per RULES §2 / §5 (C3), a new
+SPEC-verbs entry must be **human-authored** (the AI must not author core specs). So
+this thread captures the need + shape; the spec clause + ADR are a human step.
+
+**Options.** `loom shell` (interactive `docker exec -it <user> bash -l`) vs `loom
+enter` vs `loom exec -- <cmd>` (one-shot). Lean: `loom shell` for interactive +
+`loom exec --` for scripted, both honoring the non-root user (T10) and `--json` where
+sensible (RULES §5 human+json — though an interactive shell is exempt).
+Promote to: a SPEC-verbs addition (human-authored) + ADR + engine impl + FR.
+
+---
+
+## T10 — container runs as root; should be a non-root `dev` user   🟡 open
+Origin: `loom-loom-dev` is `root@/root` (confirmed `docker exec … whoami` → root),
+which is why dotfiles materialize to `/root` and the home-target confusion arose.
+
+**Observation.** The base image (`debian:bookworm-slim`) defaults to root; loom does
+no user setup and hardcodes `/root` as the home (`container.go` cp to `:/root/`,
+provision writes `/root/.bashrc`/`.profile`). Running an interactive dev container as
+root is a hygiene/security smell and diverges from the `devenv` sandbox (non-root
+`dev`, `HOME=/home/dev`) the user is accustomed to.
+
+**Why it matters.** A non-root `dev` user (uid 1000, `HOME=/home/dev`) would: match
+conventional dev containers, reduce blast radius, align with `devenv`, and make the
+home-target explicit instead of an implicit `/root` assumption. It interacts with
+T8 (agent + creds land in the user's home) and the materialize path (must target the
+user's `$HOME`, parameterized, not hardcoded `/root`).
+
+**Options.**
+1. Create a `dev` user in provision; set `HOME=/home/dev`; parameterize materialize/
+   provision on the resolved home; `docker exec` as `dev`.
+2. Keep root for Phase 1 (simplest) and revisit — but this perpetuates the smell and
+   the `/root` hardcode.
+
+Lean: (1), bundled with T8/T9 so the inhabit-the-container work lands coherently.
+Promote to: an engine change (user + parameterized home) + an ADR note (container
+user policy); FR once covered.
+
+---
+
+## T11 — container name `loom-loom-dev` is awkward (doubled "loom")   🟢 recommendation
+Origin: the dogfood container is named `loom-loom-dev`; the doubled "loom" reads
+badly and the user wants `loom-dev`.
+
+**Cause.** `containerName(project) = "loom-" + project + "-dev"`
+(`internal/engine/container.go:261-262`). With the loom project's `name: loom`, the
+`loom-` prefix collides with the project name → `loom-loom-dev`. For other projects
+it's fine (`loom-prompiler-dev`); the doubling is specific to loom-on-loom.
+
+**Recommendation.** Drop the name-prefix as the namespacing mechanism; name the
+container `<project>-dev` (→ **`loom-dev`**, `prompiler-dev`) and move the
+"loom-managed" marker to a **docker label** (e.g. `loom.project=<name>`,
+`loom.managed=true`). Benefits: no doubling, still discoverable
+(`docker ps --filter label=loom.managed`), and decouples identity from display name.
+Migration: a rename is a new container identity — `teardown` the old + `build` the
+new, or a one-time `docker rename`; note the action log + any `detect` that keys on
+the name.
+
+Options: (a) `<project>-dev` + labels [lean]; (b) keep prefix but de-dupe when
+`project == "loom"` (hacky, special-case); (c) `loom/<project>` (slashes are
+awkward in container names). 
+Promote to: an engine change (name template + labels) + a note in ADR-0001 (naming/
+namespacing convention); FR once covered.
+
+---
+
+## T12 — retire `devenv`; make `loom-dev` the single dev container   🟢 decision drafted
+Origin: clarifying the three-environment confusion (Mac host / `devenv` / the loom
+container). **Decision direction (user):** archive `devenv`, later remove it.
+
+**Facts established this session.**
+- This interactive/agent session runs in a container named **`devenv`** (not the
+  loom container): `/.dockerenv` present, `linuxkit` kernel, `dev@/home/dev`,
+  Debian 12. It **bind-mounts the Mac's** `~/.claude`, `~/.gemini`, `~/.codex`,
+  `~/.gitconfig`(ro), and `/Users`→`/workspace` (Docker Desktop file share).
+- `devenv` has **no docker** (no binary, no socket) and **has go** + the agent
+  harnesses + linuxbrew tools.
+- `loom-loom-dev` (the loom container) is `root@/root`, has tools but **no agent**
+  (T8) and **no entry verb** (T9).
+
+**Why `devenv` is redundant (agreed).** My earlier "devenv = outer bootstrap" framing
+was **wrong**: `loom build` needs docker, which `devenv` lacks, so the build does
+*not* run here — it runs on the **Mac host** (docker + the cross-compiled
+`loom-darwin-arm64`). So `devenv` is neither the build host nor (post-amendment) the
+dev env. Its two real roles — *run the agent* and *provide the go toolchain* — both
+move to `loom-dev`: go is already a loom-dev tool (`go@1.26`), and the agent arrives
+with T8.
+
+**Exit criteria before deleting `devenv` (not just archiving).**
+1. T8 — `loom-dev` installs the agent + has working credentials.
+2. T9 — an entry path exists (verb, or documented `docker exec -it`).
+3. The loom **dogfood loop runs in `loom-dev`**: `make gate` (unit tier; go present)
+   works; integration tier stays on **CI** (already true) or `loom-dev` gains docker
+   access (DinD/socket — likely FC-001) if local integration is wanted.
+4. Credentials/config that `devenv` got via Mac bind-mounts are reproduced in
+   `loom-dev` (T8 creds decision).
+
+**Counter-argument considered & rejected:** "keep `devenv` to compile the loom
+engine (Mac has no go)." Rejected because `loom-dev` already declares `go@1.26`, so
+it can build the engine and run the unit gate itself; integration is a CI concern.
+Once 1–4 hold, `devenv` adds nothing.
+
+**Sequencing:** archive now (stop investing in it; document it as legacy), remove
+after T8+T9 land and the dogfood loop is proven in `loom-dev`.
+Promote to: an ADR recording the single-dev-container model + `devenv` retirement
+(human-authored, since it touches the env/topology decision), once exit criteria met.
