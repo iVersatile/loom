@@ -24,6 +24,9 @@ Source of truth for contributors (human and AI). Numbered for citation.
 - Guardrails enforced by mechanism, never trust. Agents cannot weaken them.
 - Design test: "could an agent do this unattended, and would guardrails hold if
   it tried the worst thing?"
+- The unit gate is hermetic: same result regardless of host tooling/env
+  (no dependence on ambient PATH binaries, docker presence, or
+  LOOM_*/ALLOW_*). The agent's local gate equals CI.
 
 ## §6 Hard constraints
 - No hardcoded credentials. No `--dangerously-skip-permissions`, `--no-verify`,
