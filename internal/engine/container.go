@@ -1,13 +1,22 @@
 package engine
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// provisionSentinel is the in-container marker that records the digest of the
+// tool set the last *completed* provision installed. Written only at the end of
+// the provision script (after `set -eux`), so an interrupted build leaves it
+// absent — letting the next build detect "exists but not converged" (ADR-0011).
+const provisionSentinel = "/var/lib/loom/provisioned"
 
 // ToolInstall is one resolved tool the container must provision, with its source.
 type ToolInstall struct {
@@ -88,14 +97,34 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return ContainerInfo{}, fmt.Errorf("docker not available: %w", err)
 	}
-	if exec.Command("docker", "container", "inspect", spec.Name).Run() == nil {
-		if !spec.Force {
-			return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "exists"}, nil
-		}
+	want := toolsetDigest(spec.Tools)
+	exists := exec.Command("docker", "container", "inspect", spec.Name).Run() == nil
+	if exists && spec.Force {
 		// --force: rebuild from scratch — remove the existing container first.
 		if out, err := exec.Command("docker", "rm", "-f", spec.Name).CombinedOutput(); err != nil {
 			return ContainerInfo{}, fmt.Errorf("docker rm (force): %v: %s", err, out)
 		}
+		exists = false
+	}
+	if exists {
+		// Presence is not convergence (SPEC-verbs build, ADR-0011): a prior build
+		// interrupted mid-provision leaves a container that exists but lacks the
+		// toolchain. Compare the provision sentinel; if missing or stale, re-seed
+		// $HOME and re-run the idempotent provision to converge ("converged").
+		if !needsReprovision(readProvisionDigest(spec.Name), want) {
+			return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "exists"}, nil
+		}
+		if spec.HomeDir != "" {
+			if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
+				return ContainerInfo{}, fmt.Errorf("docker cp home (reconcile): %v: %s", err, out)
+			}
+		}
+		if len(spec.Tools) > 0 {
+			if err := provision(spec.Name, provisionScript(spec.Tools), spec.LogW); err != nil {
+				return ContainerInfo{}, err
+			}
+		}
+		return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "converged"}, nil
 	}
 	if out, err := dockerLogged(spec.LogW, "run", "-d", "--name", spec.Name,
 		spec.BaseImage, "sleep", "infinity"); err != nil {
@@ -164,6 +193,39 @@ func provision(name, script string, logw io.Writer) error {
 	return nil
 }
 
+// toolsetDigest is a stable fingerprint of the declared tool set, written into
+// the container as the provision sentinel and compared on re-build. Order-stable
+// (sorted) so a reordered playbook does not look like drift. Empty set ⇒ "".
+func toolsetDigest(tools []ToolInstall) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	lines := make([]string, len(tools))
+	for i, t := range tools {
+		lines[i] = t.Name + "|" + t.Source
+	}
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+// needsReprovision decides whether an existing container must be re-provisioned:
+// when the wanted tool set is non-empty and its digest differs from the sentinel
+// the container carries (have=="" means no completed provision — interrupted).
+func needsReprovision(have, want string) bool {
+	return want != "" && have != want
+}
+
+// readProvisionDigest reads the in-container provision sentinel; "" if the
+// container has no fully-completed provision (file absent / unreadable).
+func readProvisionDigest(name string) string {
+	out, err := exec.Command("docker", "exec", name, "cat", provisionSentinel).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func defaultRuntime() ContainerRuntime { return dockerRuntime{} }
 
 // containerName derives the deterministic per-project container name (ADR-0001).
@@ -225,6 +287,11 @@ export GOFLAGS=-p=2
 	// Make bash load the materialized per-project prompt from ~/.bashrc.d.
 	b.WriteString("grep -q bashrc.d /root/.bashrc 2>/dev/null || " +
 		"echo 'for f in ~/.bashrc.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done' >> /root/.bashrc\n")
+	// Provision sentinel, written LAST: marks the container converged to this exact
+	// tool set so a re-build can tell "fully provisioned" from "interrupted"
+	// (ADR-0011). set -e above guarantees we never reach here on a failed install.
+	fmt.Fprintf(&b, "mkdir -p %s\n", filepath.Dir(provisionSentinel))
+	fmt.Fprintf(&b, "printf '%%s' '%s' > %s\n", toolsetDigest(tools), provisionSentinel)
 	return b.String()
 }
 

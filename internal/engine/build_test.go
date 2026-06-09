@@ -166,6 +166,52 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 	}
 }
 
+// TestProvisionSentinelMatchesDigest pins the reconcile contract (ADR-0011): the
+// script writes, as its last step, exactly the toolset digest the runtime compares
+// on re-build — so "fully provisioned" is distinguishable from "interrupted".
+func TestProvisionSentinelMatchesDigest(t *testing.T) {
+	tools := []ToolInstall{
+		{Name: "go", Source: "go-tarball"},
+		{Name: "gopls", Source: "go-install"},
+		{Name: "git", Source: "apt"},
+	}
+	d := toolsetDigest(tools)
+	if d == "" {
+		t.Fatal("digest empty for a non-empty tool set")
+	}
+	// Order-stable: a reordered playbook must not read as drift.
+	if got := toolsetDigest([]ToolInstall{tools[2], tools[0], tools[1]}); got != d {
+		t.Errorf("digest not order-stable: %q vs %q", got, d)
+	}
+	if toolsetDigest(nil) != "" {
+		t.Error("empty tool set must yield an empty digest (nothing to provision)")
+	}
+	s := provisionScript(tools)
+	if !strings.Contains(s, provisionSentinel) {
+		t.Errorf("provision script must write the sentinel %q", provisionSentinel)
+	}
+	if !strings.Contains(s, d) {
+		t.Errorf("sentinel must carry the toolset digest %q\n---\n%s", d, s)
+	}
+}
+
+func TestNeedsReprovision(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		have, want string
+		reprov     bool
+	}{
+		{"missing sentinel (interrupted)", "", "abc", true},
+		{"drifted tool set", "old", "abc", true},
+		{"converged", "abc", "abc", false},
+		{"nothing to provision", "abc", "", false},
+	} {
+		if got := needsReprovision(c.have, c.want); got != c.reprov {
+			t.Errorf("%s: needsReprovision(%q,%q)=%t want %t", c.name, c.have, c.want, got, c.reprov)
+		}
+	}
+}
+
 func countLogLines(t *testing.T, root string) int {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, ".loom", "actions.log"))

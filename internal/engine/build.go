@@ -143,7 +143,8 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 		return res, fmt.Errorf("container step: %w", err)
 	}
 	res.Container = info
-	if info.Status == "created" {
+	switch info.Status {
+	case "created":
 		changed = true
 		if id, err := log.Append(audit.Entry{
 			TS: ts, Verb: "build", Action: "container.create", Target: cname,
@@ -151,10 +152,25 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 		}); err == nil {
 			res.Actions = append(res.Actions, id)
 		}
+	case "converged":
+		// Container existed but was under-provisioned (a prior build interrupted
+		// mid-provision, ADR-0011) or drifted; the runtime re-provisioned it to the
+		// declared tool set. That is a mutation, so audit it (RULES §5).
+		changed = true
+		if id, err := log.Append(audit.Entry{
+			TS: ts, Verb: "build", Action: "container.reconcile", Target: cname,
+			After: map[string]any{"image": info.Image}, Result: "converged", Actor: "cli",
+		}); err == nil {
+			res.Actions = append(res.Actions, id)
+		}
 	}
 
-	if changed {
+	// Result enum (SPEC-verbs): a newly created container is "created"; any other
+	// convergence (lock / materialize / reconcile) is "converged" (the default).
+	if info.Status == "created" {
 		res.Result = "created"
+	} else if changed {
+		res.Result = "converged"
 	}
 	return res, nil
 }
