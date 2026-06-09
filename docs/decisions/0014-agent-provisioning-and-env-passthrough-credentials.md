@@ -1,5 +1,5 @@
 # ADR-0014 — Agent provisioning + in-container credential login
-**Date:** 2026-06-09   **Status:** Proposed (awaiting human acceptance — drafted by agent for review; see RULES §5/C3)
+**Date:** 2026-06-09   **Status:** Accepted (2026-06-09 — human acceptance via PR #7 merge instruction; drafted by agent for review per RULES §5/C3)
 
 ## Context
 The playbook declares `agents:` (e.g. `claude-code`) and `env:` (e.g.
