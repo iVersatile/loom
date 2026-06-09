@@ -1,0 +1,61 @@
+# Loom FR registry — a machine-readable projection of the specs (ADR-0013).
+#
+# spec -> FR -> test. The specs are authoritative (SPEC-verbs, SPEC-playbook, and
+# the AI-first invariants in RULES §5 / ADR-0005); every FR is an atomic, testable
+# assertion extracted from a spec clause. FRs are authored (human, or agent with
+# review), never auto-generated from spec text. This registry never originates a
+# requirement not grounded in a spec clause.
+#
+# FORMAT (locked by ADR-0013):
+#   meta.version    : registry schema version
+#   requirements[]  : one entry per FR
+#     id        : stable ID — FR-<AREA>-NNN (behavioral/schema), FR-INV-NNN
+#                 (invariant), FR-GUARD-<HOOK> (guardrail)
+#     kind      : behavioral | invariant | guardrail | schema
+#     statement : the atomic, testable assertion (one pass/fail behavior)
+#     source    : spec section citation(s) — the FR->spec joint verify checks
+#     tests     : coverage link — shape depends on kind (see below)
+#     status    : active | superseded
+#                 Coverage is AUTOMATED-ONLY (ADR-0013): no `manual`, no `waiver`.
+#                 Human testing is feedback, never an FR's coverage; an un-automatable
+#                 behavior is reclassified (automatable proxy, or downgraded to
+#                 advisory), not waived.
+#
+# COVERAGE BY KIND (the FR->test joint verify enforces):
+#   behavioral : tests: [<test>, ...]                         # >=1 passing test
+#   invariant  : tests: { suite: <parametrized suite>,        # ONE suite, not N files
+#                         covers: [<verb>, ...] }              # must exercise each verb
+#   guardrail  : tests: { suite: <hook suite>, patterns: all } # the hook's FULL pattern set
+#   schema     : tests: [<test>, ...]                         # one FR per merge/resolution rule
+#
+# SPLIT TRIGGER: move to docs/FR/<area>.yml (verbs | invariants | guardrails |
+# schema) only when this single file becomes unwieldy (ADR-0013).
+#
+# TEMPLATE SHAPES (illustrative — NOT real FRs; Phase-1 seeding adds the real set):
+#   - id: FR-BUILD-004
+#     kind: behavioral
+#     statement: build re-provisions a drifted/under-provisioned container (presence != convergence).
+#     source: SPEC-verbs.md#build              # ADR-0011
+#     tests: [engine.TestE2EBuildAndSurviveRebuild]
+#     status: active
+#   - id: FR-INV-001
+#     kind: invariant
+#     statement: every mutating verb is idempotent — re-running converges; correct items are no-ops.
+#     source: RULES.md#§5
+#     tests: { suite: engine.TestMutatingVerbsIdempotent, covers: [build, update, teardown] }
+#     status: active
+#   - id: FR-GUARD-PROTECT-PATHS
+#     kind: guardrail
+#     statement: protect-paths blocks staged changes to frozen contracts absent an audited override.
+#     source: [RULES.md#§2, config/hooks/protect-paths]
+#     tests: { suite: guard.TestProtectPaths*, patterns: all }
+#     status: active
+
+meta:
+  version: 1
+  spec_sources: [docs/SPEC-verbs.md, docs/SPEC-playbook.md, docs/RULES.md]
+
+# Phase-1 seeding (the one-time bootstrap retrofit, ADR-0013) fills this list,
+# extracting FRs from the frozen verb contracts, the invariants, and the
+# guardrail hooks, each linked to a test that already passes.
+requirements: []

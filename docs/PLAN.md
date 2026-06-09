@@ -19,6 +19,8 @@ container Loom builds.
 - Guardrails: guard-bash, branch-guard, protect-paths active.
 Exit criteria: a fresh machine reaches a working Go env in one guided run;
 an agent can `plan` then `build` unattended; guardrails block a destructive test.
+FR registry seeded from verb contracts; verify FR↔test and FR↔spec checks green
+(advisory during the phase, blocking at phase close).
 
 ## Phase 2 — Evolution + second stack
 - `update` (delta reconcile; real removal). Add a Python or TS stack to prove
