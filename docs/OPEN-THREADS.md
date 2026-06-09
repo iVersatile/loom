@@ -51,7 +51,7 @@ Implement together with T3 (it is one of the invariant FRs).
 
 ---
 
-## T3 — Phase-1 FR seeding (the bootstrap retrofit)   🟡 Q3.2 scope open
+## T3 — Phase-1 FR seeding (the bootstrap retrofit)   🟢 scope set; ADR-0013 reconciliation pending
 Origin: ADR-0013 timing / bootstrap exception. Extract FRs from the frozen Phase-1
 contracts + invariants + guardrail hooks, link existing passing tests, into
 `docs/FR-registry.yml` (currently `requirements: []`).
@@ -68,7 +68,8 @@ orphaned when a spec clause is removed).
 - **Q3.4** FR→test link is **registry-declared** (test names/suites in the YAML,
   resolved against a `go test -json` run), not in-code markers.
 
-**Q3.2 — scope — OPEN, awaiting decision.**
+**Q3.2 — scope — CONFIRMED: broad** (include the SPEC-playbook schema/resolution
+FRs; SPEC-playbook is a spec, so excluding it would blind verify's spec↔FR joint).
 - *Narrow:* SPEC-verbs behavioral FRs + the global invariants + the 3 guardrail
   hooks only.
 - *Broad [lean]:* also the **SPEC-playbook schema/resolution FRs** — one per
@@ -81,3 +82,23 @@ orphaned when a spec clause is removed).
   resolver, lock packages — high coverage), so seeding them is cheap (~5–8 FRs) and
   they are exactly the "schema/resolution" category the granularity rule calls out.
   Excluding them leaves a real Phase-1 behavior gap in the registry.
+
+**Reconciliation with ADR-0013 (conflict check).** Found before seeding:
+- **C1 — artifact (PR #2).** `FR-registry.yml` `status` enum lists `waiver`, but T1
+  banned waivers → change to `active | superseded`; record the T1 policy in the
+  header.
+- **C2 — ADR gap (PR #2, spec edit).** ADR-0013 doesn't state T1 (automated-only
+  coverage; no `manual`/`waiver`; human testing = feedback, not coverage). The
+  registry would enforce a rule the ADR omits → add a short T1 clause to ADR-0013.
+- **C3 — spec→FR violation (RULES edit).** The hermetic-gate invariant (T2/Q2.3)
+  cites *no* spec clause, but ADR-0013 forbids an FR "not grounded in a spec
+  clause" and verify's spec↔FR joint would flag it. → add the hermetic invariant to
+  **RULES §5** (a named authoritative source) FIRST, then `FR-INV-*` cites it.
+- **C4 — enforcement tiering.** "Enforced day one" (Q3.3) = advisory in `make gate`
+  + blocking at the phase/merge boundary, **never per-commit** (ADR-0013 explicit).
+- **C5 — binding interpretation.** With Q3.4 (registry-declared, no in-code
+  markers), ADR-0013's "every test cites a valid FR" is implemented as
+  inverse-lookup **orphan-test reporting** (advisory); "valid" = the FR exists.
+
+Execution order once C1–C3 are approved: spec edits first (C2, C3 — the `spec →`
+must exist before its FR), then seed FRs, then build `verify`.
