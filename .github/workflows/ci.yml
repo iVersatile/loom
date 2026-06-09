@@ -49,6 +49,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [gate, mirror-base]
     permissions:
+      # A job-level permissions block REPLACES the top-level default, so contents
+      # must be re-granted here or actions/checkout 404s ("Repository not found").
+      contents: read
       packages: read
     steps:
       - uses: actions/checkout@v4
