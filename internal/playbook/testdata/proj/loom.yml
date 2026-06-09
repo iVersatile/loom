@@ -1,0 +1,21 @@
+loom: 1
+tier: project
+name: loom
+extends: base
+stack: go
+overlay: loom
+tools:
+  - go@1.26
+rules:
+  - go/strict
+dotfiles:
+  - bash/prompt.go.sh
+ports:
+  - 8080
+env:
+  - ANTHROPIC_API_KEY
+ci:
+  - ci
+config_source:
+  type: local
+  path: ./config

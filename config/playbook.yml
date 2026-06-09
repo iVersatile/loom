@@ -1,0 +1,27 @@
+loom: 1
+tier: base
+
+# Agent harnesses available in every project's container.
+agents:
+  - claude-code
+
+# Tools shared across all projects.
+tools:
+  - git
+  - jq
+  - ripgrep
+  - gitleaks
+
+rules:
+  - common/safety
+
+# Env-wide $HOME config materialized into every container (survives rebuild).
+dotfiles:
+  - claude/settings.json
+  - claude/statusline.sh
+
+# Guardrails enforced by mechanism (ADR-0005), not trust.
+hooks:
+  - guard-bash
+  - branch-guard
+  - protect-paths

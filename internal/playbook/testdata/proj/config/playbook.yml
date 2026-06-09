@@ -1,0 +1,16 @@
+loom: 1
+tier: base
+agents:
+  - claude-code
+tools:
+  - git
+  - jq
+rules:
+  - common/safety
+dotfiles:
+  - claude/settings.json
+  - claude/statusline.sh
+hooks:
+  - guard-bash
+  - branch-guard
+  - protect-paths

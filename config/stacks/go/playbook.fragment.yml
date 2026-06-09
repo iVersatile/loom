@@ -1,0 +1,6 @@
+# Go stack fragment (ADR-0009: Phase 1 dogfood stack). Partial — no loom/tier.
+tools:
+  - go@1.26
+  - gopls
+rules:
+  - go/strict

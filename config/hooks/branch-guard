@@ -1,0 +1,17 @@
+#!/bin/sh
+# branch-guard — refuse commits on main/master unless ALLOW_MAIN_COMMIT=1
+# (RULES §1, audited). Mechanism, not trust (ADR-0005).
+set -eu
+
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo)"
+case "$branch" in
+main | master)
+	if [ "${ALLOW_MAIN_COMMIT:-0}" = "1" ]; then
+		echo "branch-guard: ALLOW_MAIN_COMMIT=1 override on $branch (audited)" >&2
+		exit 0
+	fi
+	echo "branch-guard: BLOCKED commit on $branch — use a feat/fix/docs branch (RULES §1)" >&2
+	exit 1
+	;;
+esac
+exit 0

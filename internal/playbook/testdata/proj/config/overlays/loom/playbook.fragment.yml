@@ -1,0 +1,5 @@
+# overlay fragment: most-specific layer.
+rules:
+  - loom/project
+dotfiles:
+  - bash/prompt.go.sh

@@ -1,0 +1,24 @@
+loom: 1
+tier: project
+name: loom
+
+extends: base
+stack: go
+overlay: loom
+
+# Project-specific tools on top of the go stack defaults.
+tools:
+  - go@1.26
+
+rules:
+  - loom/project
+
+env:
+  - ANTHROPIC_API_KEY
+
+ci:
+  - ci
+
+config_source:
+  type: local
+  path: ./config
