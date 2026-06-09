@@ -6,6 +6,20 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud`
 
+## LL-007 — A job-level `permissions:` block replaces the workflow default
+- Date: 2026-06-09
+- Tags: `ci`
+- Symptom: the `integration` CI job failed at `actions/checkout` with "fatal:
+  repository not found" (3 retries, ~33s) before any test ran; `gate` (no
+  job-level permissions) checked out fine on the same run.
+- Root cause: the job set `permissions: { packages: read }`. A job-level
+  permissions block **replaces** the top-level default (it is absolute, not
+  additive), so `contents` fell to `none` and the `GITHUB_TOKEN` could not read
+  the (private) repo.
+- Fix: re-grant `contents: read` alongside `packages: read` on the job.
+- Prevention: when narrowing permissions per job, restate **every** scope the job
+  needs — `actions/checkout` always needs `contents: read`.
+
 ## LL-006 — Hook/guardrail tests must not inherit the ambient override env
 - Date: 2026-06-09
 - Tags: `ci` · `engine`
