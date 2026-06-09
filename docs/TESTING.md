@@ -8,6 +8,10 @@ Two tiers, one shared entry point (`make gate` / `make gate-integration`, RULES 
   CI. Format, vet, lint, spec-conformance, unit tests, secret scan.
 - **Integration** (`make gate-integration`, `-tags integration`): docker-backed
   e2e. Skips cleanly when no daemon is present; runs in CI on a docker host.
+- **FR traceability** (`make fr-verify`, `-tags frcheck`): the registry integrity
+  check (ADR-0013) — every FR links a passing test (dangling = blocking) and cites
+  an existing spec section; orphan tests are advisory. Out of the per-commit gate
+  (advisory by default); blocking at the merge boundary (the CI `fr-verify` job).
 
 ## Phase 1 exit criteria → proof
 

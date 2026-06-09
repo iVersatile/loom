@@ -126,7 +126,7 @@ requirements:
     kind: behavioral
     statement: teardown removes by tier (stop|volumes|reset) and rejects invalid levels.
     source: SPEC-verbs.md#teardown
-    tests: [engine.TestTeardownRemovesAndAudits, engine.TestTeardownValidLevels, cli.TestTeardownInvalidLevel]
+    tests: [engine.TestTeardownRemovesAndAudits, cli.TestTeardownValidLevels, cli.TestTeardownInvalidLevel]
     status: active
   - id: FR-TEARDOWN-002
     kind: behavioral
@@ -160,15 +160,13 @@ requirements:
     kind: invariant
     statement: every mutating verb is idempotent; re-running converges.
     source: RULES.md#§5
-    tests: []
-    gap: write engine.TestMutatingVerbsIdempotent (build+teardown); only TestBuildIdempotent exists today.
+    tests: { suite: engine.TestMutatingVerbsIdempotent, covers: [build, teardown] }
     status: active
   - id: FR-INV-004
     kind: invariant
     statement: the unit gate is hermetic; same result regardless of host tooling/env (local equals CI).
     source: RULES.md#§5
-    tests: []
-    gap: needs the gate-scrub mechanism (T2) + a test asserting the scrubbed gate.
+    tests: [guard.TestGateIsHermetic]
     status: active
 
   # --- Guardrails (per-hook; test = the hook's full pattern suite) ---
@@ -189,7 +187,6 @@ requirements:
     statement: protect-paths blocks staged frozen-contract changes absent an audited override.
     source: [RULES.md#§2, config/hooks/protect-paths]
     tests: { suite: guard.TestProtectPathsBlocksFrozenContract, patterns: all }
-    gap: confirm the suite exercises BOTH frozen patterns (docs/SPEC-*.md and docs/decisions/*.md), not only SPEC-*.
     status: active
 
   # --- Schema / resolution (SPEC-playbook; one per merge/resolution rule) ---
@@ -226,15 +223,14 @@ requirements:
   - id: FR-SCHEMA-006
     kind: schema
     statement: config source resolves a local tree, rejects path-escape, and rejects unsupported types (git is Phase 2).
-    source: SPEC-playbook.md#config-source
+    source: SPEC-playbook.md#base-playbook
     tests: [source.TestResolveLocalReadsTree, source.TestResolvePathEscapeRejected, source.TestResolveGitUnsupported, source.TestResolveUnknownType]
     status: active
   - id: FR-SCHEMA-007
     kind: schema
     statement: dotfiles resolve by layer; a later tier referencing the same target path replaces the earlier file (whole-file).
-    source: SPEC-playbook.md#dotfiles-resolution
-    tests: []
-    gap: needs a dedicated dotfiles-layering test (later-tier same-path replaces).
+    source: SPEC-playbook.md#layer-resolution
+    tests: [engine.TestDotfilesLaterTierReplacesSameTarget]
     status: active
 
   # --- Logs (SPEC-verbs action log + diagnostic log, ADR-0010) ---

@@ -98,24 +98,29 @@ func TestBranchGuardBlocksMainAllowsOverrideAndBranch(t *testing.T) {
 
 func TestProtectPathsBlocksFrozenContract(t *testing.T) {
 	hook := absHook(t, "protect-paths")
-	repo := newGitRepo(t, "feat/x")
 
-	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "docs", "SPEC-x.md"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	add := exec.Command("git", "add", "docs/SPEC-x.md")
-	add.Dir = repo
-	if out, err := add.CombinedOutput(); err != nil {
-		t.Fatalf("git add: %v: %s", err, out)
-	}
-
-	if runHook(repo, nil, hook) == nil {
-		t.Error("protect-paths should BLOCK a staged frozen-contract change")
-	}
-	if err := runHook(repo, []string{"ALLOW_SPEC_CHANGE=1"}, hook); err != nil {
-		t.Errorf("ALLOW_SPEC_CHANGE=1 should permit (audited): %v", err)
+	// FR-GUARD-PROTECT-PATHS: the test is the hook's FULL pattern set, so exercise
+	// BOTH frozen-contract patterns — specs and ADRs — not just one.
+	for _, frozen := range []string{"docs/SPEC-x.md", "docs/decisions/0099-x.md"} {
+		t.Run(frozen, func(t *testing.T) {
+			repo := newGitRepo(t, "feat/x")
+			if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(frozen)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(repo, frozen), []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			add := exec.Command("git", "add", frozen)
+			add.Dir = repo
+			if out, err := add.CombinedOutput(); err != nil {
+				t.Fatalf("git add: %v: %s", err, out)
+			}
+			if runHook(repo, nil, hook) == nil {
+				t.Errorf("protect-paths should BLOCK a staged change to %s", frozen)
+			}
+			if err := runHook(repo, []string{"ALLOW_SPEC_CHANGE=1"}, hook); err != nil {
+				t.Errorf("ALLOW_SPEC_CHANGE=1 should permit %s (audited): %v", frozen, err)
+			}
+		})
 	}
 }

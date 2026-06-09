@@ -10,7 +10,7 @@ GOLANGCI ?= $(shell command -v golangci-lint 2>/dev/null || echo $(GOBIN)/golang
 GITLEAKS ?= $(shell command -v gitleaks 2>/dev/null)
 
 .PHONY: all build fmt fmt-check vet lint spec-check test test-integration secrets \
-        cover gate gate-integration hooks tools clean
+        cover fr-verify gate gate-integration hooks tools clean
 
 all: gate
 
@@ -37,8 +37,17 @@ spec-check:
 
 # Unit tier is sub-second; the timeout only fails a *hung* test fast (vs Go's
 # 10-min default). Benchmark/baseline: docs/TESTING.md.
+#
+# Hermetic (RULES §5, FR-INV-004): scrub ambient override/config env
+# (LOOM_*/ALLOW_*) and neutralize docker (a failing shim on PATH) so no unit test
+# can read those vars or provision a real container — the local gate cannot diverge
+# from CI on host env/tooling (LL-006/008). The integration tier deliberately keeps
+# docker + LOOM_BASE_IMAGE.
 test:
-	$(GO) test -timeout 120s ./...
+	@d=$$(mktemp -d); printf '#!/bin/sh\nexit 1\n' > "$$d/docker"; chmod +x "$$d/docker"; \
+	env -u LOOM_BASE_IMAGE -u ALLOW_SPEC_CHANGE -u ALLOW_MAIN_COMMIT PATH="$$d:$$PATH" \
+	  $(GO) test -timeout 120s ./...; \
+	rc=$$?; rm -rf "$$d"; exit $$rc
 
 # Integration tier is docker-backed (provisions a real container). Budget < 5 min;
 # the timeout is a hang-guard, not the budget. ADR-0012 (baked base image) will
@@ -62,6 +71,13 @@ gate: fmt-check vet lint spec-check test secrets
 # Heavier CI tier: docker-backed integration/e2e (lands in Work 7).
 gate-integration: test-integration
 	@echo "gate-integration: PASS"
+
+# FR traceability (ADR-0013): every FR links a passing test (dangling = blocking)
+# and cites an existing spec section; orphan tests are advisory. Out of the
+# per-commit gate by design (advisory by default); blocking at the merge boundary
+# (the CI fr-verify job).
+fr-verify:
+	$(GO) test -tags frcheck ./internal/fr/
 
 # Install pinned dev tools into GOPATH/bin.
 tools:
