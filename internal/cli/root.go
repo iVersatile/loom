@@ -1,5 +1,5 @@
 // Package cli wires the verb contract surface: the cobra command tree, global
-// flags (--json, --dry-run), and exit-code mapping. It owns no engine logic —
+// flags (--json), and exit-code mapping. It owns no engine logic —
 // each command translates flags to an engine call and renders the result
 // (docs/SPEC-verbs.md). This separation keeps the engine reusable by the future
 // cloud sibling (ADR-0007).
@@ -44,7 +44,6 @@ func newRootCmd() *cobra.Command {
 	}
 	// Global flags inherited by every verb (RULES §5: --json on every verb).
 	root.PersistentFlags().Bool("json", false, "machine-readable JSON on stdout; logs on stderr")
-	root.PersistentFlags().Bool("dry-run", false, "preview changes without applying (plan semantics)")
 	root.PersistentFlags().StringP("playbook", "f", "loom.yml", "path to the project playbook")
 	root.AddCommand(
 		newDetectCmd(),

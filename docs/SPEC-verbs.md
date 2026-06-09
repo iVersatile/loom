@@ -9,7 +9,9 @@
 
 - `loom <verb> [target] [flags]`
 - `--json` on every verb → structured output to stdout, logs to stderr.
-- `--dry-run` where an action would change state (alias of `plan` semantics).
+- No `--dry-run`: `plan` is the one preview path (read-only, exit 2 on drift).
+  A flag alias was removed (T6) after it shipped mutating — one preview surface
+  keeps the read-only promise enforceable.
 - Exit codes: `0` success / no-op, `1` error, `2` "changes needed" (for `plan` in
   check-mode, so CI/agents can gate on drift).
 - Never perform a prohibited/irreversible action without an explicit gate
@@ -86,7 +88,7 @@ Reconcile a running environment to the *current* (edited) playbook — apply onl
 the delta. This is what makes long-lived evolution work (tools added/removed,
 stack changed, workflow enforced): edit playbook → `update` → converge.
 
-- Internally: `plan` then apply the delta. `--dry-run` == `plan`.
+- Internally: `plan` then apply the delta. To preview, run `plan` (no `--dry-run`).
 - Removal is real: a tool dropped from the playbook is uninstalled.
 - Re-resolves and rewrites `loom.lock`.
 
