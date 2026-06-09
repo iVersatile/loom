@@ -140,11 +140,19 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		}
 		return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "converged"}, nil
 	}
-	// Env passthrough (-e NAME, no value) lets docker forward the value from loom's
-	// own environment at run time; values never enter loom's code, lock, image, or
-	// logs (RULES). Set at create only — docker can't add env to a live container,
-	// so changing env needs --force (a fresh container).
+	// Inject host state at create (docker can't add -e/-v to a live container, so
+	// changing either needs --force):
+	//   - env passthrough (-e NAME, no value): docker forwards the value from
+	//     loom's own environment; values never enter code/lock/image/logs (RULES).
+	//   - creds mount (-v ...:ro): reuse the host's EXISTING Claude credentials
+	//     (~/.claude/.credentials.json) so the in-container agent shares the same
+	//     subscription auth — no token generation. Single-file + read-only, so it
+	//     coexists with the materialised settings.json/statusline.sh in ~/.claude.
+	hostHome, _ := os.UserHomeDir()
+	credsPath := filepath.Join(hostHome, ".claude", ".credentials.json")
+	_, credsErr := os.Stat(credsPath)
 	runArgs := append([]string{"run", "-d", "--name", spec.Name}, envArgs(spec.Env)...)
+	runArgs = append(runArgs, credsMount(credsPath, credsErr == nil, spec.Agents)...)
 	runArgs = append(runArgs, spec.BaseImage, "sleep", "infinity")
 	if out, err := dockerLogged(spec.LogW, runArgs...); err != nil {
 		return ContainerInfo{}, fmt.Errorf("docker run: %v: %s", err, out)
@@ -392,6 +400,32 @@ func envArgs(env []string) []string {
 		args = append(args, "-e", name)
 	}
 	return args
+}
+
+// containerHome is the in-container $HOME loom materialises into. Hardcoded to
+// root's home for Phase 1; T10 will parameterise it for a non-root user.
+const containerHome = "/root"
+
+// credsMount returns a read-only single-file bind of the host's EXISTING Claude
+// credentials into the container, so the in-container agent reuses the same
+// subscription auth the host already has (no token generation, no browser flow).
+// Gated on claude-code being installed and the host creds file being present —
+// mounting a missing path would make docker create a directory. Single-file so it
+// does not shadow the materialised settings.json/statusline.sh.
+func credsMount(hostCredsPath string, present bool, agents []AgentInstall) []string {
+	if !present || !hasAgent(agents, "claude-code") {
+		return nil
+	}
+	return []string{"-v", hostCredsPath + ":" + containerHome + "/.claude/.credentials.json:ro"}
+}
+
+func hasAgent(agents []AgentInstall, name string) bool {
+	for _, a := range agents {
+		if a.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // goModule maps a go-install tool name to its module path.

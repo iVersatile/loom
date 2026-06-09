@@ -318,6 +318,31 @@ func TestEnvArgs(t *testing.T) {
 	}
 }
 
+// TestCredsMount pins the creds-reuse path (T8/ADR-0014): mount the host's
+// existing ~/.claude/.credentials.json read-only, only when claude-code is being
+// installed and the file is present — never mount a missing path.
+func TestCredsMount(t *testing.T) {
+	claude := []AgentInstall{{Name: "claude-code", Source: "native-installer"}}
+
+	got := credsMount("/host/.claude/.credentials.json", true, claude)
+	want := []string{"-v", "/host/.claude/.credentials.json:" + containerHome + "/.claude/.credentials.json:ro"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("credsMount = %v, want %v", got, want)
+	}
+	// Read-only, single file.
+	if !strings.HasSuffix(got[1], ":ro") {
+		t.Errorf("creds mount must be read-only: %q", got[1])
+	}
+	// No mount when the file is absent (would make docker create a dir).
+	if credsMount("/host/.claude/.credentials.json", false, claude) != nil {
+		t.Error("absent creds file must not be mounted")
+	}
+	// No mount when claude-code is not among the agents.
+	if credsMount("/host/.claude/.credentials.json", true, []AgentInstall{{Name: "codex"}}) != nil {
+		t.Error("creds mount only applies when claude-code is installed")
+	}
+}
+
 func countLogLines(t *testing.T, root string) int {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, ".loom", "actions.log"))
