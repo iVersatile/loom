@@ -39,15 +39,18 @@ locally and failed in CI because the local box lacked an env var / a binary CI h
 - **Q2.2 (A)** detection = run the unit suite in a *targeted-scrubbed* env (unset
   `LOOM_*` / `ALLOW_*`, make docker unavailable; keep the gate's own toolchain on
   `PATH`). NOT a static lint.
-- **Q2.3 (yes)** "the unit gate is hermetic" becomes an invariant FR (`FR-INV-*`),
-  enforced by the registry.
+- **Q2.3 — PARKED** (was "yes"). Making "the unit gate is hermetic" an invariant
+  FR needs a spec clause to cite (ADR-0013 `spec → FR`), but C3 forbids the AI
+  authoring that RULES §5 clause. So: a **human** authors the RULES §5 hermetic
+  invariant if/when they want the FR; until then no `FR-INV` for it. The mechanism
+  ships regardless (below).
 
-**Not overkill (answered):** Q2.1 + Q2.2 collapse into *one* change — the gate runs
-unit tests in a scrubbed env, everywhere — which directly kills the LL-006/008
-class that hit 3× this session. The thing that *would* be overkill (the AST lint,
-Q2.2 option b) is excluded. Impl note: "scrub" is targeted (unset vars + hide
-docker), **not** `env -i` — the gate needs go/gofmt/golangci-lint/gitleaks on PATH.
-Implement together with T3 (it is one of the invariant FRs).
+**Mechanism ships as plain hardening (not an FR):** Q2.1 + Q2.2 collapse into *one*
+change — the gate runs unit tests in a targeted-scrubbed env, everywhere — which
+directly kills the LL-006/008 class that hit 3× this session. The thing that *would*
+be overkill (the AST lint, Q2.2 option b) is excluded. Impl note: "scrub" is
+targeted (unset `LOOM_*`/`ALLOW_*` + hide docker), **not** `env -i` — the gate needs
+go/gofmt/golangci-lint/gitleaks on PATH.
 
 ---
 
@@ -83,22 +86,24 @@ FRs; SPEC-playbook is a spec, so excluding it would blind verify's spec↔FR joi
   they are exactly the "schema/resolution" category the granularity rule calls out.
   Excluding them leaves a real Phase-1 behavior gap in the registry.
 
-**Reconciliation with ADR-0013 (conflict check).** Found before seeding:
-- **C1 — artifact (PR #2).** `FR-registry.yml` `status` enum lists `waiver`, but T1
-  banned waivers → change to `active | superseded`; record the T1 policy in the
-  header.
-- **C2 — ADR gap (PR #2, spec edit).** ADR-0013 doesn't state T1 (automated-only
-  coverage; no `manual`/`waiver`; human testing = feedback, not coverage). The
-  registry would enforce a rule the ADR omits → add a short T1 clause to ADR-0013.
-- **C3 — spec→FR violation (RULES edit).** The hermetic-gate invariant (T2/Q2.3)
-  cites *no* spec clause, but ADR-0013 forbids an FR "not grounded in a spec
-  clause" and verify's spec↔FR joint would flag it. → add the hermetic invariant to
-  **RULES §5** (a named authoritative source) FIRST, then `FR-INV-*` cites it.
-- **C4 — enforcement tiering.** "Enforced day one" (Q3.3) = advisory in `make gate`
-  + blocking at the phase/merge boundary, **never per-commit** (ADR-0013 explicit).
-- **C5 — binding interpretation.** With Q3.4 (registry-declared, no in-code
-  markers), ADR-0013's "every test cites a valid FR" is implemented as
-  inverse-lookup **orphan-test reporting** (advisory); "valid" = the FR exists.
+**Reconciliation with ADR-0013 (conflict check — resolved).**
+- **C1 — ✅ applied (PR #2 `4207fcc`).** `FR-registry.yml` `status` → `active |
+  superseded` (dropped `waiver`); header records automated-only coverage.
+- **C2 — ✅ applied (PR #2 `4207fcc`).** ADR-0013 now states the T1 coverage policy.
+- **C3 — ⛔ DROPPED.** Governance: **the AI must not auto-author core specs**
+  (RULES / SPEC-*). So the AI will not add the hermetic invariant to RULES §5.
+  Consequence: **Q2.3 (hermetic gate as `FR-INV-*`) is PARKED** — it needs a
+  *human-authored* RULES §5 invariant before any FR can cite it (ADR-0013's
+  `spec → FR`). The hermetic-gate *mechanism* (T2 Q2.1/Q2.2) still ships as a plain
+  engineering change — not a spec, not an FR.
+- **C4 — agreed.** Follow ADR-0013's tiering (advisory in `make gate`; blocking at
+  phase/merge/release; never per-commit).
+- **C5 — resolved (split).** Dangling FR→test ref (FR cites a missing test) =
+  **blocking** at the boundary (broken proof). Orphan test (no FR references it) =
+  **advisory** report only (a missing FR to author, or a legit low-level test —
+  never block). Triggers: test renames/deletes (dangling); new tests/behaviors
+  without a registered FR (orphan).
 
-Execution order once C1–C3 are approved: spec edits first (C2, C3 — the `spec →`
-must exist before its FR), then seed FRs, then build `verify`.
+Execution order: seed FRs against EXISTING spec clauses (verbs + invariants +
+guardrails + playbook schema), each linking a passing test → build `verify` (both
+joints, tiered per C4/C5). No new spec authoring by the AI.
