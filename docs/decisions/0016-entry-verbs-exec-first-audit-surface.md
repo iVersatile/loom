@@ -1,5 +1,5 @@
 # ADR-0016 — Entry verbs: exec-first passthrough; the audit log is the structured surface
-**Date:** 2026-06-10   **Status:** Proposed (agent-drafted per RULES §5/C3; records decisions made with the human in T9 — the SPEC-verbs clause itself is human-authored and is NOT contained here; acceptance = PR merge)
+**Date:** 2026-06-10   **Status:** Proposed (authorship chain: **human-decided** — T9 discussion — → **agent-transcribed** — this ADR and the thread record — → **human-accepted**. The SPEC-verbs clause itself was human-authored and merged first (PR #40), so the contract this ADR rationalizes is already law; acceptance of this ADR = PR merge, per RULES §5/C3)
 
 ## Context
 After `build` there is no loom-native door into the container (thread **T9**):
