@@ -7,58 +7,25 @@ losing context.
 
 Status: 🟡 open · 🟢 recommendation drafted · ✅ resolved (awaiting promotion).
 
+**Archive on resolution (standing convention, 2026-06-10).** A ✅-resolved
+thread's full text moves to `docs/threads/archive/TNN-slug.md`; here it
+collapses to a 3-line stub (title+status · resolution one-liner · pointers to
+ADR/FRs/PR/archive). Open (🟡/🟢) threads stay in full — detail grows only
+while a thread is actually open. New threads are born **stubs-first** from
+inbox envelopes (T21): the envelope's design reasoning becomes the thread stub
+before work proceeds, never after.
+
 ---
 
 ## T1 — Manual-test ban for required FRs   ✅ resolved
-Origin: ADR-0013 / the FR registry's `status` values.
-
-**Decision.** A required FR's only valid coverage is an **automated** test — no
-`waiver`, no `manual`. A genuinely un-automatable behavior is **not** a required FR:
-reclassify it via an **automatable proxy** (test the mechanism — e.g. "bootstrap
-runs to completion in a clean container," not "a human bootstraps on bare metal"),
-or **downgrade** to a non-required/advisory FR with a checklist that does NOT count
-toward "done".
-
-**Human testing is NOT blocked.** It is welcomed as an out-of-band **feedback
-reference** (exploratory, sanity, UX). It simply never counts as an FR's coverage
-and never gates "done" — a human finding feeds back as a *new automated test*, a
-*new FR*, or a *bug*, never as the FR's satisfaction. The registry `status` has no
-`manual`/`waiver` value (rationale: a waiver is a trust artifact, and ADR-0005 is
-mechanism-not-trust; the design test flags an agent waiving an FR to skip checks).
-
-Promote to: the FR-registry policy section / an ADR-0013 addendum.
+Resolved: a required FR's only coverage is an automated test — human testing is feedback, never coverage; un-automatable behaviors get an automatable proxy or downgrade.
+Pointers: ADR-0013 (policy applied, C1/C2 in PR #2) · FR-registry header · archive: docs/threads/archive/T01-manual-test-ban.md
 
 ---
 
 ## T2 — Hermetic unit gate   ✅ resolved
-Origin: LL-006 / LL-008 — three CI reds this session were unit tests that passed
-locally and failed in CI because the local box lacked an env var / a binary CI had.
-
-**Decisions.**
-- **Q2.1 (A)** the local `make gate` scrubs the env by default, so **local ≡ CI**.
-- **Q2.2 (A)** detection = run the unit suite in a *targeted-scrubbed* env (unset
-  `LOOM_*` / `ALLOW_*`, make docker unavailable; keep the gate's own toolchain on
-  `PATH`). NOT a static lint.
-- **Q2.3 — PARKED** (was "yes"). Making "the unit gate is hermetic" an invariant
-  FR needs a spec clause to cite (ADR-0013 `spec → FR`), but C3 forbids the AI
-  authoring that RULES §5 clause. So: a **human** authors the RULES §5 hermetic
-  invariant if/when they want the FR; until then no `FR-INV` for it. The mechanism
-  ships regardless (below).
-
-**Mechanism ships as plain hardening (not an FR):** Q2.1 + Q2.2 collapse into *one*
-change — the gate runs unit tests in a targeted-scrubbed env, everywhere — which
-directly kills the LL-006/008 class that hit 3× this session. The thing that *would*
-be overkill (the AST lint, Q2.2 option b) is excluded. Impl note: "scrub" is
-targeted (unset `LOOM_*`/`ALLOW_*` + hide docker), **not** `env -i` — the gate needs
-go/gofmt/golangci-lint/gitleaks on PATH.
-
-**Scope extended (2026-06-10, LL-010):** the targeted scrub also unsets the
-`GIT_*` repo-redirection vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`,
-`GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`) — a leaked `GIT_DIR` overrides both
-cwd and `-C` (verified), so git-shelling fixtures wrote into the real shared
-`.git` (incident postmortem: LL-010). Fixtures are additionally hermetic on
-their own (`hermeticEnv()` + explicit `-C`), pinned by
-`TestGateHermeticToGitEnv`.
+Resolved: the gate runs unit tests in a targeted-scrubbed env (local ≡ CI); scope later extended to GIT_* repo-redirection vars (LL-010).
+Pointers: Makefile test target · LL-006/008/010 · guard.TestGateHermeticToGitEnv (#41) · archive: docs/threads/archive/T02-hermetic-unit-gate.md
 
 ---
 
@@ -183,220 +150,26 @@ ADR-0004/SPEC-playbook edit + FR (opt 3).
 ---
 
 ## T5 — Lockfile doesn't pin what it claims (host-probed `resolved` + no per-tool digest)   ✅ resolved
-Origin: inspecting a generated `loom.lock` before committing it; traced into
-`internal/lock` + `internal/resolver` + `internal/engine`.
-
-The lockfile is the reproducibility pin (ADR-0002) and SPEC-playbook Q3 froze its
-granularity: per-tool `{intent, resolved, source, digest}` **and** a base-image
-digest (`SPEC-playbook.md:14-16,125-126`). The producer doesn't meet that, in two
-independent ways:
-
-**(a) `resolved` is probed from the build HOST, not the target container.** The
-resolver fills `resolved` via a host-PATH version probe (`internal/resolver/resolver.go:55`
-→ `internal/engine/probe.go:18-29`; the `found` bool is discarded with `_`). A Mac
-build therefore wrote host values into a lock meant to pin a `debian:bookworm-slim`
-container:
-```yaml
-git:  resolved: git version 2.50.1 (Apple Git-155)   # the Mac's git
-go:   resolved: go version go1.26.4 darwin/arm64      # the Mac's go
-jq:   resolved: jq-1.7.1-apple
-gitleaks/gopls/ripgrep/claude-code: resolved: ""      # not on the Mac PATH
-```
-`ripgrep` is `source: apt` (a container install) yet `resolved: ""` because `rg`
-isn't on the host. This is a **correctness bug**: the lock records the wrong machine,
-so it can't be committed as a reproducibility artifact regardless of which host
-regenerates it. Fix: probe inside the resolved container (or from the install
-source), not the host PATH; stop swallowing the not-found bool.
-
-**(b) Per-tool `digest` has a field but no producer.** `LockedTool.Digest` exists
-(`internal/lock/lock.go:24`, `json:"digest,omitempty"`) but the only construction
-site never sets it (`internal/resolver/resolver.go:56-60`), so it silently vanishes
-from YAML. Deliberately deferred in code (`resolver.go:8-9`: "pinned … (later);
-Phase 1 records the resolved version"). **But SPEC-playbook overstates reality** —
-it says digests are frozen *and* "code implements them … the example already
-reflects this shape" (`SPEC-playbook.md:5,18`). Spec↔code drift: either implement
-per-tool digests or amend the spec to mark them Phase-2.
-
-Base-image digest is the one part that **works** (`internal/engine/build.go:85-89`,
-`container.go:87-96` via `docker buildx imagetools inspect`; `build_test.go:130`).
-
-**Options (no decision yet).**
-1. Fix (a) now (container/source probe) — it's a plain correctness bug, no spec
-   change; gate a lock-commit on it.
-2. Resolve (b) by spec edit: mark per-tool digest Phase-2 in SPEC-playbook so the
-   spec stops claiming it's implemented (human-authored, not AI — RULES §5 / C3).
-3. Or implement per-tool digest (heavier; pin against the pulled image as the
-   resolver comment envisions).
-
-Lean: (1) is a must before any `loom.lock` is committed; (2) is the honest
-short-term reconciliation for the digest half. Until both, **do not commit a
-generated `loom.lock`.**
-
-**Resolution (2026-06-10, `fix/t5-lock-fidelity`):** options (1)+(2), as leaned.
-(a) Build now resolves `resolved` by probing **inside the converged container**
-(`ContainerRuntime.Probe` via a login shell; `lock` re-pinned post-provision,
-carried forward pre-container so unchanged setups stay no-ops); not-found stays
-`""` — never a host value. Covered by **FR-BUILD-007** /
-`engine.TestBuildLockRecordsContainerVersions`. (b) SPEC-playbook's lockfile-
-granularity decision gained an honest *Phase status*: per-tool `digest` producer
-is **Phase 2** (field in schema, not yet populated); base-image digest produced.
-A regenerated `loom.lock` is now committable; per-tool digest (option 3) remains
-the Phase-2 follow-up.
+Resolved: the lock pins the CONTAINER's reality — resolved versions are probed in-container at build step 5, never on the host; new tools stay "" until probed.
+Pointers: fix/t5-lock-fidelity · FR-BUILD-007 · archive: docs/threads/archive/T05-lock-fidelity.md
 
 ---
 
 ## T6 — `build --dry-run` mutates (violates plan-semantics contract)   ✅ resolved
-Origin: a Mac `./bin/loom build --dry-run` that was expected to preview but actually
-provisioned.
-
-`--dry-run` is documented as "preview changes without applying (plan semantics)"
-(top-level flag help) and `plan` is the never-mutates verb (`SPEC-verbs.md`). But a
-`build --dry-run` run did real work:
-- reported `created (container loom-loom-dev, lock_written=true, 3 materialized)`;
-- actually provisioned — `.loom/logs/build.log` shows real `go: downloading …` and
-  `+ grep -q bashrc.d /root/.bashrc` (container commands executed);
-- rewrote `loom.lock` (`resolved_at` advanced) and wrote staging files under
-  `.loom/home/…`.
-
-A dry-run must do none of these. Either `build` ignores the `--dry-run` flag, or it
-threads it but the container/materialize/lock-write path doesn't honor it. Net
-effects: false "preview" that mutates state, and (combined with T5) it wrote a bad
-lock unprompted.
-
-Next step: trace where `--dry-run` is read in the `build` path (cmd/loom + the build
-engine) and confirm whether the flag reaches the mutating steps at all. Likely a
-guard missing before container create / materialize / lock-write.
-
-**Correction to an earlier audit note:** `--dry-run` WAS specced — SPEC-verbs
-*Global conventions* ("`--dry-run` where an action would change state (alias of
-`plan` semantics)") and `update` ("`--dry-run` == `plan`"). The thread title was
-right all along: a contract violation, not unspecced growth. (The earlier "spec
-the flag" direction was based on the wrong unspecced reading and is superseded.)
-
-**Root cause (confirmed in PR #8):** the flag was registered as a persistent flag
-in `internal/cli/root.go` but **no verb ever read it** — `build` ran its full
-mutating path unconditionally. A promise with no mechanism.
-
-**Resolution (user decision, 2026-06-09): abandon `--dry-run`; `plan` is the one
-preview path.** Implemented in **PR #8** (`fix/t6-remove-dry-run`): the flag is
-removed from the CLI, and SPEC-verbs is amended (audited `ALLOW_SPEC_CHANGE` on
-explicit instruction; merge = human acceptance) — the global convention now states
-"No `--dry-run`" with the T6 rationale, and `update` points at `plan`. One preview
-surface keeps the read-only promise enforceable; it stays covered by FR-PLAN-001/002
-(no FR cited the removed clause; `fr-verify` green).
+Resolved: --dry-run removed; plan is the sole preview path (plan-semantics contract).
+Pointers: fix/t6-remove-dry-run (PR #8) · SPEC-verbs#plan · archive: docs/threads/archive/T06-remove-dry-run.md
 
 ---
 
 ## T7 — `build` converge skips container `$HOME` re-sync on dotfile-only change   ✅ resolved
-**Resolution (2026-06-10, `fix/t7-home-resync`):** option (1) — a **home
-sentinel** (`/var/lib/loom/home`), the ADR-0011 pattern applied to the $HOME
-surface ADR-0015 materializes. `homeDigest()` fingerprints the staging tree
-(rel path + mode + content); `needsHomeSync()` mirrors `needsReprovision`;
-`Ensure` converges on either sentinel going stale. Home drift triggers only
-the `docker cp` + sentinel write — provision stays gated on the toolset digest
-(a dotfile change never re-runs apt/go-install; the T4 interplay note held).
-The misleading-status defect (option 3) dissolves by construction: "exists"
-now means nothing needed syncing. Tests: `TestHomeDigestDetectsDotfileChange`,
-`TestNeedsHomeSync` (unit), `TestE2EDotfileChangeConverges` (integration:
-edit → rebuild → content in container + status converged → third build
-"exists"); linked from FR-BUILD-004. One-time effect on merge: existing
-containers have no home sentinel, so their next build re-syncs $HOME once.
-Entry kept below for the original analysis.
-
-Origin: a real change (richer `claude/statusline.sh`) was committed, built, and
-reported `converged … 3 materialized` — but a session **inside** `loom-loom-dev`
-still saw the old statusline. `docker exec … cat /root/.claude/statusline.sh`
-confirmed the container kept the old file while host staging had the new one.
-
-**Root cause (confirmed in code).** The container `$HOME` re-sync is gated on the
-**toolset digest only**, so a dotfile-only change never triggers it:
-- `toolsetDigest` hashes only `tools` (`Name|Source`) — nothing about dotfiles
-  (`internal/engine/container.go:228-239`).
-- In `Ensure`, an existing container with an unchanged toolset **early-returns
-  `"exists"` and skips the `docker cp` of `$HOME`** (`container.go:119-120`). The
-  reconcile copy (`container.go:122-126`) sits *after* that return, so it runs only
-  when tools changed or a prior provision was interrupted (`needsReprovision`).
-- Result: changed dotfiles reach host staging `.loom/home` but never an
-  already-built container. Only `--force`/teardown (the create path,
-  `container.go:138-141`) copies `$HOME`.
-
-**Misleading status message (second defect).** `build` prints `converged … N
-materialized` driven by the **host** `changed` flag (`materializeDotfiles` wrote
-staging, `build.go:113-125,172-173`), even though `Ensure` returned `"exists"` and
-pushed nothing to the container. `build.go`'s status switch has no `"exists"` case
-(`build.go:146-166`), so the message reports staging state, not container state — a
-user reasonably reads "3 materialized" as "3 files are now in my container."
-
-**Why it matters.** This is the most user-visible of the current bug cluster: the
-declared-desired-state promise (edit config → `build` → container reflects it) is
-silently broken for the entire dotfiles surface (statusline, prompt, claude
-settings, any future `bash/*`). The only way to apply a dotfile edit today is a
-destructive full rebuild.
-
-**Options (no decision yet).**
-1. Extend the reconcile trigger: fold a **dotfiles/home digest** into the sentinel
-   (or compare staging vs container) so `needsReprovision` (rename → `needsConverge`)
-   also fires on `$HOME` drift; always `docker cp` staging when it differs. Cheap,
-   non-destructive, matches reconcile intent.
-2. Always `docker cp` staging on every build (idempotent; cheap for a few files) and
-   keep the provision (tool install) gated on the toolset digest as today.
-3. At minimum, fix the **message**: add an `"exists"` status case so `build` does
-   not claim `converged/N materialized` when nothing reached the container.
-
-Lean: (1) or (2) for the real fix + (3) regardless (honest status). Note the
-`len(spec.Tools) > 0` gate on the `.bashrc.d` sourcing loop (T4) interacts here:
-the home-sync fix should not depend on tools being present.
-
-Promote to: an engine bugfix (home-drift reconcile) + a status-accuracy fix, with a
-regression test (dotfile edit on an existing container → file present in container,
-status reflects it); FR once `verify` covers the build reconcile path.
+Resolved: a home-content sentinel (/var/lib/loom/home, ADR-0011 pattern) re-syncs container $HOME on dotfile-only change; provision stays toolset-gated; status truthful by construction.
+Pointers: #25 + #26 · FR-BUILD-004 tests · ADR-0015 precondition · archive: docs/threads/archive/T07-home-resync-sentinel.md
 
 ---
 
 ## T8 — `agents:` are declared but never installed   ✅ resolved
-Origin: the container loom builds (`loom-loom-dev`) has the materialized `.claude/`
-config but **no `claude` binary** — investigating why the statusline/agent config
-was inert revealed agents are never provisioned.
-
-**Root cause (confirmed).** `ContainerSpec.Tools` is fed by `toolInstalls()`, which
-copies only `resolution.Tools` — **agents are excluded** (`internal/engine/build.go:178-184`).
-Agents are *only detected* (presence-probed, `internal/engine/detect.go:68-70`),
-never installed. So `agents: [claude-code]` (base playbook) produces nothing; the
-lock records `claude-code.resolved: ""`. The container has agent config without the
-agent program.
-
-**Why it matters.** This is the capability gap that makes `loom-loom-dev` an
-uninhabitable dev env: the whole AI-first premise (ADR-0005) is that the container
-hosts the agent, but loom installs none. Blocks "actually use the loom container."
-
-**Scope also needs credentials.** A `claude` binary still needs auth to run. The
-`devenv` sandbox gets this by bind-mounting the Mac's `~/.claude` (creds + settings).
-loom must either bind-mount `~/.claude` creds or inject a token via the secret store
-— **no baked secrets** (RULES). Installing the binary without solving creds is half
-a fix.
-
-**Options.**
-1. Provision agents like tools: add an agent install path (per-agent source — npm/
-   curl installer for claude-code, etc.), pin in the lock (`resolved`/`digest`),
-   gate reinstall on an agent-set digest (cf. toolset digest).
-2. Bind-mount the host agent install + `~/.claude` into the container instead of
-   installing (lighter; mirrors how `devenv` works today).
-3. Hybrid: install the binary (1), mount only credentials (2).
-
-Lean: (3) — own the binary so the container is self-contained, mount only secrets.
-PLAN link: realizes `docs/PLAN.md` → *Open items → "Working env for building Loom …
-Claude Code in-container (dogfood)"* (its fallback "mount loom + claude into
-/usr/local/bin in-container" is the agent half of that item).
-Promote to: an engine capability + a creds decision (possibly an ADR — interacts
-with ADR-0005 and the secret-store design); FR once `verify` covers agent install.
-
-**Resolution (2026-06-09/10, PR #7 merged):** option (3) as leaned — `build`
-installs declared agents (claude-code native installer, `~/.local/bin` on PATH);
-the provision sentinel digest folds in the agent set. Credentials decided in
-**ADR-0014 (Accepted)**: interactive in-container OAuth login primary; env-token
-demoted to CI-only; host creds-file mount a Linux-only no-op-on-mac secondary.
-Covered by **FR-BUILD-006**. Durability of the login → T14 (resolved); its
-human-only nature → T15 (open).
+Resolved: declared agents install during provision (claude-code native installer, ~/.local/bin on PATH); sentinel digest covers the agent set.
+Pointers: ADR-0014 (PR #7) · FR-BUILD-006 · archive: docs/threads/archive/T08-agent-install.md
 
 ---
 
@@ -488,42 +261,8 @@ user policy); FR once covered.
 ---
 
 ## T11 — container name `loom-loom-dev` is awkward (doubled "loom")   ✅ resolved
-Origin: the dogfood container is named `loom-loom-dev`; the doubled "loom" reads
-badly and the user wants `loom-dev`.
-
-**Cause.** `containerName(project) = "loom-" + project + "-dev"`
-(`internal/engine/container.go:261-262`). With the loom project's `name: loom`, the
-`loom-` prefix collides with the project name → `loom-loom-dev`. For other projects
-it's fine (`loom-prompiler-dev`); the doubling is specific to loom-on-loom.
-
-**Recommendation.** Drop the name-prefix as the namespacing mechanism; name the
-container `<project>-dev` (→ **`loom-dev`**, `prompiler-dev`) and move the
-"loom-managed" marker to a **docker label** (e.g. `loom.project=<name>`,
-`loom.managed=true`). Benefits: no doubling, still discoverable
-(`docker ps --filter label=loom.managed`), and decouples identity from display name.
-Migration: a rename is a new container identity — `teardown` the old + `build` the
-new, or a one-time `docker rename`; note the action log + any `detect` that keys on
-the name.
-
-Options: (a) `<project>-dev` + labels [lean]; (b) keep prefix but de-dupe when
-`project == "loom"` (hacky, special-case); (c) `loom/<project>` (slashes are
-awkward in container names). 
-
-**Decision (user, 2026-06-09): option (a)** — container name is `<project>-dev`,
-loom-managed marker moves to docker labels. **Requires an audited SPEC-verbs edit:**
-the `build --json` example hardcodes `"name":"loom-loom-dev"` (`SPEC-verbs.md#build`),
-so the rename touches a frozen contract — human-authored or `ALLOW_SPEC_CHANGE=1` on
-explicit instruction, alongside the ADR-0001 naming note. Scheduled in the P0 engine
-batch with T13+T14 (all create-time changes: one rebuild, one re-login).
-
-Promote to: an engine change (name template + labels) + SPEC-verbs example edit +
-ADR-0001 naming note; FR once covered.
-
-**Resolution (2026-06-10, PR #10 merged):** option (a) — `containerName` is
-`<project>-dev` (→ `loom-dev`); the managed marker is the labels
-`loom.managed=true` / `loom.project=<name>`. SPEC-verbs examples updated and the
-naming convention recorded in the ADR-0001 addendum. Covered by
-`engine.TestContainerName` / `engine.TestCreateRunArgs`.
+Resolved: container is <project>-dev (loom-dev); loom-managed marker moved to docker labels (loom.managed/loom.project); audited SPEC example edit shipped.
+Pointers: container batch (PR #13) · ADR-0001 naming note · archive: docs/threads/archive/T11-container-naming.md
 
 ---
 
@@ -601,107 +340,14 @@ Promote to: an ADR recording the single-dev-container model + `devenv` retiremen
 ---
 
 ## T13 — `loom-dev` has no project/repo mount   ✅ resolved
-Origin: session verification — a `claude` session in `loom-dev` had no code to work
-on. `docker inspect loom-loom-dev --format '{{json .Mounts}}'` returned `[]`, and
-`ls /workspace` → No such file. **Confirmed:** loom never mounts the project.
-
-**Root cause.** `Ensure`'s `docker run` is bare — `run -d --name <name> <image>
-sleep infinity` (`internal/engine/container.go`), with no `-v` for the project. The
-materialized `$HOME` is `docker cp`'d in, but the working tree is not. The
-`/workspace` seen in `devenv` is **devenv's** Docker-Desktop file share, not loom's
-and not shared with `loom-dev`.
-
-**Why it matters.** ADR-0001 is *container-per-project*, yet the project isn't in
-the container — so `loom-dev` can't host real dev work. This is a hard blocker for
-T12's "usable `loom-dev`" bar, alongside T8 (agent ✓) and the harness-home gap.
-
-**Recommendation.** Bind-mount the project root (the dir holding `loom.yml`) into
-the container at a fixed path, RW so edits sync host↔container (the devcontainer
-model, ADR-0003). Parameterize on the container user's `$HOME` (interacts with T10
-non-root) rather than hardcoding. Add to `ContainerSpec` (e.g. `ProjectMount{Host,
-Container}`) and to `docker run` as `-v host:container`. Set at create only
-(docker can't add `-v` live → `--force`, same constraint as T8 creds/env).
-
-**Options.**
-1. *Bind-mount host repo RW* [lean] — live edits both ways; matches devcontainer.
-2. *Copy/clone repo into the container* — more isolated, but edits don't reach the
-   host and drift from git; rejected for a dogfood loop.
-3. *Named volume* — persists across rebuilds but detaches from the host tree; wrong
-   for editing source you also touch from the host.
-
-**Caution (ties to T12 no-side-by-side).** With the repo bind-mounted **and**
-`devenv` live, two sessions share one working tree → `index.lock`/checkout races,
-clobbering edits (concurrency risk #8). The T12 cutover (no side-by-side) is what
-keeps this safe; the mount should land with that operating model, not parallel use.
-
-PLAN link: this is the `docs/PLAN.md` *Open items → "Working env for building Loom"*
-**fallback made concrete** — "mount loom … in-container" is exactly the project-mount
-this thread specifies (the repo half of the dogfood working env).
-Promote to: an engine change (project mount in `ContainerSpec` + `docker run`),
-parameterized for T10; a note in ADR-0001/0003 (mount model); FR once covered.
-
-**Resolution (2026-06-10, PR #10 merged):** option (1) — the project root
-(`loom.yml`'s directory, absolute) bind-mounts **RW** at `/workspace/<project>`
-at create (`ContainerSpec.ProjectDir`). Mount model recorded in the ADR-0001
-addendum. Create-time-only as designed: changing it requires `--force`. Covered
-by `engine.TestCreateRunArgs`. The two-writer caution stands until T12's cutover.
+Resolved: the project repo bind-mounts RW at /workspace/<project> at create (T13); single-writer discipline governs the shared tree (TEAM.md).
+Pointers: container batch (PR #13) · engine.TestCreateRunArgs · archive: docs/threads/archive/T13-project-mount.md
 
 ---
 
 ## T14 — agent credentials are lost on every rebuild   ✅ resolved
-Origin: `loom-dev` was made usable (T8) by completing an **interactive OAuth login
-inside the container** — the only path that works for the interactive TUI after the
-file-mount and env-token routes failed (see below). Confirmed working: `claude`
-starts authenticated in `loom-loom-dev`.
-
-**The gap.** That login writes `/root/.claude/.credentials.json` in the container's
-**writable** home, so it persists for the container's *life* — but `build --force` /
-`teardown` (`docker rm`) destroys the container and the file with it. A plain
-*converge* build does NOT (the container survives), so the loss trigger is
-specifically a forced rebuild / teardown. Net: **re-login required after every
-`--force`.** Acceptable as a stopgap; not acceptable long-term.
-
-**Why the simpler paths don't solve it (verification findings, this session).**
-- *Host creds file mount/copy* — DEAD on a **macOS** host: Claude Code stores creds
-  in the **Keychain**, so there is no `~/.claude/.credentials.json` to mount or
-  `docker cp` (`ls` on the Mac → No such file; `docker inspect … .Mounts` → `[]`).
-  Would work only on a Linux host that has a real creds file.
-- *`CLAUDE_CODE_OAUTH_TOKEN` env passthrough* — works for **headless** `claude -p`
-  only, **not** the interactive TUI; and `docker run -e VAR` stores the value in the
-  container's `Config.Env`, leaking it into `docker inspect` + shell history. Dropped
-  from `loom.yml` default; kept as an optional CI-only path (ADR-0014).
-
-**Options (no decision yet).**
-1. **Persist a creds volume** — bind a small named volume at `~/.claude` (or just the
-   creds file) so it survives `docker rm`; re-login only when the token actually
-   expires. Simplest durable fix.
-2. **Re-seed creds on build** — have loom copy a stored creds file back into the
-   container home on (re)build, sourced from a host location or secret store.
-   Depends on a host creds file existing (false on macOS) → weak unless paired with
-   a loom-managed creds store.
-3. **`apiKeyHelper`** — a script in `settings.json` that fetches a key per request
-   from a secret manager; most secure, most setup.
-
-Lean: (1) for the dogfood loop now (a creds volume excluded from the reset tier),
-revisit (3) for a real secret-store integration. Interacts with the **harness-home**
-thread (memory/hooks/skills also need to survive rebuild) and **T13** (mounts).
-
-PLAN link: a specific case of `docs/PLAN.md` *Open items → "Agent-initiated container
-lifecycle with task continuity"* — that item observed (2026-06-09) a `docker stop
-devenv-dev` losing a live session mid-task; creds are one piece of the container
-state that must **persist outside and rehydrate on bring-up** (memory/session
-continuity are the rest, in the harness-home thread).
-Promote to: an engine change (persist `~/.claude` across rebuild) + an ADR-0014
-addendum; FR once covered.
-
-**Resolution (2026-06-10, PR #10 merged):** option (1) — a named volume
-`<container>-claude` mounts at `~/.claude` when an agent is declared, so the
-in-container login survives `--force`/`teardown`; re-login only on real token
-expiry. Deliberately excluded from the `volumes`/`reset` teardown tiers (agent-
-auth wipe is the opt-in `--clean-state` tier). Recorded in the ADR-0014
-addendum; covered by `engine.TestCreateRunArgs`. Option (3) `apiKeyHelper`
-remains the T15 path; the mutable-state half of harness-home now rides this
-volume (see T16).
+Resolved: a named volume <container>-claude mounts at ~/.claude when an agent is declared — in-container login survives --force/teardown; wipe is the opt-in --clean-state tier only.
+Pointers: ADR-0014 addendum (PR #10) · engine.TestCreateRunArgs · archive: docs/threads/archive/T14-creds-survive-rebuild.md
 
 ---
 
@@ -746,84 +392,8 @@ covered by `verify`.
 ---
 
 ## T16 — harness home: loom provides `settings.json` + statusline, not the rest   ✅ resolved (ADR-0015 Accepted)
-**Status (2026-06-10):** promoted to **ADR-0015**, now **Accepted** (human
-acceptance via PR #24 merge —
-`docs/decisions/0015-harness-home-config-vs-state.md`). Remaining work is
-implementation, tracked in the PLAN tactical queue ("T16 engine work"; T7
-precondition fixed on `fix/t7-home-resync`). The ADR resolves this thread's
-open questions:
-config/state split at the volume seam, `harness:` section
-(explicit-by-reference) over generalized `dotfiles:`, two-tier policy split
-confirmed per T18, memory seeds empty, session continuity as declared hooks.
-T7 is recorded as a precondition for the engine work. Entry kept below for the
-full lean and the verification record.
-
-Origin: the loom-dev verification pass (`.scratch/session-start-verification.md`)
-— the predicted-LOSE list confirmed. The materialized `~/.claude` is statusline-
-only; everything else the dev experience depends on is absent. This is T12's
-usability criterion 4, the last unaddressed dogfood blocker besides cutover
-itself.
-
-**What's missing in `loom-dev` (confirmed absent).**
-- **Hooks/guards:** SessionStart continuity snapshot, guard-bash, branch-guard,
-  session-end — none run; `settings.json` is statusLine-only.
-- **Memory:** `MEMORY.md` + auto-memories (`~/.claude/projects/<proj>/memory/`).
-- **Skills / agents / plugins:** not materialized.
-- **Permissions allow/deny:** no allowlist, so every session re-prompts.
-- **Git identity:** `~/.gitconfig` neither mounted nor set (small, same family).
-
-**The shape of the fix — split by mutability (lean).**
-1. **Declarative config** (hooks, skills, permissions, settings, gitconfig
-   identity) is *playbook-declared and materialized* like dotfiles, from the
-   config source — versioned, reviewable, re-converged on `build` (ADR-0002/
-   0006: declared, not hand-made). Note the engine already plans to bake
-   guardrail hooks into built envs (protect-paths header, "Work 6") — the
-   harness hooks ride the same mechanism.
-2. **Mutable state** (memory, session history, creds) lives in the **T14 agent-
-   home volume** — survives rebuild, never bind-shared with the host or another
-   container (the session-journal corruption risk from the verification notes).
-
-The boundary cuts cleanly at `~/.claude`: config materializes INTO the volume on
-each build (docker cp through the mount), state accretes in it. Alternatives
-considered in the verification notes: bind-mounting the host `~/.claude`
-(rejected — shadows materialized config, shares mutable state across writers,
-dead on macOS for creds); copying once at create (rejected — config drifts from
-the source, exactly T7's class of bug).
-
-**Open questions.**
-- Playbook schema: does `dotfiles:` generalize (it already targets `$HOME`
-  paths), or does a `harness:` section earn its keep (hooks/skills/permissions
-  have semantics dotfiles don't — e.g. executable bits, per-project memory dirs)?
-- Permissions/guard policy is *policy*: does its source belong in `rules:`
-  (explicit-by-reference) rather than dotfiles? Interacts with the two-tier
-  config (ADR-0004) — base-wide guards vs per-project allowlists.
-- Memory seeding: start empty, or import the host's project memory once at
-  volume creation (continuity vs a clean cut)?
-- T10: everything here must target the parameterized `$HOME`, not `/root`.
-
-**Session continuity is part of this thread (added 2026-06-10, at cutover).**
-Session restarts are a certainty (model switch, rebuild, crash), so "how does a
-fresh agent session regain project context" needs a reusable convention, not a
-hand-written prompt each time. Three layers, by where each belongs:
-1. *Now (repo convention):* a tracked-tree handoff doc the agent reads at
-   session start (`.scratch/loom-dev-session-start.md` is the first instance) —
-   works because the mounted repo is the one surface every session sees. The
-   broader principle already holds: OPEN-THREADS + docs are the durable memory;
-   chat is not.
-2. *Playbook (this thread's scope):* the SessionStart continuity hook — the
-   mechanism that produced devenv's session snapshots — is exactly the kind of
-   harness config item (1) above materializes from the config source. ADR-0015
-   should treat "agent regains context on session start" as a first-class
-   harness-home requirement, alongside guard hooks: snapshot-on-end +
-   orient-on-start, declared in the playbook, not hand-carried.
-3. *Spec (later, human-authored):* the durable contract is PLAN's open item
-   "agent-initiated container lifecycle with task continuity" — a RULES/SPEC
-   clause + FR once the mechanism exists; not before (ADR-0013 spec→FR order).
-
-Promote to: an ADR (harness-home strategy — config materialized vs state in
-volume, INCLUDING session continuity hooks), then engine work (materialize
-hooks/skills/permissions + executable bits), then FRs per behavior. Blocks T12
-criterion 4; design together with the ADR-0014 addendum (T14) it builds on.
+Resolved: harness home splits at mutability on the ~/.claude volume seam — declared config materializes every build, mutable state accretes untouched; harness: schema, two-tier policy split, memory seeds empty, continuity as declared hooks.
+Pointers: ADR-0015 (Accepted, PR #24/#42-era flips) · T7 precondition · queue row "T16 engine work" · docs/HARNESS.md · archive: docs/threads/archive/T16-harness-home.md
 
 ---
 
@@ -937,75 +507,8 @@ push-credential gap to the T15 successor design.
 ---
 
 ## T19 — gate dependency golangci-lint undeclared and undeclarable   ✅ resolved
-**Resolution (2026-06-10):** everything operational shipped and verified —
-tool fix merged (#19: sourcePolicy + goModule + base playbook + tests),
-mechanism (a) merged (#17: claims script probes gate deps the
-Makefile-resolution way), lock container-re-pinned (#22), recurrence handled
-(stale-binary note above; binaries rebuilt), closing quiz 7/7 with the gate
-toolchain engine-guaranteed. What does NOT keep this open: mechanism (b), the
-Makefile↔playbook joint check, stays a recorded design in the promote-to by
-explicit choice — it graduates via its own queue row when prioritized, not by
-holding this thread open. Entry kept for the analysis and (b)'s design.
-Origin: **human exploration + out-of-band advisory analysis from the old
-environment** (a missing brew formula prompted the trace) — pointedly NOT the
-claims script and NOT the gate. That attribution matters: both mechanisms that
-exist to catch environment drift were blind to this one, which is the actual
-finding.
-
-**The defect (verified in-container, 2026-06-10).** `make gate` hard-fails
-without golangci-lint (Makefile resolves it via `command -v` and `lint` exits 1
-if absent), yet:
-- no playbook tier declared it; it is absent from `loom.lock` and from the
-  freshly built `loom-dev`;
-- it COULDN'T be naively declared: `goModule()`
-  (internal/engine/container.go) mapped only gopls and gitleaks, so a bare
-  `golangci-lint` entry would fall to the resolver's default **apt** source
-  (internal/resolver/resolver.go `sourceFor`), and debian bookworm ships no
-  golangci-lint package — the provision would have broken.
-- **Masking:** in `devenv` it existed by accident (`~/go/bin`, hand-installed
-  history), so the omission was invisible for the whole pre-cutover period.
-
-**Fix shipped (branch `fix/gate-dep-golangci-lint`).** sourcePolicy gains
-`golangci-lint: go-install`; `goModule()` maps it to
-`github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`; the base
-playbook declares it in `tools:`; resolver + provision-script tests extended
-(mirroring the gitleaks mappings). The provision digest changes, so the next
-build re-provisions existing containers — expected and non-destructive
-(converge, not `--force`; creds volume unaffected); `loom.lock` re-pins on
-that host-side build.
-
-**The two mechanism gaps (why nothing caught it).**
-- **(a) The claims script doesn't check gate dependencies.**
-  `scripts/verify-loom-dev.sh` probes the playbook-declared tool list — a tool
-  the playbook never declared is structurally invisible to it. Fix (shipped on
-  `feat/verify-loom-dev-claims`): probe golangci-lint in the PRESERVE loop and
-  assert every Makefile-resolved gate binary exists.
-- **(b) Nothing asserts gate-deps ⊆ playbook-declared tools.** The Makefile
-  and the playbook can drift silently — the same class of joint the spec↔FR
-  check (`fr-verify`, T3/ADR-0013) exists to guard. Today the joint is
-  enforced nowhere: not at build, not in the gate, not in CI.
-
-**Promote to (lean — design only, not built).** Mechanism (b) as a
-verify-style joint check: parse the Makefile's required binaries (the
-`command -v`-resolved set), assert each is playbook-declared (hence locked and
-provisioned). Tiering per ADR-0013 C4, exactly like `fr-verify`: **advisory in
-`make gate`, blocking at the merge boundary**, never per-commit. Open
-questions for that design: where the "gate deps" set is authoritatively
-declared (parse the Makefile vs a small manifest the Makefile and check both
-read), and whether the joint generalizes to "any repo-declared workflow dep ⊆
-playbook tools" (e.g. the pre-commit hook's own needs — `make` itself was the
-same defect, caught the same day; see T18).
-
-**Recurrence (2026-06-10, same day, the stale-$LOOM class).** The post-merge
-`loom build` on the Mac silently skipped the expected re-pin: `bin/loom*` were
-built at 09:17, the T19 fix merged at 13:55 (`grep -ac golangci-lint` = 0 on
-both binaries — the resolver change wasn't in them). Second stale-binary hit
-today (the first is this thread's origin note; PR #14 guarded the migration
-script against exactly this). Binaries rebuilt from `7bf5988`, grep-verified.
-Consider generalizing the migration script's `grep -aq` guard (T17): `build`
-could self-check binary-vs-tree currency (embedded commit stamp compared to
-the working tree's HEAD) and warn, instead of each script reinventing the
-grep.
+Resolved: golangci-lint declared via resolver sourcePolicy + goModule + base playbook; claims script probes gate deps Makefile-style; lock container-re-pinned; mechanism (b) — the Makefile↔playbook joint check — stays a recorded design (queue graduates it).
+Pointers: #19 (tool) · #17 (claims) · #22 (lock) · LL-010-adjacent stale-binary notes · archive: docs/threads/archive/T19-gate-dep-golangci-lint.md
 
 ---
 
