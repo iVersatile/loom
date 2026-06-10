@@ -34,6 +34,19 @@ doc, not a frozen contract; the enforced pieces are marked.
   (`~/.gitconfig`, ADR-0015 item 1) must be this noreply address, never a
   personal one.
 
+## Agent operating mode: safe-auto
+
+loom-author runs in **safe-auto** = `permissions.defaultMode: "acceptEdits"`
+plus this repo's allow/deny lists (`.claude/settings.json`). Human-accepted
+after the auto-mode evaluation (2026-06-10; advisor-verified: deny rules block
+in ALL modes including bypass; `defaultMode` is a real harness key; custom
+named modes don't exist). **Full bypass (`bypassPermissions`) stays banned.**
+Known limit, tracked as T20: allowed `go test`/`go build` execute arbitrary
+code incl. network I/O, so the deny floor cannot stop exfiltration at the
+network layer — container-level egress restriction is the mechanism answer.
+Full-auto clearance is event-driven (queue row: re-run evaluation when T16
+hooks + T10 non-root + T20 land), not scheduled.
+
 ## Outward ops ritual (until T18/T15 land)
 
 The container has no VCS credentials and no `gh` (by design until the
