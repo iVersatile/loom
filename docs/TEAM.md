@@ -25,6 +25,14 @@ doc, not a frozen contract; the enforced pieces are marked.
   in the tree while loom-author is active.
 - **Worktree rule:** any subagent that writes gets its own git worktree;
   read-only fan-out may share the tree.
+- **Shared-`.git` rule (LL-010):** host-side git operations touch the same
+  `.git` the container uses — ref moves (pull/merge) count as writes;
+  coordinate before batch ref-rewrites. Never invoke git with
+  `GIT_DIR`/`GIT_WORK_TREE` exported toward the shared repo (a host-worktree
+  commit attempt with those set leaked through the pre-commit gate into test
+  fixtures and clobbered the real `.git/config`). The gate and fixtures are
+  now hermetic to `GIT_*` (LL-010 layers), but the env hygiene rule stands —
+  mechanism backstops the rule, it doesn't replace it.
 - **Commit identity:** every topology (docs/TOPOLOGY.md) commits as the GitHub
   noreply address (`1323991+iVersatile@users.noreply.github.com`) — Option C,
   decided 2026-06-10: historical gmail commits stay (rewrite rejected: breaks
