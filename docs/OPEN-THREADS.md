@@ -330,7 +330,7 @@ status reflects it); FR once `verify` covers the build reconcile path.
 
 ---
 
-## T8 — `agents:` are declared but never installed   🟡 open
+## T8 — `agents:` are declared but never installed   ✅ resolved
 Origin: the container loom builds (`loom-loom-dev`) has the materialized `.claude/`
 config but **no `claude` binary** — investigating why the statusline/agent config
 was inert revealed agents are never provisioned.
@@ -366,6 +366,14 @@ Claude Code in-container (dogfood)"* (its fallback "mount loom + claude into
 /usr/local/bin in-container" is the agent half of that item).
 Promote to: an engine capability + a creds decision (possibly an ADR — interacts
 with ADR-0005 and the secret-store design); FR once `verify` covers agent install.
+
+**Resolution (2026-06-09/10, PR #7 merged):** option (3) as leaned — `build`
+installs declared agents (claude-code native installer, `~/.local/bin` on PATH);
+the provision sentinel digest folds in the agent set. Credentials decided in
+**ADR-0014 (Accepted)**: interactive in-container OAuth login primary; env-token
+demoted to CI-only; host creds-file mount a Linux-only no-op-on-mac secondary.
+Covered by **FR-BUILD-006**. Durability of the login → T14 (resolved); its
+human-only nature → T15 (open).
 
 ---
 
@@ -424,7 +432,7 @@ user policy); FR once covered.
 
 ---
 
-## T11 — container name `loom-loom-dev` is awkward (doubled "loom")   🟢 recommendation
+## T11 — container name `loom-loom-dev` is awkward (doubled "loom")   ✅ resolved
 Origin: the dogfood container is named `loom-loom-dev`; the doubled "loom" reads
 badly and the user wants `loom-dev`.
 
@@ -455,6 +463,12 @@ batch with T13+T14 (all create-time changes: one rebuild, one re-login).
 
 Promote to: an engine change (name template + labels) + SPEC-verbs example edit +
 ADR-0001 naming note; FR once covered.
+
+**Resolution (2026-06-10, PR #10 merged):** option (a) — `containerName` is
+`<project>-dev` (→ `loom-dev`); the managed marker is the labels
+`loom.managed=true` / `loom.project=<name>`. SPEC-verbs examples updated and the
+naming convention recorded in the ADR-0001 addendum. Covered by
+`engine.TestContainerName` / `engine.TestCreateRunArgs`.
 
 ---
 
@@ -524,7 +538,7 @@ Promote to: an ADR recording the single-dev-container model + `devenv` retiremen
 
 ---
 
-## T13 — `loom-dev` has no project/repo mount   🟢 recommendation
+## T13 — `loom-dev` has no project/repo mount   ✅ resolved
 Origin: session verification — a `claude` session in `loom-dev` had no code to work
 on. `docker inspect loom-loom-dev --format '{{json .Mounts}}'` returned `[]`, and
 `ls /workspace` → No such file. **Confirmed:** loom never mounts the project.
@@ -564,9 +578,15 @@ this thread specifies (the repo half of the dogfood working env).
 Promote to: an engine change (project mount in `ContainerSpec` + `docker run`),
 parameterized for T10; a note in ADR-0001/0003 (mount model); FR once covered.
 
+**Resolution (2026-06-10, PR #10 merged):** option (1) — the project root
+(`loom.yml`'s directory, absolute) bind-mounts **RW** at `/workspace/<project>`
+at create (`ContainerSpec.ProjectDir`). Mount model recorded in the ADR-0001
+addendum. Create-time-only as designed: changing it requires `--force`. Covered
+by `engine.TestCreateRunArgs`. The two-writer caution stands until T12's cutover.
+
 ---
 
-## T14 — agent credentials are lost on every rebuild   🟡 open
+## T14 — agent credentials are lost on every rebuild   ✅ resolved
 Origin: `loom-dev` was made usable (T8) by completing an **interactive OAuth login
 inside the container** — the only path that works for the interactive TUI after the
 file-mount and env-token routes failed (see below). Confirmed working: `claude`
@@ -612,6 +632,15 @@ continuity are the rest, in the harness-home thread).
 Promote to: an engine change (persist `~/.claude` across rebuild) + an ADR-0014
 addendum; FR once covered.
 
+**Resolution (2026-06-10, PR #10 merged):** option (1) — a named volume
+`<container>-claude` mounts at `~/.claude` when an agent is declared, so the
+in-container login survives `--force`/`teardown`; re-login only on real token
+expiry. Deliberately excluded from the `volumes`/`reset` teardown tiers (agent-
+auth wipe is the opt-in `--clean-state` tier). Recorded in the ADR-0014
+addendum; covered by `engine.TestCreateRunArgs`. Option (3) `apiKeyHelper`
+remains the T15 path; the mutable-state half of harness-home now rides this
+volume (see T16).
+
 ---
 
 ## T15 — the working auth path is human-only; AI-first auth needed   🟡 open
@@ -651,3 +680,54 @@ mechanism-not-trust design test).
 Promote to: an ADR-0014 addendum or successor ADR (credential-acquisition policy,
 interacts with the secret-store design); FR once a non-interactive auth path is
 covered by `verify`.
+
+---
+
+## T16 — harness home: loom provides `settings.json` + statusline, not the rest   🟡 open
+Origin: the loom-dev verification pass (`.scratch/session-start-verification.md`)
+— the predicted-LOSE list confirmed. The materialized `~/.claude` is statusline-
+only; everything else the dev experience depends on is absent. This is T12's
+usability criterion 4, the last unaddressed dogfood blocker besides cutover
+itself.
+
+**What's missing in `loom-dev` (confirmed absent).**
+- **Hooks/guards:** SessionStart continuity snapshot, guard-bash, branch-guard,
+  session-end — none run; `settings.json` is statusLine-only.
+- **Memory:** `MEMORY.md` + auto-memories (`~/.claude/projects/<proj>/memory/`).
+- **Skills / agents / plugins:** not materialized.
+- **Permissions allow/deny:** no allowlist, so every session re-prompts.
+- **Git identity:** `~/.gitconfig` neither mounted nor set (small, same family).
+
+**The shape of the fix — split by mutability (lean).**
+1. **Declarative config** (hooks, skills, permissions, settings, gitconfig
+   identity) is *playbook-declared and materialized* like dotfiles, from the
+   config source — versioned, reviewable, re-converged on `build` (ADR-0002/
+   0006: declared, not hand-made). Note the engine already plans to bake
+   guardrail hooks into built envs (protect-paths header, "Work 6") — the
+   harness hooks ride the same mechanism.
+2. **Mutable state** (memory, session history, creds) lives in the **T14 agent-
+   home volume** — survives rebuild, never bind-shared with the host or another
+   container (the session-journal corruption risk from the verification notes).
+
+The boundary cuts cleanly at `~/.claude`: config materializes INTO the volume on
+each build (docker cp through the mount), state accretes in it. Alternatives
+considered in the verification notes: bind-mounting the host `~/.claude`
+(rejected — shadows materialized config, shares mutable state across writers,
+dead on macOS for creds); copying once at create (rejected — config drifts from
+the source, exactly T7's class of bug).
+
+**Open questions.**
+- Playbook schema: does `dotfiles:` generalize (it already targets `$HOME`
+  paths), or does a `harness:` section earn its keep (hooks/skills/permissions
+  have semantics dotfiles don't — e.g. executable bits, per-project memory dirs)?
+- Permissions/guard policy is *policy*: does its source belong in `rules:`
+  (explicit-by-reference) rather than dotfiles? Interacts with the two-tier
+  config (ADR-0004) — base-wide guards vs per-project allowlists.
+- Memory seeding: start empty, or import the host's project memory once at
+  volume creation (continuity vs a clean cut)?
+- T10: everything here must target the parameterized `$HOME`, not `/root`.
+
+Promote to: an ADR (harness-home strategy — config materialized vs state in
+volume), then engine work (materialize hooks/skills/permissions + executable
+bits), then FRs per behavior. Blocks T12 criterion 4; design together with the
+ADR-0014 addendum (T14) it builds on.
