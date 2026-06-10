@@ -75,6 +75,37 @@ Prompt-volume work (allowlists, the compound allow-hook) may grow what's
 *above* this floor; nothing ever moves *out* of it without a human-authored
 edit to this list.
 
+## Cross-session transport: inbox + drain (T21)
+
+The human is not the message bus. Tasks travel between roles through
+tree-native inboxes — `.scratch/inbox/<role>.md`, untracked: **mail, not
+memory** (anything that must persist goes in the queue, a thread, or a doc —
+never only in an envelope).
+
+- **Format:** header `AUTOPILOT: off|on` (default **off**; only the human
+  flips it); append-only blocks `--- id: NNN` / `from:` / `serves: <queue-row
+  fragment>` / optional `kind: task|design` / optional `after: <condition>` /
+  `status: WAITING|QUEUED|TAKEN|DONE` / body.
+- **Cross-agent write rule:** a role appends only to OTHERS' inboxes and
+  updates only its OWN inbox's item statuses — the sole cross-agent write
+  surface.
+- **Drain** (`.claude/hooks/drain-inbox.sh`, Stop hook): with AUTOPILOT on,
+  a session that finishes takes the next QUEUED item instead of stopping.
+  Four hard guards: orphan refusal (no valid `serves:` row ⇒ skip + flag);
+  design-envelope legalization (`kind: design` must instruct "log as thread
+  stub before work proceeds" — ephemeral must carry durable's birth
+  certificate, or it doesn't ride); drain budget (max 3 chained items —
+  unattended chaining is new ground; the budget is the guardrail, not
+  decoration); the never-auto floor above is untouched mid-drain. Malformed
+  anything ⇒ normal stop.
+- **Dispatcher** (`scripts/dispatch-inbox.sh`, host-side until T18): promotes
+  `status: WAITING` items whose `after:` condition holds (`pr-merged #NN`,
+  `row-done <fragment>`) to QUEUED.
+- **Status single-sourcing:** inbox status = delivery state only; work state
+  lives in the queue row, flipped in the shipping PR as today; an item isn't
+  DONE until its row moved; the queue never references the inbox — canon must
+  not depend on transport.
+
 ## Outward ops ritual (until T18/T15 land)
 
 The container has no VCS credentials and no `gh` (by design until the
