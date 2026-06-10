@@ -25,6 +25,9 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | T9 shell impl (TTY sugar over exec; session-open audit) | exec merged | human topologies entry | loom-author | queued | — |
 | gate hermeticity: GIT_* scrub + fixture hardening (LL-010 incident) | — | gate integrity; every git client everywhere | loom-author | done | #41 |
 | ADR-0016 entry verbs (Accepted — human merge) | T9 decided ✓ | T9 impl | loom-author | done | #42 |
+| prompt-volume relief: evidence-based allowlist + compound allow-hook | — | human unbottlenecked; deny floor unchanged | loom-author | in review | feat/fewer-prompts |
+| one-week defaultMode "auto" trial (classifier mode; deny floor + never-auto floor unchanged) | feat/fewer-prompts merged | prompt volume ↓ | **human decision — propose only** | proposed — metric: prompts/session vs the 2026-06-10 baseline week (transcript-counted); revert at week's end unless renewed | — |
+| guard-bash segment-aware evaluation (specimen: --force + main matched one regex across unrelated chain segments) | — | fewer false blocks AND false prompts | loom-author | queued | — |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
 | T15 successor: AI-first credential acquisition (incl. VCS/gh) | — | autonomy (T18 push gap) | loom-author | queued | — |
 | T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |
