@@ -7,8 +7,11 @@ stack: go
 overlay: loom
 
 # Project-specific tools on top of the go stack defaults.
+# make: the gate's one entry point (RULES §7) is `make gate` — the container
+# must be able to run its own repo's pre-commit hook.
 tools:
   - go@1.26
+  - make
 
 rules:
   - loom/project
