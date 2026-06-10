@@ -89,3 +89,52 @@ func TestE2EBuildAndSurviveRebuild(t *testing.T) {
 	}
 	assertInContainer("/root/.claude/settings.json")
 }
+
+// TestE2EDotfileChangeConverges is the T7 regression test: a dotfile-only
+// change on an EXISTING container must reach the container on the next build
+// (no --force, no teardown), and the result must reflect the convergence.
+// Before the fix, the home re-sync was gated on the toolset digest alone, so
+// the container silently kept the old file.
+func TestE2EDotfileChangeConverges(t *testing.T) {
+	requireDocker(t)
+	root := tempProject(t)
+	pb := filepath.Join(root, "loom.yml")
+	name := containerName("loom")
+	_ = exec.Command("docker", "rm", "-f", name).Run()
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+
+	if _, err := Build(BuildOpts{PlaybookPath: pb}); err != nil {
+		t.Fatalf("first build: %v", err)
+	}
+
+	// Edit a dotfile in the config source (the T7 trigger: dotfile-only change).
+	marker := "echo t7-resync-marker"
+	src := filepath.Join(root, "config", "dotfiles", "claude", "statusline.sh")
+	if err := os.WriteFile(src, []byte("#!/bin/sh\n"+marker+"\n"), 0o755); err != nil {
+		t.Fatalf("edit dotfile: %v", err)
+	}
+
+	res, err := Build(BuildOpts{PlaybookPath: pb})
+	if err != nil {
+		t.Fatalf("rebuild after dotfile edit: %v", err)
+	}
+	if res.Container.Status != "converged" {
+		t.Errorf("container status = %q, want converged (home drift must reconcile)", res.Container.Status)
+	}
+	out, err := exec.Command("docker", "exec", name, "cat", "/root/.claude/statusline.sh").CombinedOutput()
+	if err != nil {
+		t.Fatalf("read statusline in container: %v: %s", err, out)
+	}
+	if !strings.Contains(string(out), marker) {
+		t.Errorf("container statusline not re-synced: got %q, want it to contain %q", out, marker)
+	}
+
+	// Idempotent: a third build with nothing changed must not re-converge.
+	res, err = Build(BuildOpts{PlaybookPath: pb})
+	if err != nil {
+		t.Fatalf("idempotent rebuild: %v", err)
+	}
+	if res.Container.Status != "exists" {
+		t.Errorf("container status = %q, want exists (nothing left to sync)", res.Container.Status)
+	}
+}

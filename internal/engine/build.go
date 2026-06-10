@@ -181,8 +181,9 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		}
 	case "converged":
 		// Container existed but was under-provisioned (a prior build interrupted
-		// mid-provision, ADR-0011) or drifted; the runtime re-provisioned it to the
-		// declared tool set. That is a mutation, so audit it (RULES §5).
+		// mid-provision, ADR-0011) or drifted — toolset or staged $HOME content
+		// (T7); the runtime re-converged it to the declared state. That is a
+		// mutation, so audit it (RULES §5).
 		changed = true
 		if id, err := log.Append(audit.Entry{
 			TS: ts, Verb: "build", Action: "container.reconcile", Target: cname,

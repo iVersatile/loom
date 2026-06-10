@@ -129,17 +129,24 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	if exists {
 		// Presence is not convergence (SPEC-verbs build, ADR-0011): a prior build
 		// interrupted mid-provision leaves a container that exists but lacks the
-		// toolchain. Compare the provision sentinel; if missing or stale, re-seed
-		// $HOME and re-run the idempotent provision to converge ("converged").
-		if !needsReprovision(readProvisionDigest(spec.Name), want) {
+		// toolchain, and a dotfile-only change leaves one whose $HOME drifted from
+		// the staged config (T7). Compare both sentinels; converge whichever is
+		// missing or stale ("converged").
+		homeWant := homeDigest(spec.HomeDir)
+		reprovision := needsReprovision(readProvisionDigest(spec.Name), want)
+		homeSync := needsHomeSync(readHomeDigest(spec.Name), homeWant)
+		if !reprovision && !homeSync {
 			return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "exists"}, nil
 		}
 		if spec.HomeDir != "" {
 			if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
 				return ContainerInfo{}, fmt.Errorf("docker cp home (reconcile): %v: %s", err, out)
 			}
+			writeHomeSentinel(spec.Name, homeWant, spec.LogW)
 		}
-		if len(spec.Tools) > 0 || len(spec.Agents) > 0 {
+		// Provision (tool/agent install) stays gated on its own digest: a
+		// dotfile-only change must not re-run apt/go-install (T7/T4 interplay).
+		if reprovision && (len(spec.Tools) > 0 || len(spec.Agents) > 0) {
 			if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), spec.LogW); err != nil {
 				return ContainerInfo{}, err
 			}
@@ -157,6 +164,7 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
 			return ContainerInfo{}, fmt.Errorf("docker cp home: %v: %s", err, out)
 		}
+		writeHomeSentinel(spec.Name, homeDigest(spec.HomeDir), spec.LogW)
 	}
 	if len(spec.Tools) > 0 || len(spec.Agents) > 0 {
 		if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), spec.LogW); err != nil {
@@ -278,6 +286,69 @@ func readProvisionDigest(name string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// homeSentinel is the in-container marker recording the digest of the staged
+// $HOME content the last completed home sync copied in (T7) — the same
+// presence-is-not-convergence pattern as the provision sentinel (ADR-0011),
+// for the config surface ADR-0015 materializes. Written only after a
+// successful `docker cp`, so an interrupted sync re-syncs on the next build.
+const homeSentinel = "/var/lib/loom/home"
+
+// homeDigest fingerprints the host staging dir that seeds the container $HOME:
+// a stable hash over each regular file's relative path, permission bits, and
+// content (mode included so a chmod-only change re-syncs). "" when the dir is
+// absent or holds no files — nothing to sync.
+func homeDigest(dir string) string {
+	var lines []string
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil // unreadable entries are skipped, not fatal: worst case is a re-sync
+		}
+		data, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return nil
+		}
+		mode := ""
+		if info, ierr := d.Info(); ierr == nil {
+			mode = info.Mode().Perm().String()
+		}
+		rel, _ := filepath.Rel(dir, p)
+		sum := sha256.Sum256(data)
+		lines = append(lines, filepath.ToSlash(rel)+"|"+mode+"|"+hex.EncodeToString(sum[:]))
+		return nil
+	})
+	if len(lines) == 0 {
+		return ""
+	}
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+// needsHomeSync mirrors needsReprovision for the $HOME surface: sync when
+// there is staged content and its digest differs from the container's home
+// sentinel (a missing sentinel — pre-T7 container or interrupted sync — reads
+// as "" and re-syncs).
+func needsHomeSync(have, want string) bool {
+	return want != "" && have != want
+}
+
+// readHomeDigest reads the in-container home sentinel; "" when absent.
+func readHomeDigest(name string) string {
+	out, err := exec.Command("docker", "exec", name, "cat", homeSentinel).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// writeHomeSentinel records the synced home digest in the container.
+// Best-effort: a failed write leaves the sentinel absent/stale, which re-syncs
+// on the next build — the safe direction.
+func writeHomeSentinel(name, digest string, logw io.Writer) {
+	_, _ = dockerLogged(logw, "exec", name, "sh", "-c",
+		"mkdir -p /var/lib/loom && printf %s "+digest+" > "+homeSentinel)
 }
 
 // Probe asks the container for a binary's version via a LOGIN shell, so the
