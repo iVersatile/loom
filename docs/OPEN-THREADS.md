@@ -392,7 +392,39 @@ human-only nature → T15 (open).
 
 ---
 
-## T9 — no verb to enter the container (`shell`/`enter`)   🟡 open
+## T9 — no verb to enter the container (`shell`/`enter`)   🟢 decided — awaiting the human clause PR
+**Decision record (2026-06-10, discussion with the human; clause text is
+human-authored per C3 — this entry records the rulings, it is not the spec).**
+Two verbs; **`loom exec -- <cmd>` ships first**, `loom shell` is sugar over the
+same engine path (TTY + `bash -l` as the command) and may trail by a PR. The
+eight rulings, binding for ADR-0016 / implementation / FRs:
+1. Two verbs: `exec` (one-shot) + `shell` (interactive sugar).
+2. `exec` requires a command — bare `loom exec --` is an immediate usage error
+   (exit ≠ 0), never an interactive fallback (AI-first: a hang is worse than
+   an error). The command's exit code propagates verbatim.
+3. Working directory: the project mount `/workspace/<project>` — devcontainer
+   `exec` semantics are the reference (ADR-0003 neighborly).
+4. Login environment: command runs with login-shell env so the provisioned
+   PATH applies (the `Probe` `sh -lc` lesson).
+5. **No `--json` on either verb** — `exec` is transparent passthrough; the
+   structured surface is the **audit entry** (command, exit code, action id
+   per exec; `shell` logs session-open only, no command capture — human
+   privacy/noise call). The clause states the RULES §5 exemption;
+   `cli.TestSpecConformance` may need teaching in the impl PR (test code is
+   agent territory).
+6. Lifecycle: stopped container → `docker start` then enter (idempotent
+   bring-up); absent → error with hint ("no container — run loom build"),
+   non-zero exit. The verb never creates or provisions.
+7. User: the configured container user (root today; parameterize-ready, T10).
+8. **No command filtering**: the verbs are doors, not checkpoints — no
+   authority beyond and no filtering before the container's guard envelope
+   (T16's territory). No verb-level blocklist, ever.
+Remaining sequence: human clause PR (the only blocker) → ADR-0016 acceptance →
+impl PR (exec: cli + engine via the runtime interface, unit + e2e
+`loom exec -- make gate`, FR registration) → shell PR. FR drafts are staged in
+ADR-0016, NOT the registry (fr-verify needs the clause anchor to exist first).
+Original thread kept below for the pre-decision record.
+
 Origin: after `build`, there is no loom-native way to get *into* `loom-loom-dev`;
 the user fell back to a separate sandbox.
 
@@ -896,7 +928,16 @@ push-credential gap to the T15 successor design.
 
 ---
 
-## T19 — gate dependency golangci-lint undeclared and undeclarable   🟡 open
+## T19 — gate dependency golangci-lint undeclared and undeclarable   ✅ resolved
+**Resolution (2026-06-10):** everything operational shipped and verified —
+tool fix merged (#19: sourcePolicy + goModule + base playbook + tests),
+mechanism (a) merged (#17: claims script probes gate deps the
+Makefile-resolution way), lock container-re-pinned (#22), recurrence handled
+(stale-binary note above; binaries rebuilt), closing quiz 7/7 with the gate
+toolchain engine-guaranteed. What does NOT keep this open: mechanism (b), the
+Makefile↔playbook joint check, stays a recorded design in the promote-to by
+explicit choice — it graduates via its own queue row when prioritized, not by
+holding this thread open. Entry kept for the analysis and (b)'s design.
 Origin: **human exploration + out-of-band advisory analysis from the old
 environment** (a missing brew formula prompted the trace) — pointedly NOT the
 claims script and NOT the gate. That attribution matters: both mechanisms that

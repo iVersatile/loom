@@ -14,13 +14,15 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | task | depends-on | serves | owner | status | PR |
 | --- | --- | --- | --- | --- | --- |
 | public pre-flight (history sweep, PI review, front door) | — | repo-public flip | loom-author | done — go report 2026-06-10 | governance batch |
-| governance batch (queue, TEAM.md, CODEOWNERS, /replan, push script, ADR-0015 flip) | — | team model | loom-author | in review | this batch |
+| governance batch (queue, TEAM.md, CODEOWNERS, /replan, push script, ADR-0015 flip) | — | team model | loom-author | done | #28–#34 |
 | T7 home re-sync fix | — | T16 precondition | loom-author | done | #25 + #26 |
 | topology doc (mac-dev / windows-dev / ai-user) | — | public face; topology-aware design | loom-author | done | #27 |
-| ADR-0015 bookkeeping (status → Accepted) | PR #24 merged | T16 | loom-author | in review | this batch |
-| harness synthesis doc (HARNESS.md, status-marked) | ADR-0015 ✓ | orientation; T16 PRs update its markers | loom-author | in review | docs/harness-overview |
+| ADR-0015 bookkeeping (status → Accepted) | PR #24 merged | T16 | loom-author | done | #28–#34 |
+| harness synthesis doc (HARNESS.md, status-marked) | ADR-0015 ✓ | orientation; T16 PRs update its markers | loom-author | done | #28–#34 |
 | T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix | T12 criterion 4 | loom-author | next | — |
-| T9 entry verb | human-authored SPEC-verbs clause (C3) | T12 criterion 2 | human → loom-author | blocked | — |
+| T9 spec clause (exec/shell — human-authored, C3) | — (decided, see T9 thread) | T12 criterion 2 | human | blocked on: human PR | — |
+| T9 exec impl (cli + engine + FRs; shell follows) | clause merged; ADR-0016 | T12 criterion 2 | loom-author | queued | — |
+| ADR-0016 entry verbs (Proposed; FR drafts staged inside) | T9 decided ✓ | T9 impl | loom-author | in review | docs/adr-0016-entry-verbs |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
 | T15 successor: AI-first credential acquisition (incl. VCS/gh) | — | autonomy (T18 push gap) | loom-author | queued | — |
 | T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |
