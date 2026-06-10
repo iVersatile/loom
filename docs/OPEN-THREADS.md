@@ -1051,3 +1051,40 @@ Promote to: an **ADR** (networking policy is architecture — placement of the
 egress boundary, playbook schema, the create-time trade) → engine work → FR
 per behavior (e.g. "an allowed command cannot reach a non-allowlisted host";
 testable with a canary listener in the integration tier).
+
+---
+
+## T21 — cross-session task transport: inbox + drain   🟢 decided — mechanism in build
+**Problem.** The human is the message bus between author and advisor sessions
+("when Writer finishes, paste X") — pure relay, no judgment; should be
+mechanism, not a person.
+
+**Decision (human, 2026-06-10).** Tree-native **inbox** + **Stop-hook drain**
++ **dispatcher script**. Coordinator-as-agent rejected — same
+alarm-not-firefighter verdict as the buster; revisit at multi-writer scale.
+- *Inbox:* `.scratch/inbox/<role>.md`, untracked — **mail, not memory**.
+  Append-only blocks: `id | from | serves: <queue-row> | status
+  QUEUED/TAKEN/DONE | body`; header `AUTOPILOT: off` (default; human flips).
+  Cross-agent write rule: a role appends only to OTHERS' inboxes and updates
+  only its OWN items' status — the sole cross-agent write surface.
+- *Drain (Stop hook, rides the tree):* if AUTOPILOT on and a QUEUED item
+  exists, don't stop — take it. Four hard guards: (a) **orphan refusal** — no
+  valid `serves:` queue row ⇒ refuse, flag in next report, skip; (b)
+  **design-envelope legalization** — design reasoning must instruct "log as
+  thread stub before work proceeds", else treated as orphan (*ephemeral must
+  carry durable's birth certificate, or it doesn't ride*); (c) **drain
+  budget** — max 3 chained items, then stop regardless (unattended chaining
+  is new ground; the budget is the guardrail, not decoration); (d) the
+  **never-auto permission floor is untouched** — protected ops still prompt
+  mid-drain. Malformed anything ⇒ normal stop.
+- *Dispatcher:* `scripts/` (T17 header) promotes pre-authored `after:
+  <condition>` items (PR merged, row status) to QUEUED; host-side until T18.
+
+**Load-bearing durability rules.** Inbox status = delivery state ONLY; work
+state lives in the queue row, flipped in the shipping PR; an item isn't DONE
+until its row moved; **the queue never references the inbox — canon must not
+depend on transport.** New threads are born stubs-first from inbox envelopes.
+/replan audits: orphan inbox items; stale TAKEN with unmoved rows.
+
+Promote to: TEAM.md rules + `.claude` drain hook + `scripts/dispatch-inbox.sh`
+(this PR series); drain-integrated or loom-native dispatch later.
