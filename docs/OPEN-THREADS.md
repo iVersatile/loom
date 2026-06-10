@@ -957,3 +957,48 @@ Consider generalizing the migration script's `grep -aq` guard (T17): `build`
 could self-check binary-vs-tree currency (embedded commit stamp compared to
 the working tree's HEAD) and warn, instead of each script reinventing the
 grep.
+
+---
+
+## T20 — container-level egress restriction: the allowlist's arbitrary-code escape hatch   🟡 open
+Origin: the auto-mode evaluation (2026-06-10, human-accepted; safe-auto
+definition in docs/TEAM.md). The harness permission layer holds at its own
+level — deny rules block in all modes, `curl`/`wget`/`WebFetch`/`WebSearch`
+are denied — but the allowlist necessarily permits `go test`/`go build`, and
+**compiled test code is arbitrary code, including network I/O**. A malicious
+or compromised change could exfiltrate (say, the T15 credential file) from
+inside an allowed command, and no harness-layer rule can see it. The ADR-0005
+design test ("would the guardrails hold if you tried the worst thing?")
+**fails at the network layer**; the fix must be container-level mechanism,
+not more allowlist entries.
+
+**Option space (no implementation; capture only).**
+- **(a) Deny-by-default docker networking, playbook-declared** — a
+  `networking:` section (egress allowlist resolved at create). Note the
+  **create-time conflict**: provisioning needs broad egress (apt mirrors,
+  go.dev, module proxy, installers), and docker cannot change network mode on
+  a live container — the same create-time-only class as T13/T14 (labels,
+  mounts, volumes). Shapes: provision-then-restrict via network disconnect/
+  connect of pre-made networks, or accept recreate-on-policy-change.
+- **(b) Egress proxy sidecar** — a proxy container owning the host allowlist;
+  the dev container's only route out. Restriction changes without recreate
+  (edit proxy policy), and provision + runtime both flow through the same
+  audited path. More moving parts; the proxy itself becomes loom-managed
+  state.
+- **(c) In-container iptables — REJECTED while the agent is root (T10):**
+  the agent can undo its own fetters; that is trust, not mechanism
+  (ADR-0005). Revisit only after T10 lands a non-root agent, and even then
+  prefer (a)/(b) — policy should live outside the box it polices.
+
+**Cross-links.** T10 (root kills option c and weakens everything
+in-container); T15 (the credential at rest is the prize an egress channel
+exfiltrates — the secret-store/per-use-helper lean shrinks the blast radius
+this thread is about); T16 (guard hooks are the complementary *semantic*
+layer: they understand intent, the network layer enforces capability — both,
+not either); FC-001 (if the lean becomes "icebox the implementation," it
+lands there with this entry as the spec seed).
+
+Promote to: an **ADR** (networking policy is architecture — placement of the
+egress boundary, playbook schema, the create-time trade) → engine work → FR
+per behavior (e.g. "an allowed command cannot reach a non-allowlisted host";
+testable with a canary listener in the integration tier).
