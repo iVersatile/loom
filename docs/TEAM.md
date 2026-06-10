@@ -25,6 +25,14 @@ doc, not a frozen contract; the enforced pieces are marked.
   in the tree while loom-author is active.
 - **Worktree rule:** any subagent that writes gets its own git worktree;
   read-only fan-out may share the tree.
+- **Commit identity:** every topology (docs/TOPOLOGY.md) commits as the GitHub
+  noreply address (`1323991+iVersatile@users.noreply.github.com`) — Option C,
+  decided 2026-06-10: historical gmail commits stay (rewrite rejected: breaks
+  SHA refs in docs, destroys the PR acceptance trail, and `refs/pull/*` keeps
+  old commits reachable regardless); account-side noreply + push-block are
+  set. The `user.email` that T16's harness-home materialization declares
+  (`~/.gitconfig`, ADR-0015 item 1) must be this noreply address, never a
+  personal one.
 
 ## Outward ops ritual (until T18/T15 land)
 
