@@ -33,6 +33,11 @@ doc, not a frozen contract; the enforced pieces are marked.
   fixtures and clobbered the real `.git/config`). The gate and fixtures are
   now hermetic to `GIT_*` (LL-010 layers), but the env hygiene rule stands —
   mechanism backstops the rule, it doesn't replace it.
+- **No blind ops — check HEAD first:** every host-side git command sequence
+  starts with `git rev-parse --abbrev-ref HEAD`, always. "I assumed main" is
+  how both 2026-06-10 shared-tree incidents started (the GIT_*-exported
+  worktree commit, and a rebase against a moved ref); thirty characters of
+  verification beats an evening of recovery.
 - **Commit identity:** every topology (docs/TOPOLOGY.md) commits as the GitHub
   noreply address (`1323991+iVersatile@users.noreply.github.com`) — Option C,
   decided 2026-06-10: historical gmail commits stay (rewrite rejected: breaks
