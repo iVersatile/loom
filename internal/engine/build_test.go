@@ -152,6 +152,7 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 		{Name: "go", Source: "go-tarball"},
 		{Name: "gopls", Source: "go-install"},
 		{Name: "gitleaks", Source: "go-install"},
+		{Name: "golangci-lint", Source: "go-install"},
 		{Name: "uv", Source: "uv-installer"},
 	}
 	s := provisionScript(tools, nil)
@@ -159,6 +160,7 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 		"apt-get install", " jq", "go.dev/dl",
 		"go install golang.org/x/tools/gopls@latest",
 		"go install github.com/zricethezav/gitleaks/v8@latest",
+		"go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest",
 		"astral.sh/uv/install.sh", "bashrc.d",
 	} {
 		if !strings.Contains(s, want) {

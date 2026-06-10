@@ -6,11 +6,14 @@ agents:
   - claude-code
 
 # Tools shared across all projects.
+# golangci-lint: a `make gate` dependency (Makefile hard-fails lint without it);
+# undeclared it only ever existed by accident (OPEN-THREADS T19).
 tools:
   - git
   - jq
   - ripgrep
   - gitleaks
+  - golangci-lint
 
 rules:
   - common/safety

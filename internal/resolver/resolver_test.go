@@ -15,25 +15,27 @@ func (f fakeProbe) Version(binary string) (string, bool) {
 
 func TestResolveSourcesAndPins(t *testing.T) {
 	pb := &playbook.Playbook{
-		Tools:  []string{"go@1.26", "git", "uv", "gopls", "ripgrep"},
+		Tools:  []string{"go@1.26", "git", "uv", "gopls", "ripgrep", "golangci-lint"},
 		Agents: []string{"claude-code"},
 	}
 	vp := fakeProbe{
-		"go":     "1.26.4",
-		"git":    "2.43",
-		"uv":     "0.4.1",
-		"gopls":  "0.16",
-		"rg":     "14.1",  // ripgrep -> rg alias
-		"claude": "1.2.3", // claude-code -> claude alias
+		"go":            "1.26.4",
+		"git":           "2.43",
+		"uv":            "0.4.1",
+		"gopls":         "0.16",
+		"rg":            "14.1",  // ripgrep -> rg alias
+		"claude":        "1.2.3", // claude-code -> claude alias
+		"golangci-lint": "2.1.0",
 	}
 	r := Resolve(pb, vp)
 
 	wantSource := map[string]string{
-		"go":      "go-tarball",
-		"git":     "apt",
-		"uv":      "uv-installer",
-		"gopls":   "go-install",
-		"ripgrep": "apt",
+		"go":            "go-tarball",
+		"git":           "apt",
+		"uv":            "uv-installer",
+		"gopls":         "go-install",
+		"ripgrep":       "apt",
+		"golangci-lint": "go-install",
 	}
 	for tool, src := range wantSource {
 		got, ok := r.Tools[tool]

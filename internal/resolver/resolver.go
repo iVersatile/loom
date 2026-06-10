@@ -21,13 +21,15 @@ type VersionProbe interface {
 }
 
 // sourcePolicy overrides the default apt source for tools installed otherwise.
-// debian:bookworm-slim ships neither a current Go nor gitleaks, so those are not
-// apt: Go comes from the official tarball, gitleaks/gopls via `go install`.
+// debian:bookworm-slim ships neither a current Go nor gitleaks nor golangci-lint,
+// so those are not apt: Go comes from the official tarball,
+// gitleaks/gopls/golangci-lint via `go install`.
 var sourcePolicy = map[string]string{
-	"go":       "go-tarball",
-	"gopls":    "go-install",
-	"gitleaks": "go-install",
-	"uv":       "uv-installer",
+	"go":            "go-tarball",
+	"gopls":         "go-install",
+	"gitleaks":      "go-install",
+	"golangci-lint": "go-install",
+	"uv":            "uv-installer",
 }
 
 func sourceFor(tool string) string {

@@ -493,6 +493,8 @@ func goModule(tool string) string {
 		// The v8 module's go.mod still declares the legacy zricethezav path; the
 		// github.com/gitleaks/gitleaks/v8 path fails `go install` (path conflict).
 		return "github.com/zricethezav/gitleaks/v8@latest"
+	case "golangci-lint":
+		return "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
 	default:
 		return ""
 	}
