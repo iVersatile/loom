@@ -112,7 +112,7 @@ requirements:
     kind: behavioral
     statement: build reconciles an under-provisioned or drifted container (presence is not convergence, ADR-0011).
     source: SPEC-verbs.md#build
-    tests: [engine.TestProvisionSentinelMatchesDigest, engine.TestNeedsReprovision, engine.TestE2EBuildAndSurviveRebuild]
+    tests: [engine.TestProvisionSentinelMatchesDigest, engine.TestNeedsReprovision, engine.TestE2EBuildAndSurviveRebuild, engine.TestHomeDigestDetectsDotfileChange, engine.TestNeedsHomeSync, engine.TestE2EDotfileChangeConverges]
     status: active
   - id: FR-BUILD-005
     kind: behavioral

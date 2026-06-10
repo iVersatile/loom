@@ -237,6 +237,70 @@ func TestNeedsReprovision(t *testing.T) {
 	}
 }
 
+// TestHomeDigestDetectsDotfileChange pins the T7 fix: the home staging digest is
+// stable for identical content and changes when any staged file's content
+// changes or a file is added — the trigger that re-syncs an existing
+// container's $HOME on a dotfile-only build (presence != convergence,
+// ADR-0011/ADR-0015).
+func TestHomeDigestDetectsDotfileChange(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".claude/statusline.sh", "echo v1\n")
+	write(".bashrc.d/prompt.go.sh", "PS1=go\n")
+
+	d1 := homeDigest(dir)
+	if d1 == "" {
+		t.Fatal("digest empty for a non-empty staging dir")
+	}
+	if d2 := homeDigest(dir); d2 != d1 {
+		t.Errorf("digest not stable: %q vs %q", d2, d1)
+	}
+	// Content change → new digest (the T7 trigger).
+	write(".claude/statusline.sh", "echo v2\n")
+	changed := homeDigest(dir)
+	if changed == d1 {
+		t.Error("content change must change the home digest")
+	}
+	// New file → new digest.
+	write(".claude/settings.json", "{}\n")
+	if homeDigest(dir) == changed {
+		t.Error("added file must change the home digest")
+	}
+	// Empty/missing staging ⇒ "" (nothing to sync).
+	if homeDigest(t.TempDir()) != "" {
+		t.Error("empty staging dir must yield an empty digest")
+	}
+	if homeDigest(filepath.Join(dir, "no-such-dir")) != "" {
+		t.Error("missing staging dir must yield an empty digest")
+	}
+}
+
+func TestNeedsHomeSync(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		have, want string
+		sync       bool
+	}{
+		{"missing sentinel (pre-T7 container or interrupted cp)", "", "abc", true},
+		{"drifted home (dotfile-only change)", "old", "abc", true},
+		{"converged", "abc", "abc", false},
+		{"nothing staged", "abc", "", false},
+	} {
+		if got := needsHomeSync(c.have, c.want); got != c.sync {
+			t.Errorf("%s: needsHomeSync(%q,%q)=%t want %t", c.name, c.have, c.want, got, c.sync)
+		}
+	}
+}
+
 // TestProvisionScriptInstallsAgent pins T8: a declared agent yields its install
 // step + PATH wiring in the provision script (claude-code via the native installer,
 // no Node, landing on ~/.local/bin).
