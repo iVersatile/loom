@@ -11,6 +11,8 @@ GEMINI.md symlink here. Thin pointer — detail lives in docs/.
 5. docs/PLAN.md — current phase and exit criteria (+ the tactical queue).
 6. docs/TOPOLOGY.md — where loom runs and who operates it: mac-dev-topology
    (validated), windows-dev-topology (declared), ai-user-topology (north star).
+7. docs/HARNESS.md — how the agent harness is wired: the config/state seam,
+   permission stack, convergence sentinels (synthesis; sources win on conflict).
 
 ## The one rule that overrides convenience
 Specs before code (RULES §2, ADR-0006). If implementation and a frozen spec
