@@ -138,3 +138,43 @@ func TestE2EDotfileChangeConverges(t *testing.T) {
 		t.Errorf("container status = %q, want exists (nothing left to sync)", res.Container.Status)
 	}
 }
+
+// TestE2EExecContract proves the SPEC-verbs exec contract against a real
+// container (FR-EXEC-001/002): login-shell env (provisioned PATH finds go),
+// workspace cwd, and verbatim non-zero exit propagation. The dogfood form of
+// this test is `loom exec -- make gate` inside loom-dev (T12 criterion 5,
+// loom-native) — the fixture container has no make, so the contract is proven
+// with equivalents.
+func TestE2EExecContract(t *testing.T) {
+	requireDocker(t)
+	root := tempProject(t)
+	pb := filepath.Join(root, "loom.yml")
+	name := containerName("loom")
+	_ = exec.Command("docker", "rm", "-f", name).Run()
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+
+	if _, err := Build(BuildOpts{PlaybookPath: pb}); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// Login env: the provisioned PATH (.profile: /usr/local/go/bin) must apply.
+	if res, err := Exec(ExecOpts{PlaybookPath: pb, Command: []string{"go", "version"}}); err != nil || res.ExitCode != 0 {
+		t.Errorf("exec go version: exit=%d err=%v — login-shell PATH not applied?", res.ExitCode, err)
+	}
+	// Workspace cwd: the command runs in the project mount.
+	if res, err := Exec(ExecOpts{PlaybookPath: pb, Command: []string{"sh", "-c", `test "$PWD" = /workspace/loom`}}); err != nil || res.ExitCode != 0 {
+		t.Errorf("exec cwd check: exit=%d err=%v — want /workspace/loom", res.ExitCode, err)
+	}
+	// Verbatim exit propagation, non-zero, with no engine error.
+	if res, err := Exec(ExecOpts{PlaybookPath: pb, Command: []string{"sh", "-c", "exit 7"}}); err != nil || res.ExitCode != 7 {
+		t.Errorf("exec exit 7: exit=%d err=%v — want verbatim 7, no error", res.ExitCode, err)
+	}
+
+	// Stopped → started, then entered (idempotent bring-up).
+	if out, err := exec.Command("docker", "stop", name).CombinedOutput(); err != nil {
+		t.Fatalf("docker stop: %v: %s", err, out)
+	}
+	if res, err := Exec(ExecOpts{PlaybookPath: pb, Command: []string{"true"}}); err != nil || res.ExitCode != 0 {
+		t.Errorf("exec after stop: exit=%d err=%v — want start-then-enter", res.ExitCode, err)
+	}
+}

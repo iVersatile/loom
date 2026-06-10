@@ -88,3 +88,18 @@ func TestUnknownVerbErrors(t *testing.T) {
 		t.Fatal("unknown verb should return an error (exit 1)")
 	}
 }
+
+// TestExecRequiresCommand pins FR-EXEC-001's CLI half (SPEC-verbs exec): a
+// bare `loom exec` (or `loom exec --`) is a usage error — non-zero exit,
+// never an interactive fallback, no engine call needed to fail.
+func TestExecRequiresCommand(t *testing.T) {
+	for _, args := range [][]string{{"exec"}, {"exec", "--"}} {
+		_, _, err := runCmd(t, args...)
+		if err == nil {
+			t.Errorf("loom %s should be a usage error, not an interactive fallback", strings.Join(args, " "))
+		}
+		if err != nil && !strings.Contains(err.Error(), "exec requires a command") {
+			t.Errorf("loom %s error = %q, want the usage message", strings.Join(args, " "), err)
+		}
+	}
+}

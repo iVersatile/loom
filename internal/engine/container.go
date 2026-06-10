@@ -3,6 +3,7 @@ package engine
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -83,6 +84,14 @@ type ContainerRuntime interface {
 	// best-effort, its version. The lock's `resolved` source of truth (T5): the
 	// lock pins the container, never the build host.
 	Probe(container, binary string) (present bool, version string)
+	// Start brings a stopped container up; idempotent (starting a running
+	// container is a no-op). It never creates (SPEC-verbs exec lifecycle).
+	Start(name string) error
+	// Exec runs argv inside the container with login-shell env, cwd workdir,
+	// stdio attached to the calling process (transparent passthrough,
+	// SPEC-verbs exec). Returns the command's exit code verbatim; a non-nil
+	// error means the transport failed and no exit code exists.
+	Exec(name string, argv []string, workdir string) (int, error)
 }
 
 type dockerRuntime struct{}
@@ -363,6 +372,41 @@ func (dockerRuntime) Probe(container, binary string) (bool, string) {
 		}
 	}
 	return false, ""
+}
+
+// Start brings a stopped container up. `docker start` on a running container
+// is a no-op, so this is idempotent. NOTE: integration-validated, not the
+// local gate.
+func (dockerRuntime) Start(name string) error {
+	if out, err := exec.Command("docker", "start", name).CombinedOutput(); err != nil {
+		return fmt.Errorf("docker start: %v: %s", err, out)
+	}
+	return nil
+}
+
+// Exec runs argv inside the container per the SPEC-verbs exec contract:
+// login-shell env (`sh -lc`, the Probe lesson — provisioned PATH applies),
+// cwd = workdir, the container's configured user (docker exec's default; root
+// today, T10 changes the config not this code), TTY off, stdio passed through
+// untouched. The argv is shell-quoted and exec'd so the command — not a
+// wrapper shell — receives signals and owns the exit code.
+// NOTE: integration-validated, not the local gate.
+func (dockerRuntime) Exec(name string, argv []string, workdir string) (int, error) {
+	quoted := make([]string, len(argv))
+	for i, a := range argv {
+		quoted[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+	}
+	c := exec.Command("docker", "exec", "-i", "-w", workdir, name,
+		"sh", "-lc", "exec "+strings.Join(quoted, " "))
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := c.Run(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return ee.ExitCode(), nil // the command's own exit, propagated verbatim
+		}
+		return -1, err // transport failure: docker never ran the command
+	}
+	return 0, nil
 }
 
 func defaultRuntime() ContainerRuntime { return dockerRuntime{} }

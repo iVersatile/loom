@@ -21,9 +21,10 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | harness synthesis doc (HARNESS.md, status-marked) | ADR-0015 ✓ | orientation; T16 PRs update its markers | loom-author | done | #28–#34 |
 | T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix | T12 criterion 4 | loom-author | next | — |
 | T9 spec clause (exec/shell — human-authored, C3) | — (decided, see T9 thread) | T12 criterion 2 | human | done — clause is law | #35–#40 |
-| T9 exec impl (cli + engine + FRs; shell follows) | clause merged ✓; ADR-0016 | T12 criterion 2 | loom-author | in progress | feat/t9-exec |
-| gate hermeticity: GIT_* scrub + fixture hardening (LL-010 incident) | — | gate integrity; every git client everywhere | loom-author | in review | fix/gate-git-env-hermeticity |
-| ADR-0016 entry verbs (Proposed; FR drafts staged inside) | T9 decided ✓ | T9 impl | loom-author | in review | docs/adr-0016-entry-verbs |
+| T9 exec impl (cli + engine + FRs; shell follows) | clause merged ✓ (#35–#40) | T12 criterion 2 | loom-author | in review | feat/t9-exec (#43) |
+| T9 shell impl (TTY sugar over exec; session-open audit) | exec merged | human topologies entry | loom-author | queued | — |
+| gate hermeticity: GIT_* scrub + fixture hardening (LL-010 incident) | — | gate integrity; every git client everywhere | loom-author | done | #41 |
+| ADR-0016 entry verbs (Accepted — human merge) | T9 decided ✓ | T9 impl | loom-author | done | #42 |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
 | T15 successor: AI-first credential acquisition (incl. VCS/gh) | — | autonomy (T18 push gap) | loom-author | queued | — |
 | T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |

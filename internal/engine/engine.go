@@ -46,3 +46,8 @@ type TeardownOpts struct {
 type DoctorOpts struct {
 	PlaybookPath string // --playbook/-f; falls back to defaultPlaybookPath
 }
+
+type ExecOpts struct {
+	PlaybookPath string   // --playbook/-f; falls back to defaultPlaybookPath
+	Command      []string // argv to run inside the container; required (SPEC-verbs exec)
+}

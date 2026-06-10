@@ -133,6 +133,26 @@ requirements:
     tests: [engine.TestBuildLockRecordsContainerVersions]
     status: active
 
+  # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---
+  - id: FR-EXEC-001
+    kind: behavioral
+    statement: exec requires a command (a bare invocation is a non-zero usage error, never an interactive fallback) and propagates the command's exit code verbatim.
+    source: SPEC-verbs.md#exec
+    tests: [cli.TestExecRequiresCommand, engine.TestExecRequiresCommand, engine.TestExecPropagatesExitCode, engine.TestE2EExecContract]
+    status: active
+  - id: FR-EXEC-002
+    kind: behavioral
+    statement: the exec'd command runs in /workspace/<project> with login-shell environment (provisioned PATH applies); a stopped container is started first, an absent one errors with the loom build hint.
+    source: SPEC-verbs.md#exec
+    tests: [engine.TestExecTargetsWorkspaceAndStarts, engine.TestExecAbsentContainerErrors, engine.TestE2EExecContract]
+    status: active
+  - id: FR-EXEC-003
+    kind: behavioral
+    statement: every exec appends an action-log entry carrying the command, its exit code, and the entry id — the verb's structured surface (no --json, spec exemption).
+    source: SPEC-verbs.md#exec
+    tests: [engine.TestExecAuditsCommandAndExit]
+    status: active
+
   # --- Behavioral: teardown (SPEC-verbs#teardown) ---
   - id: FR-TEARDOWN-001
     kind: behavioral
