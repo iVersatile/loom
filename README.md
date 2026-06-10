@@ -5,8 +5,10 @@ versioned **playbook**: a shared base layer plus per-project overlays, one
 container per project, devcontainer-compatible at the floor — designed to be
 operated by a human or an autonomous AI coding agent.
 
-> Status: **Phase 0 — seed.** Specs and decisions are being frozen before engine
-> code (see docs/PLAN.md). Nothing is built yet.
+> Status: **Phase 1 — spine.** `detect / plan / build / teardown` run end-to-end
+> for the Go dogfood — loom builds and converges its own dev container, and is
+> developed from inside it. Specs and decisions freeze before code
+> (see docs/PLAN.md for phases and the live tactical queue).
 
 ## Start here
 - **docs/CHARTER.md** — what Loom is, goals, the AI-first north star, non-goals.
