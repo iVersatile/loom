@@ -4,7 +4,11 @@
 #          .scratch/session-start-verification.md. PRESERVE claims pin what the
 #          engine guarantees (T8/T11/T13/T14); GAP claims pin what is knowingly
 #          missing until T16 — a GAP turning into a PASS is a surprise worth
-#          reporting, not silently enjoying.
+#          reporting, not silently enjoying. Gate-dependency claims added after
+#          T19 (golangci-lint undeclared and undeclarable, found out-of-band):
+#          probing only the playbook-declared tool list is structurally blind
+#          to an undeclared dep, so the gate's own binaries are asserted too,
+#          resolved exactly the way the Makefile resolves them.
 # Reuse  : recurring — run at every loom-dev session start and after every
 #          rebuild. Verb-candidate: each stable PRESERVE claim promotes to a
 #          `loom doctor` check (SPEC-verbs doctor: tools present, hooks
@@ -38,8 +42,22 @@ command -v claude >/dev/null 2>&1 \
   && ok "claude on PATH: $(command -v claude) (T8)" \
   || bad "claude not on PATH — T8 regression (check ~/.local/bin in .profile/.bashrc)"
 
-for t in go jq rg gitleaks git; do
+for t in go jq rg gitleaks git make golangci-lint; do
   command -v "$t" >/dev/null 2>&1 && ok "tool present: $t" || bad "tool missing: $t"
+done
+
+# Gate dependencies, resolved the way the Makefile resolves them (T19): every
+# binary `make gate` hard-requires must exist, whether or not the playbook
+# declared it — this is the claim that would have caught golangci-lint.
+gobin="$(go env GOPATH 2>/dev/null)/bin"
+golangci="$(command -v golangci-lint 2>/dev/null || echo "$gobin/golangci-lint")"
+[ -x "$golangci" ] \
+  && ok "gate dep resolvable: golangci-lint ($golangci)" \
+  || bad "gate dep missing: golangci-lint — make gate will hard-fail lint (T19)"
+for t in make gofmt go gitleaks; do
+  command -v "$t" >/dev/null 2>&1 \
+    && ok "gate dep resolvable: $t" \
+    || bad "gate dep missing: $t — make gate cannot run (T19)"
 done
 
 [ -x "$HOME/.claude/statusline.sh" ] \
