@@ -1,0 +1,31 @@
+agents:
+  claude-code:
+    resolved: ""
+base_image: debian:bookworm-slim@sha256:0104b334637a5f19aa9c983a91b54c89887c0984081f2068983107a6f6c21eeb
+loom_lock: 1
+resolved_at: "2026-06-10T09:26:55Z"
+tools:
+  git:
+    intent: latest
+    resolved: git version 2.39.5
+    source: apt
+  gitleaks:
+    intent: latest
+    resolved: gitleaks version version is set by build process
+    source: go-install
+  go:
+    intent: "1.26"
+    resolved: go version go1.26.4 linux/arm64
+    source: go-tarball
+  gopls:
+    intent: latest
+    resolved: golang.org/x/tools/gopls v0.22.0
+    source: go-install
+  jq:
+    intent: latest
+    resolved: jq-1.6
+    source: apt
+  ripgrep:
+    intent: latest
+    resolved: ripgrep 13.0.0
+    source: apt

@@ -349,9 +349,10 @@ func TestBuildLockRecordsContainerVersions(t *testing.T) {
 	rt := fakeRuntime{
 		ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"},
 		probeVersions: map[string]string{
-			"git": "git version 2.39.5 (debian)",
-			"jq":  "jq-1.7.1",
-			"go":  "go version go1.26.4 linux/arm64",
+			"git":    "git version 2.39.5 (debian)",
+			"jq":     "jq-1.7.1",
+			"go":     "go version go1.26.4 linux/arm64",
+			"claude": "1.0.35 (Claude Code)", // probed via the claude-code -> claude alias
 		}, // gopls deliberately absent from the container
 	}
 
@@ -374,6 +375,9 @@ func TestBuildLockRecordsContainerVersions(t *testing.T) {
 	}
 	if got := res.Resolved["git"].Resolved; got != "git version 2.39.5 (debian)" {
 		t.Errorf("result resolved git = %q, want container value", got)
+	}
+	if got := l.Agents["claude-code"].Resolved; got != "1.0.35 (Claude Code)" {
+		t.Errorf("claude-code resolved = %q, want the in-container `claude` version (binary alias)", got)
 	}
 
 	// Idempotent: a second build against the same container re-probes the same
