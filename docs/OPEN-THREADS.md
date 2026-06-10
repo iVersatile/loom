@@ -731,3 +731,48 @@ Promote to: an ADR (harness-home strategy — config materialized vs state in
 volume), then engine work (materialize hooks/skills/permissions + executable
 bits), then FRs per behavior. Blocks T12 criterion 4; design together with the
 ADR-0014 addendum (T14) it builds on.
+
+---
+
+## T17 — activity scripts: operational history as a verb incubator   🟢 convention adopted
+Origin: the loom-dev migration (T11/T13/T14 cutover) needed a recorded, re-runnable
+procedure instead of a terminal scrollback; the same was true of earlier manual
+sequences (the leaked-token search-and-clear after the env-token experiment, the
+session-start verification checklist in `.scratch/`).
+
+**Problem.** Operational activities (migrations, sweeps, verifications) happen as
+ad-hoc command sequences. They leave no durable record, are not re-runnable, and —
+most importantly — their recurrence is the strongest signal that the **engine has a
+capability gap**, a signal currently lost.
+
+**Convention (adopted, `scripts/README.md`).** Activity scripts are tracked in
+`scripts/`: POSIX sh, header block (Purpose / Origin / Reuse / Runs-on),
+confirmation-gated destructive steps, no secrets, mutations through `loom` verbs
+where one exists. Each script declares its lifecycle stage:
+`one-off → recurring → verb-candidate`. Promotion to the engine follows the loom
+way — spec clause (human-authored, C3) → ADR if needed → implementation → FR —
+and the script is then **deleted with a pointer**, never left to drift beside the
+verb it became.
+
+**The signal worked immediately — mappings already visible.**
+- *Leaked-token search & clear* → already specced, unbuilt: `detect`'s credential
+  scan ("present keys/credentials across known locations … detect + report by
+  default") and `teardown --clean-state` (agent auth) are its homes. The script
+  stage can cover the gap until those land; its existence is the implementation
+  prompt.
+- *Migration on container-identity change* (`migrate-loom-dev.sh`) → recurs
+  whenever naming/mounts change at create-time; candidate engine behavior: build
+  detects an old-identity container (by `loom.project` label, name-independent
+  post-T11) and offers/performs the replacement.
+- *Session-start verification checklist* → `doctor` checks (agent on PATH, repo
+  mounted, volume present, auth alive).
+
+**Boundary.** `scripts/` is for *operator activities*. It is NOT a side door for
+engine logic: anything idempotent-and-recurring that mutates project/container
+state belongs in a verb (RULES §5 — auditable, idempotent, --json), and the
+lifecycle above exists to force that conversation rather than accrete a shadow
+CLI in shell.
+
+Promote to: per-script promotions as above (each its own spec/ADR/FR step); the
+convention itself stays a working convention in `scripts/README.md` unless it
+earns a RULES §-clause (human-authored).
