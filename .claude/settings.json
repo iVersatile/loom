@@ -17,6 +17,12 @@
       "Bash(git show:*)",
       "Bash(git blame:*)",
       "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git switch:*)",
+      "Bash(git checkout -b:*)",
+      "Bash(git stash:*)",
+      "Bash(git fetch:*)",
       "Bash(ls:*)"
     ],
     "deny": [
@@ -32,11 +38,26 @@
       "Bash(ssh:*)",
       "Bash(scp:*)",
       "Bash(sudo:*)",
-      "Bash(git push --force:*)",
-      "Bash(git push -f:*)",
+      "Bash(git push --force)",
+      "Bash(git push --force :*)",
+      "Bash(git push -f)",
+      "Bash(git push -f :*)",
       "Bash(git commit --no-verify:*)",
       "Bash(loom teardown:*)",
       "Bash(loom build --force:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/allow-compound.sh"
+          }
+        ]
+      }
     ]
   }
 }
