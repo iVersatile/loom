@@ -15,8 +15,8 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | --- | --- | --- | --- | --- | --- |
 | public pre-flight (history sweep, PI review, front door) | — | repo-public flip | loom-author | done — go report 2026-06-10 | governance batch |
 | governance batch (queue, TEAM.md, CODEOWNERS, /replan, push script, ADR-0015 flip) | — | team model | loom-author | in review | this batch |
-| T7 home re-sync fix | — | T16 precondition | loom-author | in review | fix/t7-home-resync |
-| topology doc (mac-dev / windows-dev / ai-user) | — | public face; topology-aware design | loom-author | in review | docs/dev-topologies |
+| T7 home re-sync fix | — | T16 precondition | loom-author | done | #25 + #26 |
+| topology doc (mac-dev / windows-dev / ai-user) | — | public face; topology-aware design | loom-author | done | #27 |
 | ADR-0015 bookkeeping (status → Accepted) | PR #24 merged | T16 | loom-author | in review | this batch |
 | T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix | T12 criterion 4 | loom-author | next | — |
 | T9 entry verb | human-authored SPEC-verbs clause (C3) | T12 criterion 2 | human → loom-author | blocked | — |
