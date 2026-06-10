@@ -279,7 +279,22 @@ surface keeps the read-only promise enforceable; it stays covered by FR-PLAN-001
 
 ---
 
-## T7 — `build` converge skips container `$HOME` re-sync on dotfile-only change   🟡 open
+## T7 — `build` converge skips container `$HOME` re-sync on dotfile-only change   ✅ resolved
+**Resolution (2026-06-10, `fix/t7-home-resync`):** option (1) — a **home
+sentinel** (`/var/lib/loom/home`), the ADR-0011 pattern applied to the $HOME
+surface ADR-0015 materializes. `homeDigest()` fingerprints the staging tree
+(rel path + mode + content); `needsHomeSync()` mirrors `needsReprovision`;
+`Ensure` converges on either sentinel going stale. Home drift triggers only
+the `docker cp` + sentinel write — provision stays gated on the toolset digest
+(a dotfile change never re-runs apt/go-install; the T4 interplay note held).
+The misleading-status defect (option 3) dissolves by construction: "exists"
+now means nothing needed syncing. Tests: `TestHomeDigestDetectsDotfileChange`,
+`TestNeedsHomeSync` (unit), `TestE2EDotfileChangeConverges` (integration:
+edit → rebuild → content in container + status converged → third build
+"exists"); linked from FR-BUILD-004. One-time effect on merge: existing
+containers have no home sentinel, so their next build re-syncs $HOME once.
+Entry kept below for the original analysis.
+
 Origin: a real change (richer `claude/statusline.sh`) was committed, built, and
 reported `converged … 3 materialized` — but a session **inside** `loom-loom-dev`
 still saw the old statusline. `docker exec … cat /root/.claude/statusline.sh`
