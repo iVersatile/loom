@@ -919,3 +919,14 @@ declared (parse the Makefile vs a small manifest the Makefile and check both
 read), and whether the joint generalizes to "any repo-declared workflow dep ⊆
 playbook tools" (e.g. the pre-commit hook's own needs — `make` itself was the
 same defect, caught the same day; see T18).
+
+**Recurrence (2026-06-10, same day, the stale-$LOOM class).** The post-merge
+`loom build` on the Mac silently skipped the expected re-pin: `bin/loom*` were
+built at 09:17, the T19 fix merged at 13:55 (`grep -ac golangci-lint` = 0 on
+both binaries — the resolver change wasn't in them). Second stale-binary hit
+today (the first is this thread's origin note; PR #14 guarded the migration
+script against exactly this). Binaries rebuilt from `7bf5988`, grep-verified.
+Consider generalizing the migration script's `grep -aq` guard (T17): `build`
+could self-check binary-vs-tree currency (embedded commit stamp compared to
+the working tree's HEAD) and warn, instead of each script reinventing the
+grep.
