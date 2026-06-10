@@ -28,41 +28,51 @@ func runHook(dir string, env []string, args ...string) error {
 	// explicit env, never leak in from the ambient shell. Otherwise running the
 	// suite under `ALLOW_SPEC_CHANGE=1 git commit ...` would make a "should BLOCK"
 	// assertion silently pass — the spec guard's own test defeated by the override
-	// it polices. Strip them from the inherited env first (LL-006).
-	c.Env = append(withoutOverrides(os.Environ()), env...)
+	// it polices (LL-006). GIT_* redirection vars are stripped for the same
+	// reason in the other direction: hooks shell out to git, and a leaked
+	// GIT_DIR/GIT_WORK_TREE makes that git operate on the REAL repo instead of
+	// the fixture (LL-010 incident).
+	c.Env = append(hermeticEnv(), env...)
 	return c.Run()
 }
 
-// withoutOverrides drops audited ALLOW_* override vars from an environment so a
-// hook test only sees the overrides a case passes explicitly.
-func withoutOverrides(env []string) []string {
-	out := env[:0:0]
-	for _, kv := range env {
-		if strings.HasPrefix(kv, "ALLOW_") {
+// hermeticEnv returns the ambient environment with audited ALLOW_* overrides
+// and all GIT_* vars stripped, then pins git's config scope to nothing
+// (GIT_CONFIG_GLOBAL/SYSTEM=/dev/null). Every fixture process — git itself or
+// a hook that shells out to git — must build its env from this, so a test can
+// only ever act on the repo it explicitly targets (LL-006, LL-010).
+func hermeticEnv() []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ALLOW_") || strings.HasPrefix(kv, "GIT_") {
 			continue
 		}
 		out = append(out, kv)
 	}
-	return out
+	return append(out, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+}
+
+// gitIn runs one git command pinned to dir — explicit -C (not cwd inheritance)
+// AND the hermetic env, so neither a leaked GIT_DIR nor ambient config can
+// redirect it (LL-010: belt and braces, each sufficient alone).
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	c := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	c.Env = hermeticEnv()
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("git -C %s %v: %v: %s", dir, args, err, out)
+	}
 }
 
 func newGitRepo(t *testing.T, branch string) string {
 	t.Helper()
 	dir := t.TempDir()
-	git := func(args ...string) {
-		c := exec.Command("git", args...)
-		c.Dir = dir
-		c.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-		if out, err := c.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
-	}
-	git("init", "-b", branch)
-	git("config", "user.email", "t@example.com")
-	git("config", "user.name", "t")
+	gitIn(t, dir, "init", "-b", branch)
+	gitIn(t, dir, "config", "user.email", "t@example.com")
+	gitIn(t, dir, "config", "user.name", "t")
 	// An initial commit so HEAD is born and rev-parse reports the branch (as it
 	// would in any real repo a pre-commit hook runs in).
-	git("commit", "--allow-empty", "-m", "init")
+	gitIn(t, dir, "commit", "--allow-empty", "-m", "init")
 	return dir
 }
 
@@ -96,6 +106,58 @@ func TestBranchGuardBlocksMainAllowsOverrideAndBranch(t *testing.T) {
 	}
 }
 
+// TestGateHermeticToGitEnv is the LL-010 regression test. Incident
+// (2026-06-10): a commit ran with GIT_DIR/GIT_WORK_TREE set (host-worktree
+// attempt); the pre-commit gate inherited them, and this package's fixtures —
+// which shell out to git — resolved through the leaked gitdir and wrote
+// core.worktree and a test identity into the REAL shared .git/config,
+// bricking every git client on every machine. This test poisons the process
+// env with a GIT_DIR pointing at a scratch "victim" repo, runs the same
+// fixture flows, and asserts the victim's config file is byte-identical
+// afterward — proving the suite is hermetic to GIT_* independently of the
+// Makefile-level scrub.
+func TestGateHermeticToGitEnv(t *testing.T) {
+	// The victim: a real repo whose config must never change.
+	victim := t.TempDir()
+	gitIn(t, victim, "init", "-b", "main")
+	victimCfg := filepath.Join(victim, ".git", "config")
+	before, err := os.ReadFile(victimCfg)
+	if err != nil {
+		t.Fatalf("read victim config: %v", err)
+	}
+
+	// Poison the process env exactly as the incident did. t.Setenv makes these
+	// visible to os.Environ(), i.e. to every fixture helper below.
+	t.Setenv("GIT_DIR", filepath.Join(victim, ".git"))
+	t.Setenv("GIT_WORK_TREE", victim)
+
+	// Run the representative fixture flows: repo creation (init/config/commit),
+	// a hook that shells out to git, and a staged-change path.
+	repo := newGitRepo(t, "feat/poisoned")
+	if err := runHook(repo, nil, absHook(t, "branch-guard")); err != nil {
+		t.Errorf("branch-guard should allow a feature branch under poisoned env: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "f.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, repo, "add", "f.txt")
+
+	// Positive control: the fixture wrote its identity where intended.
+	repoCfg, err := os.ReadFile(filepath.Join(repo, ".git", "config"))
+	if err != nil || !strings.Contains(string(repoCfg), "t@example.com") {
+		t.Fatalf("fixture repo config missing test identity (err=%v) — fixture broke, hermeticity unproven", err)
+	}
+
+	// The assertion that would have caught the incident: victim untouched.
+	after, err := os.ReadFile(victimCfg)
+	if err != nil {
+		t.Fatalf("re-read victim config: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("poisoned GIT_DIR leaked into fixtures — victim .git/config changed:\n--- before ---\n%s\n--- after ---\n%s", before, after)
+	}
+}
+
 func TestProtectPathsBlocksFrozenContract(t *testing.T) {
 	hook := absHook(t, "protect-paths")
 
@@ -110,11 +172,7 @@ func TestProtectPathsBlocksFrozenContract(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(repo, frozen), []byte("x"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			add := exec.Command("git", "add", frozen)
-			add.Dir = repo
-			if out, err := add.CombinedOutput(); err != nil {
-				t.Fatalf("git add: %v: %s", err, out)
-			}
+			gitIn(t, repo, "add", frozen)
 			if runHook(repo, nil, hook) == nil {
 				t.Errorf("protect-paths should BLOCK a staged change to %s", frozen)
 			}

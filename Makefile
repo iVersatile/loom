@@ -41,11 +41,17 @@ spec-check:
 # Hermetic (RULES §5, FR-INV-004): scrub ambient override/config env
 # (LOOM_*/ALLOW_*) and neutralize docker (a failing shim on PATH) so no unit test
 # can read those vars or provision a real container — the local gate cannot diverge
-# from CI on host env/tooling (LL-006/008). The integration tier deliberately keeps
-# docker + LOOM_BASE_IMAGE.
+# from CI on host env/tooling (LL-006/008). GIT_* repo-redirection vars are
+# scrubbed too: a commit run with GIT_DIR/GIT_WORK_TREE set (e.g. from a host
+# worktree) leaks them into the hook's gate, and git-shelling tests then write
+# into the REAL repo's .git instead of their fixtures (LL-010 incident:
+# core.worktree + identity clobbered in the shared .git/config). The integration
+# tier deliberately keeps docker + LOOM_BASE_IMAGE.
 test:
 	@d=$$(mktemp -d); printf '#!/bin/sh\nexit 1\n' > "$$d/docker"; chmod +x "$$d/docker"; \
-	env -u LOOM_BASE_IMAGE -u ALLOW_SPEC_CHANGE -u ALLOW_MAIN_COMMIT PATH="$$d:$$PATH" \
+	env -u LOOM_BASE_IMAGE -u ALLOW_SPEC_CHANGE -u ALLOW_MAIN_COMMIT \
+	  -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
+	  PATH="$$d:$$PATH" \
 	  $(GO) test -timeout 120s ./...; \
 	rc=$$?; rm -rf "$$d"; exit $$rc
 
