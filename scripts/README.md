@@ -52,3 +52,4 @@ credential scan + `teardown --clean-state` are the specced homes for it).
 | --- | --- | --- |
 | `migrate-loom-dev.sh` | one-off (this rename) / pattern recurs on any container-identity change | engine: identity migration on rename (T17) |
 | `verify-loom-dev.sh` | recurring — every loom-dev session start / post-rebuild | `loom doctor` checks + FRs; GAP list dies with T16; gate-dep claims promote to the Makefile↔playbook joint check (T19) |
+| `push-from-host.sh` | recurring — after every in-container session that leaves branches (T18 ritual) | outward-ops verb once T15 gives a leak-free agent credential path |
