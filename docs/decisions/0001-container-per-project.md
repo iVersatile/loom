@@ -24,3 +24,16 @@ playbook and baked into its container definition — not applied ad-hoc at runti
   "different stacks side-by-side"; overlay stops being a tracked ad-hoc action.
 - Trade-offs: more containers to manage; shared base image needed to avoid bloat.
 - Revisit if: projects converge to one stack family (then one-container is simpler).
+
+## Addendum (2026-06-10) — naming, managed-marker, project mount (T11/T13)
+- **Naming:** the per-project container is **`<project>-dev`** (`loom-dev`,
+  `prompiler-dev`). The original `loom-<project>-dev` template doubled the name
+  for the loom project itself (`loom-loom-dev`) and conflated identity with
+  display. The "loom-managed" marker is now **docker labels** —
+  `loom.managed=true`, `loom.project=<name>` — discoverable via
+  `docker ps --filter label=loom.managed=true`.
+- **Project mount:** the project root (the directory holding `loom.yml`) is
+  bind-mounted **RW** at **`/workspace/<project>`** at create (the devcontainer
+  model, ADR-0003) — container-per-project includes the project being *in* the
+  container. Create-time-only (docker cannot add `-v` live); changing it
+  requires `--force`.

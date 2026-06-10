@@ -76,8 +76,8 @@ func TestPlanDriftAndConverged(t *testing.T) {
 	if !res.Changed() {
 		t.Fatal("plan should report changes (container + gopls)")
 	}
-	if len(res.Create) != 1 || res.Create[0].Name != "loom-loom-dev" {
-		t.Errorf("create = %+v, want container loom-loom-dev", res.Create)
+	if len(res.Create) != 1 || res.Create[0].Name != "loom-dev" {
+		t.Errorf("create = %+v, want container loom-dev", res.Create)
 	}
 	if !hasInstall(res.Install, "gopls") {
 		t.Errorf("install = %+v, want gopls", res.Install)

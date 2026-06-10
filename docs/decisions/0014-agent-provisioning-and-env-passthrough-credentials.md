@@ -75,3 +75,16 @@ path that authenticates the interactive TUI and the documented default.
   hardcoded to `/root` and must be parameterised when T10 lands.
 - Revisit if: a secret-store integration (`apiKeyHelper`) is wanted, or a Linux host
   with a real creds file makes the file-mount a viable zero-touch path there.
+
+## Addendum (2026-06-10) — durable agent home volume (T14)
+The "creds lost on rebuild" trade-off is closed by a **named volume at
+`~/.claude`** (`<container>-claude`), mounted at create when an agent is
+declared. The in-container OAuth login writes `.credentials.json` into the
+volume, so it survives `build --force`/`teardown` (`docker rm` keeps named
+volumes) — re-login is needed only when the token actually expires, not on
+every rebuild. The host creds-file mount (single file, RO) nests inside the
+volume and still applies on Linux hosts. The volume is **not** removed by the
+`volumes`/`reset` teardown tiers: wiping agent auth is the opt-in
+`--clean-state` tier (SPEC-verbs teardown) — deleting credentials must be an
+explicit choice, never a side effect. T15 (non-interactive, AI-first auth)
+remains open; this addendum only makes the human login durable.

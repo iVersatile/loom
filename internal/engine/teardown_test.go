@@ -13,8 +13,8 @@ func TestTeardownRemovesAndAudits(t *testing.T) {
 	root := tempProject(t)
 	pbPath := filepath.Join(root, "loom.yml")
 	rt := fakeRuntime{teardownRemoved: Removed{
-		Containers: []string{"loom-loom-dev"},
-		Volumes:    []string{"loom-loom-dev-data"},
+		Containers: []string{"loom-dev"},
+		Volumes:    []string{"loom-dev-data"},
 		Images:     []string{},
 	}}
 	res, err := teardownImpl(TeardownOpts{PlaybookPath: pbPath, Level: "volumes"}, rt, fixedClock, no)
