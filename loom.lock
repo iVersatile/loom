@@ -1,9 +1,9 @@
 agents:
   claude-code:
-    resolved: ""
+    resolved: 2.1.170 (Claude Code)
 base_image: debian:bookworm-slim@sha256:0104b334637a5f19aa9c983a91b54c89887c0984081f2068983107a6f6c21eeb
 loom_lock: 1
-resolved_at: "2026-06-10T09:26:55Z"
+resolved_at: "2026-06-10T14:28:44Z"
 tools:
   git:
     intent: latest
@@ -17,6 +17,12 @@ tools:
     intent: "1.26"
     resolved: go version go1.26.4 linux/arm64
     source: go-tarball
+  golangci-lint:
+    intent: latest
+    resolved: 'golangci-lint has version 2.12.2 built with go1.26.4 from (unknown,
+      modified: ?, mod sum: "h1:7+d1uY0bq1MU2UV3R5pW5Q7QWdcoq4naMRXM+gsJKrs=") on
+      (unknown)'
+    source: go-install
   gopls:
     intent: latest
     resolved: golang.org/x/tools/gopls v0.22.0
@@ -24,6 +30,10 @@ tools:
   jq:
     intent: latest
     resolved: jq-1.6
+    source: apt
+  make:
+    intent: latest
+    resolved: GNU Make 4.3
     source: apt
   ripgrep:
     intent: latest
