@@ -126,6 +126,12 @@ requirements:
     source: [SPEC-playbook.md#base-playbook, SPEC-verbs.md#build]
     tests: [engine.TestProvisionScriptInstallsAgent, engine.TestProvisionDigestCoversAgents, engine.TestAgentInstalls]
     status: active
+  - id: FR-BUILD-007
+    kind: behavioral
+    statement: the lock's resolved versions are probed inside the built container, never the build host; a binary the container lacks stays empty.
+    source: [SPEC-playbook.md#frozen-decisions, SPEC-verbs.md#build]
+    tests: [engine.TestBuildLockRecordsContainerVersions]
+    status: active
 
   # --- Behavioral: teardown (SPEC-verbs#teardown) ---
   - id: FR-TEARDOWN-001

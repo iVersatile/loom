@@ -15,7 +15,7 @@ func TestMutatingVerbsAreObservable(t *testing.T) {
 	rootB := tempProject(t)
 	if _, err := buildImpl(
 		BuildOpts{PlaybookPath: filepath.Join(rootB, "loom.yml")},
-		buildProber(), fakeRuntime{ensureInfo: ContainerInfo{Status: "created"}}, fixedClock,
+		fakeRuntime{ensureInfo: ContainerInfo{Status: "created"}}, fixedClock,
 	); err != nil {
 		t.Fatalf("build: %v", err)
 	}

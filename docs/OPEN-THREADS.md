@@ -174,7 +174,7 @@ ADR-0004/SPEC-playbook edit + FR (opt 3).
 
 ---
 
-## T5 — Lockfile doesn't pin what it claims (host-probed `resolved` + no per-tool digest)   🟡 open
+## T5 — Lockfile doesn't pin what it claims (host-probed `resolved` + no per-tool digest)   ✅ resolved
 Origin: inspecting a generated `loom.lock` before committing it; traced into
 `internal/lock` + `internal/resolver` + `internal/engine`.
 
@@ -224,8 +224,16 @@ Lean: (1) is a must before any `loom.lock` is committed; (2) is the honest
 short-term reconciliation for the digest half. Until both, **do not commit a
 generated `loom.lock`.**
 
-Promote to: an engine fix (a) + a SPEC-playbook accuracy edit (b), each with an FR
-once `verify` covers the lock producer.
+**Resolution (2026-06-10, `fix/t5-lock-fidelity`):** options (1)+(2), as leaned.
+(a) Build now resolves `resolved` by probing **inside the converged container**
+(`ContainerRuntime.Probe` via a login shell; `lock` re-pinned post-provision,
+carried forward pre-container so unchanged setups stay no-ops); not-found stays
+`""` — never a host value. Covered by **FR-BUILD-007** /
+`engine.TestBuildLockRecordsContainerVersions`. (b) SPEC-playbook's lockfile-
+granularity decision gained an honest *Phase status*: per-tool `digest` producer
+is **Phase 2** (field in schema, not yet populated); base-image digest produced.
+A regenerated `loom.lock` is now committable; per-tool digest (option 3) remains
+the Phase-2 follow-up.
 
 ---
 

@@ -23,6 +23,7 @@ type fakeRuntime struct {
 	ensureErr       error
 	teardownRemoved Removed
 	teardownErr     error
+	probeVersions   map[string]string // canned in-container versions (T5)
 }
 
 func (r fakeRuntime) Exists(string) (bool, error) { return r.exists, r.err }
@@ -37,6 +38,12 @@ func (r fakeRuntime) Ensure(ContainerSpec) (ContainerInfo, error) {
 
 func (r fakeRuntime) Teardown(string, string, io.Writer) (Removed, error) {
 	return r.teardownRemoved, r.teardownErr
+}
+
+// Probe returns canned in-container versions (T5): present iff a version is set.
+func (r fakeRuntime) Probe(_, binary string) (bool, string) {
+	v, ok := r.probeVersions[binary]
+	return ok, v
 }
 
 // The fixture playbook resolves to tools: git, jq, go@1.26, gopls.
