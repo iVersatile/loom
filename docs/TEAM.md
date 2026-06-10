@@ -60,6 +60,21 @@ network layer — container-level egress restriction is the mechanism answer.
 Full-auto clearance is event-driven (queue row: re-run evaluation when T16
 hooks + T10 non-root + T20 land), not scheduled.
 
+**Never-auto floor** — these prompt by design, permanently, in every mode and
+under every future allowlist or hook expansion. Rationale: LL-010 (one leaked
+`git config` write bricked every git client on every machine) and T20 (the
+network layer is where the deny floor's guarantees end):
+- credential paths (`~/.claude/.credentials.json`, `.env*`, any secret at rest)
+- network egress (`curl`/`wget`/`nc`/`ssh`/`scp`, WebFetch/WebSearch)
+- `git config` writes — any scope
+- ref-surgery and history rewrites (`update-ref`, `reset --hard`,
+  `filter-branch`/`filter-repo`, `rebase`, `push --force*`)
+- container self-destruction (`loom teardown`, `loom build --force` from
+  inside the container)
+Prompt-volume work (allowlists, the compound allow-hook) may grow what's
+*above* this floor; nothing ever moves *out* of it without a human-authored
+edit to this list.
+
 ## Outward ops ritual (until T18/T15 land)
 
 The container has no VCS credentials and no `gh` (by design until the
