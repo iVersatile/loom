@@ -505,6 +505,13 @@ with T8.
 5. The loom **dogfood loop runs in `loom-dev`**: `make gate` (unit tier; go present)
    works; integration tier stays on **CI** (already true) or `loom-dev` gains docker
    access (DinD/socket — likely FC-001) if local integration is wanted.
+   **✅ verified 2026-06-10, by the loop itself:** `make tools && make gate` ran
+   green inside `loom-dev` (`gate: PASS` — fmt-check, vet, lint, spec-check,
+   unit tests, gitleaks). Caveat that keeps this criterion honest: lint ran
+   only after `make tools` go-installed golangci-lint, an undeclared gate
+   dependency repaired in-container — the declaration gap and its mechanism
+   fixes are T19. Criterion 5 holds once that fix merges and a rebuild
+   provisions the gate toolchain from the playbook alone.
 
 **Counter-argument considered & rejected:** "keep `devenv` to compile the loom
 engine (Mac has no go)." Rejected because `loom-dev` already declares `go@1.26`, so
@@ -795,3 +802,120 @@ CLI in shell.
 Promote to: per-script promotions as above (each its own spec/ADR/FR step); the
 convention itself stays a working convention in `scripts/README.md` unless it
 earns a RULES §-clause (human-authored).
+
+---
+
+## T18 — multi-agent dogfood: who declares harness permissions/agent defs?   🟡 open
+Origin: first multi-agent session inside `loom-dev` (2026-06-10) — a bounded
+trial of 3 parallel read-only subagents mapping T16's engine touchpoints,
+followed by delivering the T16 permissions slice early as repo-tracked
+`.claude/` config.
+
+**Trial findings (dogfood feedback).**
+- *Fan-out works and cross-validates:* 3 read-only mappers (materialize path,
+  containerHome uses, settings.json handling) ran in parallel and independently
+  converged on the same hook points (`materialize.go:26-40`,
+  `container.go:138,157`) — consistency across blind agents is a useful
+  confidence signal serial exploration doesn't give. Cost: each agent re-read
+  the T16 thread for context (~3× duplicated orientation reads).
+- *Write isolation is mandatory, not optional:* `/workspace/<project>` is a RW
+  bind mount shared with the host (single-writer discipline, T13). Standing
+  rule adopted: subagents that write each get their own git worktree; the main
+  session is the only direct writer in the working tree. Survives today only as
+  harness memory + this entry — nothing in loom enforces it (see gap below).
+- *Permission friction pre-allowlist is real* (T16's prediction confirmed):
+  every read-only fan-out costs prompts until an allowlist exists, which
+  pressures a human toward blanket auto-approve — the opposite of
+  mechanism-not-trust (ADR-0005).
+- *New gap — agent can commit but not ship:* no git credentials and no `gh` in
+  the container; `git fetch`/`push` to the https remote fails. An agent can
+  branch/commit locally but a human must push and open the PR from the host.
+  Same first-class-user break as T15, for the VCS credential instead of the
+  Anthropic one. Fold into the T15/credential-acquisition design.
+- *New gap — the container can't run its own gate:* `make` was never declared
+  in any playbook tier, so the pre-commit hook (`make gate`, RULES §7) failed
+  with `make: not found` on the first in-container commit. Deviation taken:
+  apt-installed in place (drift), and `make` declared in `loom.yml` so the
+  next host-side build converges it. `golangci-lint` was missing for a worse
+  reason — undeclared AND undeclarable; that analysis, its out-of-band
+  discovery attribution, and the two mechanism gaps it exposes have their own
+  thread: T19.
+- *Memory model surprise:* the harness now provides a host-side persistent
+  memory dir (`~/.claude/projects/<proj>/memory/`) that `verify-loom-dev.sh`
+  flagged as a SURPRISE-present — T16's "no memory" assumption is already
+  partially stale; ADR-0015 should treat harness-native memory as an input.
+
+**The design question (folds into ADR-0015 / T16).** This session delivered
+permissions + agent defs as **repo-tracked** `.claude/settings.json` and
+`.claude/agents/*` — versioned, reviewable, and they survive rebuilds for free
+because the working tree is the mount (no engine work at all). That carves T16's
+scope: what still needs *playbook* declaration vs what rides the repo?
+- Repo-tracked covers *per-project, repo-public* policy (allowlist, agent
+  defs) — but only for projects that opt in, only after clone, and it cannot
+  carry secrets-adjacent or base-wide policy.
+- Playbook-declared (T16 lean) covers *user-level* `~/.claude` (hooks, skills,
+  base-wide guards, gitconfig identity) and applies to every project the env
+  hosts — the two-tier split (ADR-0004) suggests: base-wide guards in the
+  playbook, per-project allowlists in the repo.
+- Open: should the playbook be able to *reference* repo `.claude/` policy
+  (explicit-by-reference, like `rules:`), so `verify` can assert it, rather
+  than loom staying ignorant of project-level harness config? And should the
+  writer-isolation rule above become declared policy (a guard hook loom
+  materializes) instead of a memory-resident convention?
+
+Promote to: input to ADR-0015 (T16 harness-home strategy — this is the
+permissions/agents slice of its scope, landed early through the repo); the
+push-credential gap to the T15 successor design.
+
+---
+
+## T19 — gate dependency golangci-lint undeclared and undeclarable   🟡 open
+Origin: **human exploration + out-of-band advisory analysis from the old
+environment** (a missing brew formula prompted the trace) — pointedly NOT the
+claims script and NOT the gate. That attribution matters: both mechanisms that
+exist to catch environment drift were blind to this one, which is the actual
+finding.
+
+**The defect (verified in-container, 2026-06-10).** `make gate` hard-fails
+without golangci-lint (Makefile resolves it via `command -v` and `lint` exits 1
+if absent), yet:
+- no playbook tier declared it; it is absent from `loom.lock` and from the
+  freshly built `loom-dev`;
+- it COULDN'T be naively declared: `goModule()`
+  (internal/engine/container.go) mapped only gopls and gitleaks, so a bare
+  `golangci-lint` entry would fall to the resolver's default **apt** source
+  (internal/resolver/resolver.go `sourceFor`), and debian bookworm ships no
+  golangci-lint package — the provision would have broken.
+- **Masking:** in `devenv` it existed by accident (`~/go/bin`, hand-installed
+  history), so the omission was invisible for the whole pre-cutover period.
+
+**Fix shipped (branch `fix/gate-dep-golangci-lint`).** sourcePolicy gains
+`golangci-lint: go-install`; `goModule()` maps it to
+`github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`; the base
+playbook declares it in `tools:`; resolver + provision-script tests extended
+(mirroring the gitleaks mappings). The provision digest changes, so the next
+build re-provisions existing containers — expected and non-destructive
+(converge, not `--force`; creds volume unaffected); `loom.lock` re-pins on
+that host-side build.
+
+**The two mechanism gaps (why nothing caught it).**
+- **(a) The claims script doesn't check gate dependencies.**
+  `scripts/verify-loom-dev.sh` probes the playbook-declared tool list — a tool
+  the playbook never declared is structurally invisible to it. Fix (shipped on
+  `feat/verify-loom-dev-claims`): probe golangci-lint in the PRESERVE loop and
+  assert every Makefile-resolved gate binary exists.
+- **(b) Nothing asserts gate-deps ⊆ playbook-declared tools.** The Makefile
+  and the playbook can drift silently — the same class of joint the spec↔FR
+  check (`fr-verify`, T3/ADR-0013) exists to guard. Today the joint is
+  enforced nowhere: not at build, not in the gate, not in CI.
+
+**Promote to (lean — design only, not built).** Mechanism (b) as a
+verify-style joint check: parse the Makefile's required binaries (the
+`command -v`-resolved set), assert each is playbook-declared (hence locked and
+provisioned). Tiering per ADR-0013 C4, exactly like `fr-verify`: **advisory in
+`make gate`, blocking at the merge boundary**, never per-commit. Open
+questions for that design: where the "gate deps" set is authoritatively
+declared (parse the Makefile vs a small manifest the Makefile and check both
+read), and whether the joint generalizes to "any repo-declared workflow dep ⊆
+playbook tools" (e.g. the pre-commit hook's own needs — `make` itself was the
+same defect, caught the same day; see T18).
