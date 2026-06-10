@@ -3,6 +3,28 @@
 Staged, thin-vertical-slice first (prove the spine before breadth). Specs precede
 code (ADR-0006: the contracts are the product).
 
+<!-- BEGIN TACTICAL QUEUE (agent-maintained — agents edit ONLY this fenced
+     section; the phase roadmap below is human-owned) -->
+## Tactical queue (agent-maintained)
+
+Bookkeeping rule: **every PR updates its own row in that same PR** (status, PR
+link); unplanned work **adds its row in the PR that does it**. The Coordinator
+hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
+
+| task | depends-on | serves | owner | status | PR |
+| --- | --- | --- | --- | --- | --- |
+| public pre-flight (history sweep, PI review, front door) | — | repo-public flip | loom-author | done — go report 2026-06-10 | governance batch |
+| governance batch (queue, TEAM.md, CODEOWNERS, /replan, push script, ADR-0015 flip) | — | team model | loom-author | in review | this batch |
+| T7 home re-sync fix | — | T16 precondition | loom-author | in review | fix/t7-home-resync |
+| ADR-0015 bookkeeping (status → Accepted) | PR #24 merged | T16 | loom-author | in review | this batch |
+| T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix | T12 criterion 4 | loom-author | next | — |
+| T9 entry verb | human-authored SPEC-verbs clause (C3) | T12 criterion 2 | human → loom-author | blocked | — |
+| T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
+| T15 successor: AI-first credential acquisition (incl. VCS/gh) | — | autonomy (T18 push gap) | loom-author | queued | — |
+| T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |
+| T12 closeout: delete archived devenv | archive + 14d | cutover bookkeeping | human | scheduled 2026-06-24 | — |
+<!-- END TACTICAL QUEUE -->
+
 ## Phase 0 — Seed (this commit)
 - Charter, ADRs (0001–0007), SPEC-playbook, SPEC-verbs, RULES, AGENTS, this PLAN.
 - No engine code yet. Freeze the schema + verb contracts via review first.
