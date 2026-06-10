@@ -24,6 +24,19 @@ type fakeRuntime struct {
 	teardownRemoved Removed
 	teardownErr     error
 	probeVersions   map[string]string // canned in-container versions (T5)
+	execExit        int               // canned command exit code for Exec
+	execErr         error             // canned transport error for Exec
+	startErr        error             // canned error for Start
+	execRecord      *execCall         // when set, Start/Exec record into it
+}
+
+// execCall captures what the exec verb asked of the runtime, for contract
+// assertions (argv, workdir, start-before-exec).
+type execCall struct {
+	name    string
+	argv    []string
+	workdir string
+	started bool
 }
 
 func (r fakeRuntime) Exists(string) (bool, error) { return r.exists, r.err }
@@ -44,6 +57,20 @@ func (r fakeRuntime) Teardown(string, string, io.Writer) (Removed, error) {
 func (r fakeRuntime) Probe(_, binary string) (bool, string) {
 	v, ok := r.probeVersions[binary]
 	return ok, v
+}
+
+func (r fakeRuntime) Start(name string) error {
+	if r.execRecord != nil {
+		r.execRecord.started = true
+	}
+	return r.startErr
+}
+
+func (r fakeRuntime) Exec(name string, argv []string, workdir string) (int, error) {
+	if r.execRecord != nil {
+		r.execRecord.name, r.execRecord.argv, r.execRecord.workdir = name, argv, workdir
+	}
+	return r.execExit, r.execErr
 }
 
 // The fixture playbook resolves to tools: git, jq, go@1.26, gopls.
