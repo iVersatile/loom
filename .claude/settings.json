@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(gofmt:*)",
+      "Bash(make gate)",
+      "Bash(make gate-integration)",
+      "Bash(make test)",
+      "Bash(make fr-verify)",
+      "Bash(make cover)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git blame:*)",
+      "Bash(git branch:*)",
+      "Bash(ls:*)"
+    ],
+    "deny": [
+      "Read(~/.claude/.credentials.json)",
+      "Read(//root/.claude/.credentials.json)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "WebFetch",
+      "WebSearch",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(nc:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(sudo:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git commit --no-verify:*)",
+      "Bash(loom teardown:*)",
+      "Bash(loom build --force:*)"
+    ]
+  }
+}
