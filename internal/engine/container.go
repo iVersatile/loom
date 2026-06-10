@@ -38,14 +38,16 @@ type AgentInstall struct {
 
 // ContainerSpec describes the container build wants to converge to.
 type ContainerSpec struct {
-	Name      string
-	BaseImage string
-	Tools     []ToolInstall  // resolved tools to install, by source
-	Agents    []AgentInstall // resolved agent harnesses to install (T8)
-	Env       []string       // env var NAMES passed through at run; values from host (RULES: no secret values in code/lock/logs)
-	HomeDir   string         // host staging dir seeding the container $HOME
-	Force     bool           // rebuild from scratch even if the container exists
-	LogW      io.Writer      // diagnostic log sink for raw docker/provision output
+	Name       string
+	Project    string // playbook project name; drives the loom.project label and the workspace mount target
+	BaseImage  string
+	Tools      []ToolInstall  // resolved tools to install, by source
+	Agents     []AgentInstall // resolved agent harnesses to install (T8)
+	Env        []string       // env var NAMES passed through at run; values from host (RULES: no secret values in code/lock/logs)
+	HomeDir    string         // host staging dir seeding the container $HOME
+	ProjectDir string         // absolute host path of the project root (dir holding loom.yml), bind-mounted RW (T13); empty = no mount
+	Force      bool           // rebuild from scratch even if the container exists
+	LogW       io.Writer      // diagnostic log sink for raw docker/provision output
 }
 
 // dockerLogged runs a docker command, tees its combined output to logw (when
@@ -140,20 +142,10 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		}
 		return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "converged"}, nil
 	}
-	// Inject host state at create (docker can't add -e/-v to a live container, so
-	// changing either needs --force):
-	//   - env passthrough (-e NAME, no value): docker forwards the value from
-	//     loom's own environment; values never enter code/lock/image/logs (RULES).
-	//   - creds mount (-v ...:ro): reuse the host's EXISTING Claude credentials
-	//     (~/.claude/.credentials.json) so the in-container agent shares the same
-	//     subscription auth — no token generation. Single-file + read-only, so it
-	//     coexists with the materialised settings.json/statusline.sh in ~/.claude.
 	hostHome, _ := os.UserHomeDir()
 	credsPath := filepath.Join(hostHome, ".claude", ".credentials.json")
 	_, credsErr := os.Stat(credsPath)
-	runArgs := append([]string{"run", "-d", "--name", spec.Name}, envArgs(spec.Env)...)
-	runArgs = append(runArgs, credsMount(credsPath, credsErr == nil, spec.Agents)...)
-	runArgs = append(runArgs, spec.BaseImage, "sleep", "infinity")
+	runArgs := createRunArgs(spec, credsPath, credsErr == nil)
 	if out, err := dockerLogged(spec.LogW, runArgs...); err != nil {
 		return ContainerInfo{}, fmt.Errorf("docker run: %v: %s", err, out)
 	}
@@ -287,8 +279,54 @@ func readProvisionDigest(name string) string {
 func defaultRuntime() ContainerRuntime { return dockerRuntime{} }
 
 // containerName derives the deterministic per-project container name (ADR-0001).
+// `<project>-dev` (T11): the loom-managed marker is the loom.managed/loom.project
+// labels, not a name prefix — a `loom-` prefix doubled for the loom project itself
+// (`loom-loom-dev`) and tied identity to display. Discover loom's containers with
+// `docker ps --filter label=loom.managed=true`.
 func containerName(project string) string {
-	return "loom-" + project + "-dev"
+	return project + "-dev"
+}
+
+// agentHomeVolume names the durable agent-home volume (T14): mounted at
+// ~/.claude so in-container credentials (and the agent home) survive
+// `build --force`/`teardown` (`docker rm` keeps named volumes). Removal is the
+// opt-in `--clean-state` Mac-side tier (SPEC-verbs teardown), NOT the volumes/
+// reset tiers — wiping agent auth must be an explicit choice.
+func agentHomeVolume(container string) string {
+	return container + "-claude"
+}
+
+// containerWorkspace is the fixed in-container mount point for the project repo
+// (T13): /workspace/<project>, matching the devcontainer convention (ADR-0003).
+func containerWorkspace(project string) string {
+	return "/workspace/" + project
+}
+
+// createRunArgs assembles the `docker run` arg list for first creation. All of
+// this is create-time-only state — docker cannot add labels/-e/-v to a live
+// container, so changing any of it requires `--force` (a new container):
+//   - labels: the loom-managed marker + project identity (T11).
+//   - env passthrough (-e NAME, no value): docker forwards the value from loom's
+//     own environment; values never enter code/lock/image/logs (RULES).
+//   - agent-home volume at ~/.claude (T14): persists in-container credentials
+//     across rebuilds; only when an agent needing auth is declared.
+//   - project bind-mount (T13): the repo, RW, host↔container live edits.
+//   - creds mount (-v ...:ro): reuse the host's EXISTING Claude credentials file
+//     when one exists (Linux hosts; macOS keeps creds in the Keychain so this is
+//     a no-op there). Single-file + read-only, nested inside the agent-home
+//     volume, so it never shadows the materialised settings.json/statusline.sh.
+func createRunArgs(spec ContainerSpec, hostCredsPath string, credsPresent bool) []string {
+	args := []string{"run", "-d", "--name", spec.Name,
+		"--label", "loom.managed=true", "--label", "loom.project=" + spec.Project}
+	args = append(args, envArgs(spec.Env)...)
+	if hasAgent(spec.Agents, "claude-code") {
+		args = append(args, "-v", agentHomeVolume(spec.Name)+":"+containerHome+"/.claude")
+	}
+	if spec.ProjectDir != "" {
+		args = append(args, "-v", spec.ProjectDir+":"+containerWorkspace(spec.Project))
+	}
+	args = append(args, credsMount(hostCredsPath, credsPresent, spec.Agents)...)
+	return append(args, spec.BaseImage, "sleep", "infinity")
 }
 
 // provisionScript builds a POSIX-sh script that installs the resolved tools into

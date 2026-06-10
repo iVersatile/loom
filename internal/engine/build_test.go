@@ -31,7 +31,7 @@ func buildProber() fakeProber {
 func TestBuildWritesLockMaterializesAndAudits(t *testing.T) {
 	root := tempProject(t)
 	pbPath := filepath.Join(root, "loom.yml")
-	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-loom-dev", Image: defaultBaseImage, Status: "created"}}
+	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"}}
 
 	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock)
 	if err != nil {
@@ -73,7 +73,7 @@ func TestBuildWritesLockMaterializesAndAudits(t *testing.T) {
 func TestBuildIdempotent(t *testing.T) {
 	root := tempProject(t)
 	pbPath := filepath.Join(root, "loom.yml")
-	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-loom-dev", Image: defaultBaseImage, Status: "created"}}
+	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"}}
 
 	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock); err != nil {
 		t.Fatalf("first build: %v", err)
@@ -81,7 +81,7 @@ func TestBuildIdempotent(t *testing.T) {
 	first := countLogLines(t, root)
 
 	// Second build: lock unchanged, dotfiles unchanged, container now "exists".
-	rt2 := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-loom-dev", Image: defaultBaseImage, Status: "exists"}}
+	rt2 := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "exists"}}
 	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt2, fixedClock)
 	if err != nil {
 		t.Fatalf("second build: %v", err)
@@ -340,6 +340,52 @@ func TestCredsMount(t *testing.T) {
 	// No mount when claude-code is not among the agents.
 	if credsMount("/host/.claude/.credentials.json", true, []AgentInstall{{Name: "codex"}}) != nil {
 		t.Error("creds mount only applies when claude-code is installed")
+	}
+}
+
+// TestContainerName pins the naming convention (T11): `<project>-dev`, no
+// `loom-` prefix — the loom-managed marker is the labels, not the name.
+func TestContainerName(t *testing.T) {
+	if got := containerName("loom"); got != "loom-dev" {
+		t.Errorf("containerName(loom) = %q, want loom-dev", got)
+	}
+	if got := containerName("prompiler"); got != "prompiler-dev" {
+		t.Errorf("containerName(prompiler) = %q, want prompiler-dev", got)
+	}
+}
+
+// TestCreateRunArgs pins the create-time container surface: managed labels
+// (T11), the durable agent-home volume at ~/.claude (T14), the RW project
+// bind-mount (T13), and the optional host creds file — base image and command
+// last. All create-time-only: changing any of it requires --force.
+func TestCreateRunArgs(t *testing.T) {
+	spec := ContainerSpec{
+		Name: "loom-dev", Project: "loom", BaseImage: "debian:bookworm-slim",
+		Agents:     []AgentInstall{{Name: "claude-code", Source: "native-installer"}},
+		ProjectDir: "/host/repo/loom",
+	}
+	got := strings.Join(createRunArgs(spec, "/host/.claude/.credentials.json", true), " ")
+
+	for _, want := range []string{
+		"--label loom.managed=true",
+		"--label loom.project=loom",
+		"-v loom-dev-claude:" + containerHome + "/.claude",
+		"-v /host/repo/loom:/workspace/loom",
+		"-v /host/.claude/.credentials.json:" + containerHome + "/.claude/.credentials.json:ro",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("createRunArgs missing %q in: %s", want, got)
+		}
+	}
+	if !strings.HasSuffix(got, "debian:bookworm-slim sleep infinity") {
+		t.Errorf("image+command must come last: %s", got)
+	}
+
+	// No agent → no agent-home volume; no project dir → no workspace mount.
+	bare := ContainerSpec{Name: "x-dev", Project: "x", BaseImage: "img"}
+	g := strings.Join(createRunArgs(bare, "", false), " ")
+	if strings.Contains(g, "-claude:") || strings.Contains(g, "/workspace/") {
+		t.Errorf("bare spec must not mount volume or workspace: %s", g)
 	}
 }
 

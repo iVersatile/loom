@@ -25,7 +25,7 @@ func TestMutatingVerbsAreObservable(t *testing.T) {
 	rootT := tempProject(t)
 	if _, err := teardownImpl(
 		TeardownOpts{PlaybookPath: filepath.Join(rootT, "loom.yml"), Level: "stop"},
-		fakeRuntime{teardownRemoved: Removed{Containers: []string{"loom-loom-dev"}}}, fixedClock, no,
+		fakeRuntime{teardownRemoved: Removed{Containers: []string{"loom-dev"}}}, fixedClock, no,
 	); err != nil {
 		t.Fatalf("teardown: %v", err)
 	}

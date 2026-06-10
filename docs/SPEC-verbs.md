@@ -75,7 +75,7 @@ container(s) (one per project, shared base image) + the two-tier config.
 // loom build --json (shape)
 { "resolved": { "tools": { "ruff": {"resolved":"0.5.2","source":"uv"} } },
   "lock_written": true,
-  "container": {"name":"loom-loom-dev","image":"...@sha256:...","status":"created"},  // status: created | exists | converged
+  "container": {"name":"loom-dev","image":"...@sha256:...","status":"created"},  // status: created | exists | converged
 
   "materialized": ["~/.claude/settings.json","~/.claude/statusline.sh","~/.bashrc.d/10-prompt.sh"],
   "actions": ["<audit-entry-id>", "..."],
@@ -105,7 +105,7 @@ Mac-side code/config.
 ```json
 // loom teardown --json (shape)
 { "level": "volumes",
-  "removed": { "containers": ["loom-loom-dev"], "volumes": ["loom-loom-data"], "images": [] } }
+  "removed": { "containers": ["loom-dev"], "volumes": ["loom-dev-data"], "images": [] } }
 ```
 
 ## import  (ADR-0003, staged)
@@ -150,7 +150,7 @@ crash-safe (one line = one committed action) and trivially greppable by an agent
 
 ```json
 { "ts":"2026-06-08T00:00:00Z", "verb":"build", "action":"container.create",
-  "target":"loom-loom-dev", "before":null, "after":{"image":"...@sha256:..."},
+  "target":"loom-dev", "before":null, "after":{"image":"...@sha256:..."},
   "result":"created", "actor":"cli" }   // actor: cli | agent
 ```
 

@@ -22,7 +22,7 @@ func TestMutatingVerbsIdempotent(t *testing.T) {
 			if first {
 				status = "created"
 			}
-			rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-loom-dev", Image: defaultBaseImage, Status: status}}
+			rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: status}}
 			if _, err := buildImpl(BuildOpts{PlaybookPath: filepath.Join(root, "loom.yml")}, buildProber(), rt, fixedClock); err != nil {
 				t.Fatalf("build: %v", err)
 			}
@@ -30,7 +30,7 @@ func TestMutatingVerbsIdempotent(t *testing.T) {
 		{"teardown", func(t *testing.T, root string, first bool) {
 			removed := Removed{}
 			if first {
-				removed = Removed{Containers: []string{"loom-loom-dev"}}
+				removed = Removed{Containers: []string{"loom-dev"}}
 			}
 			rt := fakeRuntime{teardownRemoved: removed}
 			if _, err := teardownImpl(TeardownOpts{PlaybookPath: filepath.Join(root, "loom.yml"), Level: "stop"}, rt, fixedClock, no); err != nil {

@@ -134,14 +134,20 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 		_, _ = fmt.Fprintf(lf, "loom build %s base=%s\n", ts, img)
 	}
 
-	// 4. Container — create or converge via the runtime.
+	// 4. Container — create or converge via the runtime. The project root is
+	// bind-mounted (T13), so it must be absolute for `docker run -v`.
 	cname := containerName(pb.Name)
+	projDir := root
+	if abs, aerr := filepath.Abs(root); aerr == nil {
+		projDir = abs
+	}
 	info, err := rt.Ensure(ContainerSpec{
-		Name: cname, BaseImage: img, HomeDir: home,
-		Tools:  toolInstalls(resolution),
-		Agents: agentInstalls(resolution),
-		Env:    pb.Env,
-		Force:  opts.Force, LogW: logw,
+		Name: cname, Project: pb.Name, BaseImage: img, HomeDir: home,
+		Tools:      toolInstalls(resolution),
+		Agents:     agentInstalls(resolution),
+		Env:        pb.Env,
+		ProjectDir: projDir,
+		Force:      opts.Force, LogW: logw,
 	})
 	if err != nil {
 		return res, fmt.Errorf("container step: %w", err)
