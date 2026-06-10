@@ -21,6 +21,14 @@ command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not found — run on 
 if [ -f /.dockerenv ]; then
   echo "ERROR: this looks like a container ($(whoami)@$(hostname)) — run on the Mac host"; exit 1
 fi
+# Stale-binary guard (learned 2026-06-10: first migration ran a pre-PR-#10 binary,
+# which recreated the OLD identity with no mounts/volume and lost the creds).
+# A post-#10 engine embeds the loom.managed label string; refuse anything older.
+grep -aq 'loom.managed' "$LOOM" || {
+  echo "ERROR: $LOOM predates the T11/T13/T14 engine (no loom.managed label support)."
+  echo "Rebuild from current main first:  GOOS=darwin GOARCH=arm64 go build -o bin/loom-darwin-arm64 ./cmd/loom"
+  exit 1
+}
 
 say "state before (the audit trail)"
 docker ps -a --filter "name=$OLD" --filter "name=$NEW" || true
@@ -46,6 +54,13 @@ say "building $NEW via the new engine (mounts + volume + labels land at create)"
 
 say "verify"
 docker ps --filter label=loom.managed=true
+# The new container existing under the NEW name is the migration's definition of
+# success — a hard failure, not a warning (a stale engine recreates the old name).
+docker container inspect "$NEW" >/dev/null 2>&1 || {
+  echo "ERROR: $NEW was not created — the build produced something else (stale binary?)"
+  docker ps -a --filter label=loom.managed=true --filter "name=$OLD" || true
+  exit 1
+}
 docker exec "$NEW" sh -lc 'claude --version' \
   || echo "WARN: claude not on PATH in $NEW (agent install failed?)"
 docker exec "$NEW" sh -lc 'ls /workspace >/dev/null' \
