@@ -14,7 +14,8 @@ func SplitTool(intent string) (name, version string) {
 
 // binaryAlias maps a playbook tool name to its actual binary when they differ.
 var binaryAlias = map[string]string{
-	"ripgrep": "rg",
+	"ripgrep":     "rg",
+	"claude-code": "claude", // the native installer lands the binary as `claude`
 }
 
 // BinaryName returns the executable name for a tool name (e.g. ripgrep -> rg).

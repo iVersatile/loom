@@ -19,12 +19,12 @@ func TestResolveSourcesAndPins(t *testing.T) {
 		Agents: []string{"claude-code"},
 	}
 	vp := fakeProbe{
-		"go":          "1.26.4",
-		"git":         "2.43",
-		"uv":          "0.4.1",
-		"gopls":       "0.16",
-		"rg":          "14.1", // ripgrep -> rg alias
-		"claude-code": "1.2.3",
+		"go":     "1.26.4",
+		"git":    "2.43",
+		"uv":     "0.4.1",
+		"gopls":  "0.16",
+		"rg":     "14.1",  // ripgrep -> rg alias
+		"claude": "1.2.3", // claude-code -> claude alias
 	}
 	r := Resolve(pb, vp)
 
