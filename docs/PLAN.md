@@ -18,6 +18,7 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | T7 home re-sync fix | — | T16 precondition | loom-author | done | #25 + #26 |
 | topology doc (mac-dev / windows-dev / ai-user) | — | public face; topology-aware design | loom-author | done | #27 |
 | ADR-0015 bookkeeping (status → Accepted) | PR #24 merged | T16 | loom-author | in review | this batch |
+| harness synthesis doc (HARNESS.md, status-marked) | ADR-0015 ✓ | orientation; T16 PRs update its markers | loom-author | in review | docs/harness-overview |
 | T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix | T12 criterion 4 | loom-author | next | — |
 | T9 entry verb | human-authored SPEC-verbs clause (C3) | T12 criterion 2 | human → loom-author | blocked | — |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
