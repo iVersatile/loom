@@ -553,6 +553,8 @@ with T8.
 1. T8 — `loom-dev` installs the agent + has working credentials (env token primary;
    see ADR-0014 / the session verification finding).
 2. T9 — an entry path exists (verb, or documented `docker exec -it`).
+   **✅ met loom-natively (2026-06-10):** `loom exec` merged (#43, SPEC-verbs
+   clause #35–#40, ADR-0016 Accepted #42); `shell` spec'd and staged.
 3. **T13 — the project repo is mounted into `loom-dev`** (today it is not; you
    cannot work on code there without it).
 4. Harness home — the parts of `~/.claude` you depend on (hooks/guards, memory,
@@ -567,6 +569,11 @@ with T8.
    dependency repaired in-container — the declaration gap and its mechanism
    fixes are T19. Criterion 5 holds once that fix merges and a rebuild
    provisions the gate toolchain from the playbook alone.
+   **✅✅ re-verified loom-natively (2026-06-10, post-T19 + #43):** the human
+   ran `loom exec -- make gate` from the Mac through the merged verb —
+   `gate: PASS` on the playbook-provisioned toolchain, audit entry #19
+   (`container.exec`, command + exit 0). The dogfood loop closes through
+   loom's own surface; no caveats remain on this criterion.
 
 **Counter-argument considered & rejected:** "keep `devenv` to compile the loom
 engine (Mac has no go)." Rejected because `loom-dev` already declares `go@1.26`, so
