@@ -9,6 +9,8 @@
 
 - `loom <verb> [target] [flags]`
 - `--json` on every verb → structured output to stdout, logs to stderr.
+  Exemption: `exec` and `shell` — transparent passthrough / interactive; their
+  structured surface is the action log (see their sections).
 - No `--dry-run`: `plan` is the one preview path (read-only, exit 2 on drift).
   A flag alias was removed (T6) after it shipped mutating — one preview surface
   keeps the read-only promise enforceable.
@@ -107,6 +109,44 @@ Mac-side code/config.
 { "level": "volumes",
   "removed": { "containers": ["loom-dev"], "volumes": ["loom-dev-data"], "images": [] } }
 ```
+
+## exec
+
+Run one command inside the project container — the agent-facing door
+(ADR-0005). Scripts, CI, and agents drive the container through this verb; the
+dogfood loop's loom-native form is `loom exec -- make gate`.
+
+- `loom exec -- <cmd> [args…]`. The command is **required**: a bare
+  `loom exec` is a usage error (non-zero exit), never an interactive
+  fallback — an unattended caller must fail loudly, not hang on a TTY.
+- Exit code: the command's own, propagated verbatim.
+- Working directory: the project mount (`/workspace/<project>`) — matches
+  `devcontainer exec` semantics (ADR-0003 compatibility).
+- Environment: login-shell env, so the provisioned PATH applies. Runs as the
+  configured container user.
+- Output: transparent passthrough — stdout/stderr belong to the executed
+  command; no `--json` (exempt from the global convention). The structured
+  record is the **audit entry**: every `exec` appends an action-log entry
+  carrying the command, its exit code, and the entry id.
+- Lifecycle: a stopped container is started, then entered (idempotent
+  bring-up); an absent container is an error with the hint to run
+  `loom build`, non-zero exit. `exec` never creates or provisions.
+- Doors, not checkpoints: `exec` confers no authority beyond, and performs no
+  filtering before, the container's own guard envelope (the hooks and
+  permissions `build` materializes). Guarding lives inside the container; the
+  verb is plain.
+
+## shell  (staged — ships after exec)
+
+Interactive entry for the human topologies: sugar over `exec`'s engine path —
+a TTY plus a login shell.
+
+- `loom shell` → interactive login shell in the project container, as the
+  configured user, in the project mount.
+- Same lifecycle and no-filtering posture as `exec`; exits with the shell's
+  exit code.
+- No output contract (interactive; exempt from `--json`). Audit: one
+  session-open entry — commands typed in the shell are not captured.
 
 ## import  (ADR-0003, staged)
 
