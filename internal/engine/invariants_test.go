@@ -23,7 +23,7 @@ func TestMutatingVerbsIdempotent(t *testing.T) {
 				status = "created"
 			}
 			rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: status}}
-			if _, err := buildImpl(BuildOpts{PlaybookPath: filepath.Join(root, "loom.yml")}, buildProber(), rt, fixedClock); err != nil {
+			if _, err := buildImpl(BuildOpts{PlaybookPath: filepath.Join(root, "loom.yml")}, rt, fixedClock); err != nil {
 				t.Fatalf("build: %v", err)
 			}
 		}},

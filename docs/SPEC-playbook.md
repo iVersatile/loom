@@ -16,6 +16,10 @@
   drift in individual installs; the image digest pins the floor. This is what
   reproducibility actually needs and mirrors Devbox's lock. The example below
   already reflects this shape.
+  *Phase status (amended 2026-06-10, T5):* `resolved` is probed **inside the
+  built container** (the lock pins the container's reality, never the build
+  host's) and the base-image digest is produced; the **per-tool `digest`
+  producer is Phase 2** — the field is in the schema but not yet populated.
 
 ## Principles
 

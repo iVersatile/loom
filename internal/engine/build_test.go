@@ -24,16 +24,12 @@ func tempProject(t *testing.T) string {
 
 func fixedClock() time.Time { return time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC) }
 
-func buildProber() fakeProber {
-	return fakeProber{"git": "2.43", "jq": "1.7", "go": "go1.26.4", "gopls": "v0.16", "claude-code": "1.2.3"}
-}
-
 func TestBuildWritesLockMaterializesAndAudits(t *testing.T) {
 	root := tempProject(t)
 	pbPath := filepath.Join(root, "loom.yml")
 	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"}}
 
-	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock)
+	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -75,14 +71,14 @@ func TestBuildIdempotent(t *testing.T) {
 	pbPath := filepath.Join(root, "loom.yml")
 	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"}}
 
-	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock); err != nil {
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err != nil {
 		t.Fatalf("first build: %v", err)
 	}
 	first := countLogLines(t, root)
 
 	// Second build: lock unchanged, dotfiles unchanged, container now "exists".
 	rt2 := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "exists"}}
-	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt2, fixedClock)
+	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt2, fixedClock)
 	if err != nil {
 		t.Fatalf("second build: %v", err)
 	}
@@ -101,7 +97,7 @@ func TestBuildContainerErrorAfterLock(t *testing.T) {
 	pbPath := filepath.Join(root, "loom.yml")
 	rt := fakeRuntime{ensureErr: os.ErrPermission}
 
-	_, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock)
+	_, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock)
 	if err == nil {
 		t.Fatal("expected container-step error")
 	}
@@ -116,7 +112,7 @@ func TestBuildBaseImageOverride(t *testing.T) {
 	pbPath := filepath.Join(root, "loom.yml")
 	rt := fakeRuntime{ensureInfo: ContainerInfo{Status: "created"}}
 
-	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock); err != nil {
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	l, err := lock.Read(filepath.Join(root, "loom.lock"))
@@ -137,7 +133,7 @@ func TestBuildPinsBaseDigest(t *testing.T) {
 	pbPath := filepath.Join(root, "loom.yml")
 	rt := fakeRuntime{resolveDigest: "sha256:deadbeef", ensureInfo: ContainerInfo{Status: "created"}}
 
-	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, buildProber(), rt, fixedClock); err != nil {
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	l, err := lock.Read(filepath.Join(root, "loom.lock"))
@@ -340,6 +336,56 @@ func TestCredsMount(t *testing.T) {
 	// No mount when claude-code is not among the agents.
 	if credsMount("/host/.claude/.credentials.json", true, []AgentInstall{{Name: "codex"}}) != nil {
 		t.Error("creds mount only applies when claude-code is installed")
+	}
+}
+
+// TestBuildLockRecordsContainerVersions pins the T5 fix: the lock's `resolved`
+// comes from probing INSIDE the converged container, never the build host — a
+// Mac build must not record "Apple Git" for a debian container. A binary the
+// container lacks stays "" (the not-found case is honest, not swallowed).
+func TestBuildLockRecordsContainerVersions(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{
+		ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"},
+		probeVersions: map[string]string{
+			"git": "git version 2.39.5 (debian)",
+			"jq":  "jq-1.7.1",
+			"go":  "go version go1.26.4 linux/arm64",
+		}, // gopls deliberately absent from the container
+	}
+
+	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	l, err := lock.Read(filepath.Join(root, "loom.lock"))
+	if err != nil || l == nil {
+		t.Fatalf("read lock: %v", err)
+	}
+	if got := l.Tools["git"].Resolved; got != "git version 2.39.5 (debian)" {
+		t.Errorf("git resolved = %q, want the container-probed version", got)
+	}
+	if got := l.Tools["go"].Resolved; !strings.Contains(got, "linux") {
+		t.Errorf("go resolved = %q, want the container's (linux) go", got)
+	}
+	if got := l.Tools["gopls"].Resolved; got != "" {
+		t.Errorf("gopls resolved = %q, want \"\" (absent from container, never host-filled)", got)
+	}
+	if got := res.Resolved["git"].Resolved; got != "git version 2.39.5 (debian)" {
+		t.Errorf("result resolved git = %q, want container value", got)
+	}
+
+	// Idempotent: a second build against the same container re-probes the same
+	// versions and must not rewrite the lock.
+	rt2 := rt
+	rt2.ensureInfo.Status = "exists"
+	res2, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt2, fixedClock)
+	if err != nil {
+		t.Fatalf("second build: %v", err)
+	}
+	if res2.LockWritten {
+		t.Error("unchanged container versions must not rewrite the lock")
 	}
 }
 

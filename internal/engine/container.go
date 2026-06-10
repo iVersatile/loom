@@ -79,6 +79,10 @@ type ContainerRuntime interface {
 	// Teardown removes the environment to the given tier (stop|volumes|reset)
 	// and reports what was removed; raw output is tee'd to logw.
 	Teardown(name, level string, logw io.Writer) (Removed, error)
+	// Probe reports whether a tool binary exists INSIDE the named container and,
+	// best-effort, its version. The lock's `resolved` source of truth (T5): the
+	// lock pins the container, never the build host.
+	Probe(container, binary string) (present bool, version string)
 }
 
 type dockerRuntime struct{}
@@ -274,6 +278,20 @@ func readProvisionDigest(name string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// Probe asks the container for a binary's version via a LOGIN shell, so the
+// provision PATH (.profile: /usr/local/go/bin, ~/.local/bin) applies — the same
+// PATH an interactive user gets. Tools disagree on the flag (git --version vs
+// go version); try both. NOTE: integration-validated, not the local gate.
+func (dockerRuntime) Probe(container, binary string) (bool, string) {
+	for _, arg := range []string{"--version", "version"} {
+		out, err := exec.Command("docker", "exec", container, "sh", "-lc", binary+" "+arg).Output()
+		if err == nil {
+			return true, firstLine(string(out))
+		}
+	}
+	return false, ""
 }
 
 func defaultRuntime() ContainerRuntime { return dockerRuntime{} }

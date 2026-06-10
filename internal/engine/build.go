@@ -27,22 +27,34 @@ func baseImage() string {
 	return defaultBaseImage
 }
 
-// proberVersion adapts the engine prober to resolver.VersionProbe.
-type proberVersion struct{ p prober }
+// containerVersions adapts the runtime's in-container probe to
+// resolver.VersionProbe: the lock pins the CONTAINER's reality (T5), never the
+// build host's — a Mac build must not record "Apple Git" for a debian container.
+type containerVersions struct {
+	rt   ContainerRuntime
+	name string
+}
 
-func (a proberVersion) Version(binary string) (string, bool) {
-	present, v := a.p.probe(binary)
+func (c containerVersions) Version(binary string) (string, bool) {
+	present, v := c.rt.Probe(c.name, binary)
 	return v, present
 }
+
+// nullVersions resolves nothing: used for the pre-container resolve pass, where
+// no truthful `resolved` source exists yet (the container is the only machine
+// whose versions the lock may record, T5).
+type nullVersions struct{}
+
+func (nullVersions) Version(string) (string, bool) { return "", false }
 
 // Build materializes the playbook into reality (docs/SPEC-verbs.md "build"):
 // resolve intent → write lockfile → materialize $HOME → create the container.
 // It is the first mutating verb, so every step appends to the action log.
 func Build(opts BuildOpts) (BuildResult, error) {
-	return buildImpl(opts, execProber{}, defaultRuntime(), time.Now)
+	return buildImpl(opts, defaultRuntime(), time.Now)
 }
 
-func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Time) (BuildResult, error) {
+func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (BuildResult, error) {
 	path := opts.PlaybookPath
 	if path == "" {
 		path = defaultPlaybookPath
@@ -68,18 +80,23 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 	}
 	changed := false
 
-	// 1. Resolve intent → concrete pins.
-	resolution := resolver.Resolve(pb, proberVersion{p})
-	for name, lt := range resolution.Tools {
-		res.Resolved[name] = ResolvedTool{Resolved: lt.Resolved, Source: lt.Source}
-	}
-
-	// 2. Lock — rewrite only when the resolved content changes (idempotent).
+	// 1. Resolve intent → concrete pins. `resolved` versions are probed inside
+	// the container AFTER it converges (step 5, T5); this pass carries forward
+	// the prior lock's container-probed values (same intent+source) so an
+	// unchanged setup stays a no-op, and leaves new tools "" — honest until the
+	// container can answer. Never the host PATH.
 	lockPath := filepath.Join(root, "loom.lock")
 	existing, err := lock.Read(lockPath)
 	if err != nil {
 		return res, fmt.Errorf("read lock: %w", err)
 	}
+	resolution := resolver.Resolve(pb, nullVersions{})
+	carryForwardResolved(resolution, existing)
+	for name, lt := range resolution.Tools {
+		res.Resolved[name] = ResolvedTool{Resolved: lt.Resolved, Source: lt.Source}
+	}
+
+	// 2. Lock — rewrite only when the resolved content changes (idempotent).
 	// Pin the base image to its manifest-list digest when a daemon can resolve
 	// it (reproducible across arches); fall back to the plain tag otherwise.
 	img := baseImage()
@@ -175,6 +192,30 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 		}
 	}
 
+	// 5. Re-pin `resolved` from inside the converged container (T5) and rewrite
+	// the lock when reality differs. A binary the container lacks stays "" —
+	// honest — never a host value. Runs only after a successful container step,
+	// so a failed build keeps the carried-forward lock (recoverable,
+	// FR-BUILD-005).
+	reprobed := resolver.Resolve(pb, containerVersions{rt, cname})
+	finalLock := reprobed.Lock(img, ts)
+	if current, rerr := lock.Read(lockPath); rerr == nil && !lock.ContentEqual(current, finalLock) {
+		if err := finalLock.WriteFile(lockPath); err != nil {
+			return res, fmt.Errorf("write lock (container re-pin): %w", err)
+		}
+		res.LockWritten = true
+		changed = true
+		if id, err := log.Append(audit.Entry{
+			TS: ts, Verb: "build", Action: "lock.write", Target: "loom.lock",
+			After: map[string]any{"base_image": finalLock.BaseImage, "repinned": "container"}, Result: "written", Actor: "cli",
+		}); err == nil {
+			res.Actions = append(res.Actions, id)
+		}
+	}
+	for name, lt := range reprobed.Tools {
+		res.Resolved[name] = ResolvedTool{Resolved: lt.Resolved, Source: lt.Source}
+	}
+
 	// Result enum (SPEC-verbs): a newly created container is "created"; any other
 	// convergence (lock / materialize / reconcile) is "converged" (the default).
 	if info.Status == "created" {
@@ -183,6 +224,28 @@ func buildImpl(opts BuildOpts, p prober, rt ContainerRuntime, now func() time.Ti
 		res.Result = "converged"
 	}
 	return res, nil
+}
+
+// carryForwardResolved seeds a fresh resolution's `resolved` fields from the
+// existing lock when the tool's intent+source are unchanged — those values were
+// container-probed by a prior build (T5), so they remain the best truth until
+// the container can be re-probed. Anything new or changed stays "".
+func carryForwardResolved(r *resolver.Resolution, existing *lock.Lock) {
+	if existing == nil {
+		return
+	}
+	for name, lt := range r.Tools {
+		if old, ok := existing.Tools[name]; ok && old.Intent == lt.Intent && old.Source == lt.Source {
+			lt.Resolved = old.Resolved
+			r.Tools[name] = lt
+		}
+	}
+	for name, la := range r.Agents {
+		if old, ok := existing.Agents[name]; ok {
+			la.Resolved = old.Resolved
+			r.Agents[name] = la
+		}
+	}
 }
 
 func toolInstalls(r *resolver.Resolution) []ToolInstall {
