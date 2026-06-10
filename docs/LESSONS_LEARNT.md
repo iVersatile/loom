@@ -6,6 +6,31 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud`
 
+## LL-010 — Git-shelling tests must be hermetic to GIT_* repo-redirection env
+- Date: 2026-06-10
+- Tags: `ci`
+- Symptom: after a commit attempt run with `GIT_DIR`/`GIT_WORK_TREE` set (a
+  host-worktree invocation), every git command on every machine sharing the
+  repo died: the real `.git/config` had gained
+  `core.worktree=/tmp/Test...` and `user.name`/`email=t@example.com`.
+- Root cause: the pre-commit gate inherited the caller's `GIT_DIR`/
+  `GIT_WORK_TREE`; the guard package's tests shell out to git against
+  `/tmp` fixture repos relying on `cmd.Dir`, but **`GIT_DIR` overrides both
+  cwd and `-C`** (verified), so `git init`/`config` resolved through the
+  leaked gitdir's commondir and wrote into the real shared `.git/config`.
+  Hand-repaired by direct file edit + index rebuild.
+- Fix (three layers, each sufficient): (1) the gate's targeted scrub (T2
+  mechanism) also unsets `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`,
+  `GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`; (2) fixtures build their env from
+  `hermeticEnv()` (strips all `GIT_*`, pins `GIT_CONFIG_GLOBAL/SYSTEM` to
+  /dev/null) and pass explicit `-C`; (3) regression test
+  `TestGateHermeticToGitEnv` poisons `GIT_DIR` at a victim repo and asserts
+  its config is byte-identical after the fixture flows.
+- Prevention: any test that shells out to git must construct `cmd.Env`
+  explicitly — never inherit ambient `GIT_*`; the gate scrub is the backstop,
+  not the contract. Same class as LL-006 (ambient override env), opposite
+  direction: env that *redirects writes* instead of env that *weakens guards*.
+
 ## LL-009 — Cherry-pick already-gated commits onto a new base; don't rebase frozen-contract commits
 - Date: 2026-06-09
 - Tags: `ci`

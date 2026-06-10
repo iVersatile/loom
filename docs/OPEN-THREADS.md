@@ -52,6 +52,14 @@ be overkill (the AST lint, Q2.2 option b) is excluded. Impl note: "scrub" is
 targeted (unset `LOOM_*`/`ALLOW_*` + hide docker), **not** `env -i` — the gate needs
 go/gofmt/golangci-lint/gitleaks on PATH.
 
+**Scope extended (2026-06-10, LL-010):** the targeted scrub also unsets the
+`GIT_*` repo-redirection vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`,
+`GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`) — a leaked `GIT_DIR` overrides both
+cwd and `-C` (verified), so git-shelling fixtures wrote into the real shared
+`.git` (incident postmortem: LL-010). Fixtures are additionally hermetic on
+their own (`hermeticEnv()` + explicit `-C`), pinned by
+`TestGateHermeticToGitEnv`.
+
 ---
 
 ## T3 — Phase-1 FR seeding (the bootstrap retrofit)   🟢 scope set; ADR-0013 reconciliation pending
