@@ -1,0 +1,6 @@
+# Frozen contracts require human acceptance (docs/TEAM.md merge policy; the PR
+# merge IS the acceptance, RULES §2/C3). Advisory while the repo is private —
+# binding once the public flip enables branch protection + required reviews.
+docs/SPEC-*.md     @iVersatile
+docs/decisions/    @iVersatile
+docs/RULES.md      @iVersatile
