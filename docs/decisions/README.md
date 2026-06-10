@@ -19,6 +19,8 @@ choices.
 - ADR-0011 — build reconciles by a provision sentinel (presence ≠ converged)
 - ADR-0012 — Prebuilt base image bakes the toolchain (provision = thin overlay)
 - ADR-0013 — Requirements traceability via a machine-readable FR registry
+- ADR-0014 — Agent provisioning + in-container credential login
+- ADR-0015 — Harness home: config materializes into the agent volume; state accretes in it
 
 ## Template
 

@@ -690,7 +690,16 @@ covered by `verify`.
 
 ---
 
-## T16 — harness home: loom provides `settings.json` + statusline, not the rest   🟡 open
+## T16 — harness home: loom provides `settings.json` + statusline, not the rest   🟢 ADR-0015 drafted
+**Status (2026-06-10):** promoted to **ADR-0015** (Proposed —
+`docs/decisions/0015-harness-home-config-vs-state.md`; agent-drafted, human
+acceptance via PR merge). The ADR resolves this thread's open questions:
+config/state split at the volume seam, `harness:` section
+(explicit-by-reference) over generalized `dotfiles:`, two-tier policy split
+confirmed per T18, memory seeds empty, session continuity as declared hooks.
+T7 is recorded as a precondition for the engine work. Entry kept below for the
+full lean and the verification record.
+
 Origin: the loom-dev verification pass (`.scratch/session-start-verification.md`)
 — the predicted-LOSE list confirmed. The materialized `~/.claude` is statusline-
 only; everything else the dev experience depends on is absent. This is T12's
