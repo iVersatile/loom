@@ -1,5 +1,5 @@
 # ADR-0015 — Harness home: declared config materializes into the agent volume; mutable state accretes in it
-**Date:** 2026-06-10   **Status:** Proposed (agent-drafted for human review per RULES §5/C3; acceptance = PR merge)
+**Date:** 2026-06-10   **Status:** Accepted (2026-06-10 — human acceptance via PR #24 merge; drafted by agent per RULES §5/C3)
 
 ## Context
 The first loom-built dev container (`loom-dev`, T12 cutover) materialized a

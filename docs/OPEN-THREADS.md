@@ -690,10 +690,13 @@ covered by `verify`.
 
 ---
 
-## T16 — harness home: loom provides `settings.json` + statusline, not the rest   🟢 ADR-0015 drafted
-**Status (2026-06-10):** promoted to **ADR-0015** (Proposed —
-`docs/decisions/0015-harness-home-config-vs-state.md`; agent-drafted, human
-acceptance via PR merge). The ADR resolves this thread's open questions:
+## T16 — harness home: loom provides `settings.json` + statusline, not the rest   ✅ resolved (ADR-0015 Accepted)
+**Status (2026-06-10):** promoted to **ADR-0015**, now **Accepted** (human
+acceptance via PR #24 merge —
+`docs/decisions/0015-harness-home-config-vs-state.md`). Remaining work is
+implementation, tracked in the PLAN tactical queue ("T16 engine work"; T7
+precondition fixed on `fix/t7-home-resync`). The ADR resolves this thread's
+open questions:
 config/state split at the volume seam, `harness:` section
 (explicit-by-reference) over generalized `dotfiles:`, two-tier policy split
 confirmed per T18, memory seeds empty, session continuity as declared hooks.
