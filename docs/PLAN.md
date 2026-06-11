@@ -36,13 +36,15 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix ✓, `harness:` clause accepted ✓ (#53) | T12 criterion 4 | loom-author | next | — |
 | T9 shell impl (TTY sugar over exec; session-open audit) | exec merged ✓ (#43) | human topologies entry | loom-author | queued | — |
 | ci-red auto-file workflow (CI failure on main → auto-filed issue; dedup, ci-red label) | — | reds become tracked work, not human-noticed accidents | loom-author | queued | — |
+| /achievements project skill (queue-anchored daily/period digest: spec/decision/mechanism categories; report-only, no tree writes) | — | consistent shipped-work narration for human + reviews | loom-author | done | #63 |
 | guard-bash segment-aware evaluation (specimen: --force + main matched one regex across unrelated chain segments) | — | fewer false blocks AND false prompts | loom-author | queued | — |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
 | T15 successor: AI-first credential acquisition (incl. VCS/gh) | — | autonomy (T18 push gap) | loom-author | queued | — |
 | T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |
 | one-week defaultMode "auto" trial (classifier mode; deny floor + never-auto floor unchanged) | exit/rollback package T22 ✓ (docs/auto-trial.md) | prompt volume ↓ | **human flips — package decided; revert pre-authorized, re-flip human-only** | decided — awaiting flip; per-role baseline scan BEFORE flip; day-7 verdict: keep iff zero S1+S2 | — |
-| T22 transcription: auto-trial exit/rollback package (thread stub + docs/auto-trial.md; inbox item 001) | — | trial failure contract on record | loom-author | in review | docs/t22-auto-trial |
-| T23 transcription: AUTOPILOT scoping (role × project, HALT kill-switch + test, flips.log; inbox item 003) | T21 ✓, LL-011 fix ✓ (#54) | transport trust model on record; atomic both-roles rollback | loom-author | in review | feat/t21-autopilot-scoping |
+| T22 transcription: auto-trial exit/rollback package (thread stub + docs/auto-trial.md; inbox item 001) | — | trial failure contract on record | loom-author | done | #56 |
+| T23 transcription: AUTOPILOT scoping (role × project, HALT kill-switch + test, flips.log; inbox item 003) | T21 ✓, LL-011 fix ✓ (#54) | transport trust model on record; atomic both-roles rollback | loom-author | done | #57 |
+| baseline scan, Writer side (would-prompt metric; inbox item 004 — flip gate) | advisor scan ✓ (#58) | auto-trial §1 precondition; the flip waits on this | loom-author | in review | docs/trial-baseline-author |
 | bootstrap-entry spec clause (loom-bootstrap.sh first touch — no clause covers it; C3) | — | FR-BUILD-008 remainder | human | flagged — awaiting human-authored clause | — |
 | Phase-1 close (PLAN edit) | guided run satisfactory | phase boundary | **human — no agent self-approves phase completion** | blocked on: guided run | — |
 | T12 closeout: delete archived devenv | archive + 14d | cutover bookkeeping | human | scheduled 2026-06-24 | — |
