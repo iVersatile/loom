@@ -520,6 +520,10 @@ Pointers: #19 (tool) · #17 (claims) · #22 (lock) · LL-010-adjacent stale-bina
 ---
 
 ## T20 — container-level egress restriction: the allowlist's arbitrary-code escape hatch   🟡 open
+Gate registered here (2026-06-11): the bootstrap prebuilt-binary-fetch
+amendment (SPEC-verbs "entry: bootstrap", future amendment b) is explicitly
+GATED ON this thread's resolution — bootstrap stays network-free until T20
+decides the egress boundary.
 Origin: the auto-mode evaluation (2026-06-10, human-accepted; safe-auto
 definition in docs/TEAM.md). The harness permission layer holds at its own
 level — deny rules block in all modes, `curl`/`wget`/`WebFetch`/`WebSearch`
