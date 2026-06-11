@@ -34,6 +34,7 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | Phase-1 close (PLAN edit) | guided run satisfactory | phase boundary | **human — no agent self-approves phase completion** | blocked on: guided run | — |
 | T21 thread + OPEN-THREADS archival diet (11 ✅ threads → docs/threads/archive/, stubs + convention) | — | durable design record; relay → mechanism | loom-author | in review | docs/t21-and-thread-archive |
 | T21 mechanism: inbox + Stop-hook drain + dispatcher | T21 thread merged | human stops being the message bus | loom-author | in review | feat/t21-inbox-drain |
+| AGENTS.md communication section (brief replies, lists/options, action+summary) | — | human-stated reply-style preference, team-wide | loom-advisor (human's hands) | in review | docs/comm-style |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
 | T15 successor: AI-first credential acquisition (incl. VCS/gh) | — | autonomy (T18 push gap) | loom-author | queued | — |
 | T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |
