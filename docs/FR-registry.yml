@@ -88,6 +88,14 @@ requirements:
     source: SPEC-verbs.md#plan
     tests: [engine.TestPlanChanged, cli.TestPlanEmitsJSONAndExitCode]
     status: active
+  - id: FR-PLAN-003
+    kind: behavioral
+    # LL-012 (guided-run finding ⑦): plan graded the host while build
+    # converged the container — verdict and action must share a domain.
+    statement: plan grades the CONTAINER on the tools dimension — live probe when running, the lock's container-pinned resolved values when stopped (never starting it), and with no container every declared tool is an install; the build host's PATH is never consulted.
+    source: SPEC-verbs.md#plan
+    tests: [engine.TestPlanGradesContainerNotHost, engine.TestPlanStoppedContainerUsesLock, engine.TestPlanDriftAndConverged]
+    status: active
 
   # --- Behavioral: build (SPEC-verbs#build) ---
   - id: FR-BUILD-001
