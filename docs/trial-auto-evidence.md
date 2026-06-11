@@ -67,10 +67,24 @@ modeled).
 | 2026-06-11 | 35 | 108 | 82 | 80 | 2.3 |
 | **Total / mean** | **213** | **1028** | **510** | **459** | **2.2/turn · ~92/session** |
 
-### loom-author (loom-dev) — PENDING
-Writer transcripts live in the loom-dev volume (not reachable from devenv);
-scan dispatched as inbox item 004 (same script, same metric). The flip waits
-on this row.
+### loom-author (loom-dev) — scanned 2026-06-11 (inbox item 004)
+| Session (date) | User turns | Tool calls | Bash | Would-prompt | Per turn |
+|---|---|---|---|---|---|
+| 2026-06-10 | 41 | 477 | 212 | 103 | 2.5 |
+| 2026-06-11 (open at scan) | 15 | 99 | 61 | 38 | 2.5 |
+| **Total / mean** | **56** | **576** | **273** | **141** | **2.5/turn · ~71/session** |
+
+Supplement: 3 writer subagents (2026-06-10, worktree-isolated) added 107 tool
+calls (60 Bash / 47 Read), would-prompt 54 — excluded from the mean (subagent
+prompts surface through the parent session) but recorded for completeness.
+
+Method notes (same proxy as the advisor scan, two writer-side caveats): the
+in-container compound allow-hook (#45) auto-approves fully-allowlisted
+chains — not modeled, so the writer upper bound is looser than the advisor's;
+non-Bash tools in these transcripts (Edit/Write/Read/Task*/Agent/ToolSearch/
+Skill/AskUserQuestion) are all non-prompting under acceptEdits, so
+would-prompt here is entirely non-allowlisted Bash. The 2026-06-11 session
+was still open at scan time; its row is a floor, not a final.
 
 ## Daily audit log (trial week — to be appended)
 
