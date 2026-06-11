@@ -51,7 +51,8 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | bootstrap-entry spec clause (loom-bootstrap.sh first touch — no clause covers it; C3) | human decision 2026-06-11 ✓ (inbox item 007) | FR-BUILD-008 remainder | loom-author transcribed — human admin-merge | done — accepted; FR extraction = inbox item 010 | #64 |
 | spec-map v1 + r2 (docs/spec-map.md, threads shadow on SPECs/FRs) — orphan backfill, /replan audit | — | spec/thread shape visible | loom-advisor (human's hands) | done | #67, #71 |
 | /achievements format amendment (lifecycle dashboard) — orphan backfill, /replan audit | — | validated report format | loom-advisor (human's hands) | done | #65 |
-| Phase-1 close (PLAN edit) | guided run satisfactory | phase boundary | **human — no agent self-approves phase completion** | blocked on: guided run | — |
+| guided-run findings batch (⑦ plan/build convergence disagreement +LL +regression; ⑧ doctor probe scope; ⑨ teardown unconfirmed; ①–⑥ doc/ergonomics gaps) | guided run ✓ (docs/guided-run.md results) | criterion-1 evidence → fixes; stranger-path ergonomics | loom-author | queued — envelope item 013 | — |
+| Phase-1 close (PLAN edit) | guided run ✓ MET 2026-06-11 (docs/guided-run.md verdict) | phase boundary | **human — no agent self-approves phase completion** | UNBLOCKED — awaiting human PLAN edit | — |
 | T12 closeout: delete archived devenv | archive + 14d | cutover bookkeeping | human | scheduled 2026-06-24 | — |
 | re-run auto-mode evaluation (full-auto clearance) | T16 hooks landed, T10 non-root, T20 decided | autonomy | loom-advisor | blocked — event-driven (no calendar): when all three deps flip, checklist-diff vs the recorded evaluation (allowlist ✓, deny-floor ✓, code-exec egress, root, guard hooks) | — |
 <!-- END TACTICAL QUEUE -->
