@@ -154,6 +154,44 @@ rather than key-merge. For Phase 1 the statusline lives in the **base** tier onl
 no project overrides it; key-level JSON merge for `settings.json` is **deferred** (see
 Open questions and ADR-0004 "revisit if").
 
+## `harness:` section (added 2026-06-11, ADR-0015)
+
+Harness-home config — artifacts with semantics plain dotfiles lack: hook
+registration inside `settings.json`, executable bits, per-agent namespacing
+(claude today, others later), guardrail policy weight (ADR-0005). Entries are
+**explicit-by-reference** like `rules:`, resolved against the config source,
+and materialized into the agent home (`~/.claude` for claude-code — always
+the parameterized `$HOME`, never a literal path) on every build through the
+same staging pipeline as `dotfiles:` (write-if-changed; the home-digest
+sentinel covers the staged tree, T7).
+
+```yaml
+harness:
+  claude:                           # per-agent namespace
+    settings: claude/settings.json  # resolves from dotfiles/; base-authored
+                                    #   WHOLE FILE (Phase 1) — it carries its
+                                    #   own hook registrations
+    hooks:                          # resolve from hooks/<name>; materialize to
+      - guard-bash                  #   ~/.claude/hooks/<name>, executable
+      - session-snapshot
+    skills:                         # resolve from skills/<name>/; materialize
+      - replan                      #   to ~/.claude/skills/<name>/ (dir copy)
+```
+
+- Layer resolution follows `dotfiles:`: base → stack → overlay, whole-file
+  later-wins per target path. Phase 1: `settings.json` is base-tier only,
+  no key-merge (Open question 1); the engine does not synthesize hook
+  registrations — the declared `settings.json` carries them (ADR-0015
+  decision 3).
+- The top-level `hooks:` field is unchanged (guardrail references `doctor`
+  verifies in the config source); `harness.<agent>.hooks` selects which of
+  them materialize into that agent's home.
+- Git identity (`~/.gitconfig`) is harness config by weight but plain by
+  shape — it ships as a `dotfiles:` reference, no new field.
+- Mutable state (`settings.local.json`, `projects/`, credentials, session
+  history) is never a valid `harness:` target: the engine materializes
+  declared config only and never touches state (ADR-0015 decision 2).
+
 ## Devcontainer compatibility (ADR-0003)
 
 The playbook is a **superset** of what devcontainer models. Import maps a
