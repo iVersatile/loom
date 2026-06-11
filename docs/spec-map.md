@@ -1,6 +1,6 @@
 # Spec map — threads overlaid on SPECs/FRs
 
-> Generated 2026-06-11 from `docs/FR-registry.yml` (`source:` joints, `tests:`
+> Generated 2026-06-11 (r2, post trial-flip) from `docs/FR-registry.yml` (`source:` joints, `tests:`
 > coverage) and `docs/OPEN-THREADS.md` (status markers, `Pointers:` lines).
 > Edge types are judgment calls, reviewed not parsed. Regenerate on ask
 > (recurrence candidate: `/specmap`, sibling of `/achievements`).
@@ -59,9 +59,9 @@ flowchart LR
   T16["T16 ✅ harness home (ADR-0015)"]:::shadow -->|✕ engine next| harness
   T10["T10 🟡 non-root"]:::shadow -->|✕| harness
   T10 -->|✕ revisit role-guard fallback| guards
-  T20["T20 🟡→🟢 egress (decided 06-11)"]:::shadow -->|✕ fetch amendment| bootstrap
+  T20["T20 🟢 egress decided: observe→enforce (item 009 waits on trial)"]:::shadow -->|✕ fetch amendment| bootstrap
   T20 -->|✕ future network: field| SP
-  T15["T15 🟡 AI-first auth"]:::shadow -->|✕ C′→D post-trial| harness
+  T15["T15 🟢 auth decided: C′→D (item 008 waits on trial)"]:::shadow -->|✕ post-trial| harness
   T18["T18 🟡 multi-agent perms"]:::shadow -->|✕| harness
   T4["T4 🟡 PATH owner"]:::shadow -->|✕ field candidate| SP
   T12["T12 🟢 single dev container"]:::shadow -->|✕ topology| build
@@ -81,11 +81,15 @@ transport is the likeliest candidate once it outgrows dogfood).
   has covered FRs — 41 FRs, all `active`, all with tests (ADR-0013's
   automated-only doctrine holding).
 - **The yellow band is the live frontier**: `harness:` (clause accepted,
-  T16 engine work queued next) and `entry: bootstrap` (clause accepted
-  today, FR extraction pending — the registry's newest debt).
+  T16 engine work queued next) and `entry: bootstrap` (clause accepted +
+  conformance-fixed #64; FR extraction dispatched, inbox item 010).
 - **Red = declared, not started**: `shell` (staged behind T16), `import`/
   `export` (Phase 2+). Red here is honest backlog, not neglect.
-- **Three open threads gate the frontier**: T10 and T20 each block two
-  nodes; T15/T18 converge on `harness:` — the creds decision (C′ now,
-  D later) and egress decision (observe→enforce) both wake post-trial
-  (inbox items 008/009).
+- **The frontier's gates are now decisions, not questions**: T20
+  (observe→enforce) and T15 (C′→D) were both decided 2026-06-11; their
+  build envelopes (items 009/008) self-promote at the trial verdict
+  (2026-06-18). T10 non-root remains the only undecided blocker on the
+  map; T18 folds into the harness: engine work.
+- **Trial note**: the auto-trial went LIVE 2026-06-11 — still castless
+  on this map (governance), but its verdict is the wake-signal for two
+  of the edges above.
