@@ -30,21 +30,23 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | T21 mechanism: inbox + Stop-hook drain + dispatcher | T21 thread merged | human stops being the message bus | loom-author | done | #50 |
 | AGENTS.md communication section (brief replies, lists/options, action+summary) | — | human-stated reply-style preference, team-wide | loom-advisor (human's hands) | done | #51 |
 | queue replan 2026-06-11 (flip #47–#51 → done, re-sort into done/live/blocked bands) | — | queue integrity (bookkeeping rule) | loom-author | done | #52 |
+| queue replan 2026-06-11 pm (flip #60/#63/#64 → done, #62 orphan backfill, trial-gates status) | — | queue integrity (bookkeeping rule) | loom-author | in review | docs/queue-replan-2 |
 | SPEC-playbook `harness:` clause (drafted by agent, ALLOW_SPEC_CHANGE human-authorized 2026-06-11; merge = acceptance) | ADR-0015 ✓ | T16 engine work — FR grounding | loom-author (human accepts) | done — accepted | #53 |
 | drain-hook role guard (LL-011: advisor stop drained Writer's inbox; inbox item 002) | — | T21 transport correctness; AUTOPILOT re-flip gate | loom-author | done | #54 |
 | auto-trial evidence ledger (day-0 LL-011 record + daily audit table; trial spec links it) | — | trial measurement (decided package §4) | loom-advisor (human's hands) | done | #55 |
 | T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix ✓, `harness:` clause accepted ✓ (#53) | T12 criterion 4 | loom-author | next | — |
 | T9 shell impl (TTY sugar over exec; session-open audit) | exec merged ✓ (#43) | human topologies entry | loom-author | queued | — |
-| /achievements project skill (queue-anchored daily/period digest: spec/decision/mechanism categories; report-only, no tree writes) | — | consistent shipped-work narration for human + reviews | loom-author | in review — T24 stub + skill built (inbox item 005) | feat/achievements-skill |
+| /achievements project skill (queue-anchored daily/period digest: spec/decision/mechanism categories; report-only, no tree writes) | — | consistent shipped-work narration for human + reviews | loom-author | done | #63 |
 | guard-bash segment-aware evaluation (specimen: --force + main matched one regex across unrelated chain segments) | — | fewer false blocks AND false prompts | loom-author | queued | — |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
 | T15 successor: AI-first credential acquisition (incl. VCS/gh) | — | autonomy (T18 push gap) | loom-author | queued | — |
 | T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |
-| one-week defaultMode "auto" trial (classifier mode; deny floor + never-auto floor unchanged) | exit/rollback package T22 ✓ (docs/auto-trial.md) | prompt volume ↓ | **human flips — package decided; revert pre-authorized, re-flip human-only** | decided — awaiting flip; per-role baseline scan BEFORE flip; day-7 verdict: keep iff zero S1+S2 | — |
+| one-week defaultMode "auto" trial (classifier mode; deny floor + never-auto floor unchanged) | exit/rollback package T22 ✓ (docs/auto-trial.md) | prompt volume ↓ | **human flips — package decided; revert pre-authorized, re-flip human-only** | decided — ALL GATES CLEARED (contract #56, baselines #58 + #60) — awaiting human flip; day-7 verdict: keep iff zero S1+S2 | — |
 | T22 transcription: auto-trial exit/rollback package (thread stub + docs/auto-trial.md; inbox item 001) | — | trial failure contract on record | loom-author | done | #56 |
 | T23 transcription: AUTOPILOT scoping (role × project, HALT kill-switch + test, flips.log; inbox item 003) | T21 ✓, LL-011 fix ✓ (#54) | transport trust model on record; atomic both-roles rollback | loom-author | done | #57 |
-| baseline scan, Writer side (would-prompt metric; inbox item 004 — flip gate) | advisor scan ✓ (#58) | auto-trial §1 precondition; the flip waits on this | loom-author | in review | docs/trial-baseline-author |
-| bootstrap-entry spec clause (loom-bootstrap.sh first touch — no clause covers it; C3) | human decision 2026-06-11 ✓ (inbox item 007) | FR-BUILD-008 remainder | loom-author transcribes — **human admin-merge = acceptance** | in review — clause + conformance fix + T20 gate pointer | docs/spec-bootstrap-entry |
+| baseline scan, Writer side (would-prompt metric; inbox item 004 — flip gate) | advisor scan ✓ (#58) | auto-trial §1 precondition; the flip waits on this | loom-author | done | #60 |
+| guided-run runbook (docs/guided-run.md) — orphan-PR backfill, /replan 2026-06-11 audit | — | Phase-1 close prep | loom-advisor (human's hands) | done | #62 |
+| bootstrap-entry spec clause (loom-bootstrap.sh first touch; C3) | human decision 2026-06-11 ✓ (inbox item 007) | FR-BUILD-008 remainder | loom-author transcribed — human admin-merge | done — accepted | #64 |
 | Phase-1 close (PLAN edit) | guided run satisfactory | phase boundary | **human — no agent self-approves phase completion** | blocked on: guided run | — |
 | T12 closeout: delete archived devenv | archive + 14d | cutover bookkeeping | human | scheduled 2026-06-24 | — |
 | re-run auto-mode evaluation (full-auto clearance) | T16 hooks landed, T10 non-root, T20 decided | autonomy | loom-advisor | blocked — event-driven (no calendar): when all three deps flip, checklist-diff vs the recorded evaluation (allowlist ✓, deny-floor ✓, code-exec egress, root, guard hooks) | — |
