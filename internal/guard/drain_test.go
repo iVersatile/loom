@@ -99,6 +99,28 @@ func TestDrainRoleGuardForeignRoleNoops(t *testing.T) {
 	}
 }
 
+// Kill-switch (T23): a HALT file gates ALL drains to no-op regardless of the
+// AUTOPILOT header — even the owning role must stop normally and leave the
+// inbox untouched.
+func TestDrainHaltKillSwitchGatesOwnerRole(t *testing.T) {
+	root := drainFixture(t)
+	if err := os.WriteFile(filepath.Join(root, ".scratch", "inbox", "HALT"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := readInbox(t, root)
+
+	out, err := runDrain(t, root, "loom-author")
+	if err != nil {
+		t.Fatalf("HALT-gated stop must exit 0, got: %v", err)
+	}
+	if out != "" {
+		t.Fatalf("HALT-gated stop must produce no drain decision, got: %q", out)
+	}
+	if got := readInbox(t, root); got != before {
+		t.Fatalf("HALT-gated stop mutated the inbox:\n--- before ---\n%s\n--- after ---\n%s", before, got)
+	}
+}
+
 // The owning role drains: decision block emitted, item flipped to TAKEN.
 func TestDrainRoleGuardOwnerRoleDrains(t *testing.T) {
 	root := drainFixture(t)

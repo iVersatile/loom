@@ -634,3 +634,31 @@ transcription — acceptance via merge).** The full package is
 
 Pointers: queue row "one-week defaultMode auto trial" · docs/auto-trial.md ·
 inbox item 001 (transport, 2026-06-11) · T21 (the transport that carried it).
+
+---
+
+## T23 — AUTOPILOT scoping: per role × project, kill-switch, flip audit   🟢 decided — transcription (this PR)
+**Problem.** T21 shipped the drain with a bare `AUTOPILOT: off|on` header and
+no decided scope: is the flag per role, per env, per project, per agent? The
+2026-06-11 misfire day (10 drain misfires: 1 S2-shaped, 9 S3 — LL-011,
+PR #54) showed flips happening with no trace outside a conversation.
+
+**Decision (human-endorsed 2026-06-11, advisor discussion; per C3 this entry
+is transcription — acceptance via merge).**
+- *Scope:* per **role × project**. Per role: a trust grant, role-scoped
+  rollback needs independent switches. Per project: trust in THIS repo's
+  guardrail stack; repo mail only, never user-global; new projects start off.
+  NOT per env (one shared tree = one header; env differences belong in the
+  READER — the LL-011 role guard). Not per agent-harness YET (role↔agent is
+  1:1 today; second harness ⇒ per role × agent, default OFF until its
+  guardrail wiring is validated).
+- *Kill-switch:* `.scratch/inbox/HALT` gates ALL roles' drains regardless of
+  headers — the auto-trial "hard trigger reverts both roles" as one atomic
+  touch. Checked before the AUTOPILOT gate; regression-tested.
+- *Flip audit:* every header flip / HALT create/remove appends
+  `timestamp | actor | old→new | reason` to `.scratch/inbox/flips.log` —
+  untracked like the mail, but a trace.
+
+Pointers: TEAM.md "Cross-session transport" (encoded) ·
+`.claude/hooks/drain-inbox.sh` (HALT gate) · `guard.TestDrainHalt*` ·
+docs/auto-trial.md (rollback triggers) · LL-011 · inbox item 003.

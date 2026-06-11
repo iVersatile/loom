@@ -49,6 +49,11 @@ if [ -z "$role" ] && [ "$(id -un 2>/dev/null)" = "root" ]; then
 fi
 [ "$role" = "loom-author" ] || exit 0
 
+# Kill-switch (T23): .scratch/inbox/HALT gates ALL roles' drains to no-op
+# regardless of headers — one atomic touch reverts every role (the hard
+# rollback trigger in docs/auto-trial.md). Checked BEFORE the AUTOPILOT gate.
+[ -e "$ROOT/.scratch/inbox/HALT" ] && exit 0
+
 # AUTOPILOT gate: default off; anything but exactly "on" allows a normal stop.
 ap=$(sed -n 's/^AUTOPILOT:[[:space:]]*//p' "$INBOX" | head -1)
 [ "$ap" = "on" ] || exit 0

@@ -105,6 +105,25 @@ never only in an envelope).
   lives in the queue row, flipped in the shipping PR as today; an item isn't
   DONE until its row moved; the queue never references the inbox — canon must
   not depend on transport.
+- **AUTOPILOT scope (T23, human-endorsed 2026-06-11):** the flag is per
+  **role × project**. Per role because it is a trust grant ("this role may
+  auto-take work") — trust profiles differ per role and role-scoped rollback
+  needs independent switches; per project because it expresses trust in THIS
+  repo's guardrail stack (deny rules, never-auto floor, gate, CODEOWNERS) —
+  it lives in repo mail only, never in user-global config, and new projects
+  start off with no inheritance. NOT per environment: one shared tree = one
+  header; env differences belong in the READER (the LL-011 role guard), not
+  the flag. Not per agent-harness yet — today role↔agent is 1:1; at the
+  second harness this becomes per (role × agent), defaulting OFF for a new
+  agent until its guardrail wiring is validated.
+- **Kill-switch:** the presence of `.scratch/inbox/HALT` gates ALL roles'
+  drains to no-op regardless of headers — "hard trigger reverts both roles"
+  (docs/auto-trial.md) is a single atomic touch. The drain checks it before
+  the AUTOPILOT gate.
+- **Flip audit:** every AUTOPILOT header flip and HALT create/remove appends
+  one line — `timestamp | actor | old→new | reason` — to
+  `.scratch/inbox/flips.log` (untracked like the mail, but a trace): trust
+  changes must not exist only in a chat transcript.
 
 ## Outward ops ritual (until T18/T15 land)
 
