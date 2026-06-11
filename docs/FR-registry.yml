@@ -144,6 +144,36 @@ requirements:
     tests: [engine.TestE2EBuildAndSurviveRebuild]
     status: active
 
+  # --- Behavioral: entry bootstrap (SPEC-verbs#entry: bootstrap, accepted #64) ---
+  - id: FR-ENTRY-001
+    kind: behavioral
+    statement: an existing executable at LOOM_BIN (default bin/loom) is exec'd as-is — no rebuild, no mutation.
+    source: SPEC-verbs.md#entry:-bootstrap
+    tests: [bootstrap.TestBootstrapExecsExistingBinary]
+    status: active
+  - id: FR-ENTRY-002
+    kind: behavioral
+    statement: with no binary present and a Go toolchain on PATH, bootstrap builds ./cmd/loom to bin/loom and execs the result (spec envelope is Go >=1.26; the script trusts the toolchain present).
+    source: SPEC-verbs.md#entry:-bootstrap
+    tests: [bootstrap.TestBootstrapBuildsViaGoWhenAbsent]
+    status: active
+  - id: FR-ENTRY-003
+    kind: behavioral
+    statement: with no binary and no Go, bootstrap emits exactly one stderr line naming BOTH remedies (install Go >=1.26 | prebuilt at bin/loom or LOOM_BIN) and exits 1.
+    source: SPEC-verbs.md#entry:-bootstrap
+    tests: [bootstrap.TestBootstrapFailsNamingBothRemedies]
+    status: active
+  - id: FR-ENTRY-004
+    kind: behavioral
+    # Automatable proxy (ADR-0013): static scan for fetch tooling/URLs in the
+    # script + FR-ENTRY-002's shim log proving `go build` is the only external
+    # invocation on the build path. Frozen network-free until the T20-gated
+    # amendment (SPEC-verbs entry clause, future amendment b).
+    statement: bootstrap performs no network access — no fetch tooling is invoked and no URL is embedded, on any path.
+    source: SPEC-verbs.md#entry:-bootstrap
+    tests: [bootstrap.TestBootstrapInvokesNoNetworkTooling]
+    status: active
+
   # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---
   - id: FR-EXEC-001
     kind: behavioral
