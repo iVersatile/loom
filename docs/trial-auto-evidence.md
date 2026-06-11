@@ -49,6 +49,29 @@ baseline-period evidence. The trial clock starts at the flip.
   audit — this day's on/off/on dance was previously recorded nowhere but a
   conversation. This ledger closes that gap for trial-relevant events.
 
+## Baseline (per-role, BEFORE the flip — auto-trial §1)
+
+Metric: **would-prompt tool calls** — transcript-counted tool uses simulated
+against the repo allowlist under `acceptEdits` (approvals are not recorded in
+transcripts, so actual prompts can't be counted directly; this proxy is an
+upper bound — session-scoped allows and the compound allow-hook are not
+modeled).
+
+### loom-advisor (devenv) — scanned 2026-06-11
+| Session (date) | User turns | Tool calls | Bash | Would-prompt | Per turn |
+|---|---|---|---|---|---|
+| 2026-06-08 | 25 | 355 | 93 | 92 | 3.7 |
+| 2026-06-09 | 97 | 350 | 222 | 178 | 1.8 |
+| 2026-06-09 | 50 | 160 | 80 | 76 | 1.5 |
+| 2026-06-10 | 6 | 55 | 33 | 33 | 5.5 |
+| 2026-06-11 | 35 | 108 | 82 | 80 | 2.3 |
+| **Total / mean** | **213** | **1028** | **510** | **459** | **2.2/turn · ~92/session** |
+
+### loom-author (loom-dev) — PENDING
+Writer transcripts live in the loom-dev volume (not reachable from devenv);
+scan dispatched as inbox item 004 (same script, same metric). The flip waits
+on this row.
+
 ## Daily audit log (trial week — to be appended)
 
 | Day | Date | S1 | S2 | S3 | Notes |
