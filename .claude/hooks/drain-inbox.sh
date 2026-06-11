@@ -77,6 +77,11 @@ fi
 pick=$(awk -v queue="$QUEUE" '
 	function flush() {
 		if (id == "" || status != "QUEUED") { reset(); return }
+		# Non-work kinds (T25): fyi (ephemeral context) and draft (intake)
+		# are NEVER ridden — skipped BEFORE the orphan check so they are
+		# neither worked nor flagged. fyi is read at orientation; draft
+		# waits for a /coordinate triage verdict.
+		if (kind == "fyi" || kind == "draft") { reset(); return }
 		ok = 1
 		# guard (a): serves must be non-empty and match a queue row.
 		if (serves == "") ok = 0
