@@ -130,6 +130,14 @@ func TestUnknownVerbErrors(t *testing.T) {
 	}
 }
 
+// TestShellRejectsArgs pins FR-SHELL-001's CLI half: shell takes no command —
+// exec is the command door; `loom shell <cmd>` is a usage error.
+func TestShellRejectsArgs(t *testing.T) {
+	if _, _, err := runCmd(t, "shell", "ls"); err == nil {
+		t.Fatal("shell with arguments should be a usage error")
+	}
+}
+
 // TestExecRequiresCommand pins FR-EXEC-001's CLI half (SPEC-verbs exec): a
 // bare `loom exec` (or `loom exec --`) is a usage error — non-zero exit,
 // never an interactive fallback, no engine call needed to fail.
