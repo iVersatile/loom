@@ -81,4 +81,25 @@ Expected reconstruction (answer key — merge AFTER scoring):
 - Delivery: a draft (not fyi — non-expiring data) appended to
   .scratch/inbox/loom-advisor.md, as-of stamped.
 
-Scored result: _pending — advisor fills after harvesting the board._
+Scored result (advisor, 2026-06-11 ~20:10Z): **5.5 / 6 — artifacts won.**
+- Q1 ✓ last work named precisely (⑦ fix, LL-012/FR-PLAN-003) with an
+  honest stale-refs caveat instead of a guess.
+- Q2 ✓✓ exceeded the key: surfaced that T16 PR 1 (40309ec) was committed
+  but NEVER PUSHED (no upstream) and its own queue row's "in review" was
+  therefore false — a real bookkeeping lie neither the advisor nor the
+  key had caught. All pending DONE-flips correctly enumerated.
+- Q3 ✓ priority order reconstructed (T16 push → PR 2/3 → 013 remainder
+  → T9), including that PR 2 consumes T25's deferred-boards decision —
+  recovered from envelopes, not memory.
+- Q4 ✓ honest, zero confabulation. Confirmed context-only losses, all
+  predicted classes: (a) the WHY a push was held (transcript-only),
+  (b) merge-states invisible in-container (T18 gap, known), (c) the
+  day's rationale residue. Bonus hygiene catches: six stale /tmp
+  worktree stubs; day-stale session-start snapshot.
+- Delivery ✓ used the day-old T25 transport unprompted, as-of stamped,
+  with a ground-truth disclaimer. Half-point deduction: chose `fyi`
+  (expiring) for non-expiring experiment data — `draft` was the correct
+  kind; kind-choice was a scored item by design.
+Verdict: the context-economy thesis held its first crash. Loss classes
+feed P2; the snapshot-staleness and worktree-stub catches feed the
+harness-health review checklist (P7).
