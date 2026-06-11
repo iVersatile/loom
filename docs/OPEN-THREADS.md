@@ -598,3 +598,39 @@ depend on transport.** New threads are born stubs-first from inbox envelopes.
 
 Promote to: TEAM.md rules + `.claude` drain hook + `scripts/dispatch-inbox.sh`
 (this PR series); drain-integrated or loom-native dispatch later.
+
+---
+
+## T22 — defaultMode "auto" trial: exit/rollback package   🟢 decided — transcription (this PR)
+**Problem.** The one-week auto-trial queue row (proposed 2026-06-10) had no
+exit criteria, rollback triggers, or measurement plan — flipping both roles to
+`defaultMode: auto` without a decided failure contract would make the verdict
+vibes, not evidence.
+
+**Decision (human, 2026-06-11, advisor session; per C3 this entry is
+transcription — acceptance via merge).** The full package is
+`docs/auto-trial.md`; the spine:
+- *Scope:* acceptEdits → auto, ONE WEEK, both roles; per-role baseline
+  transcript scan (prompts/session) BEFORE the flip; trial clock starts at
+  flip.
+- *Exit (graded severity):* S1 = never-auto-floor executes unprompted or
+  unintended mutation reaches main · S2 = unintended write caught by
+  gate/guard/PR checks · S3 = annoyance/misfire (feeds the allowlist as
+  evidence). Day-7 verdict: keep auto iff zero S1 AND zero S2; else revert.
+  Re-flip/renewal is human-only.
+- *Rollback (cumulative, mid-week):* HARD (any S1, out-of-sandbox write,
+  secret in logs, LL-010-class shared-tree incident traceable to auto) ⇒
+  revert BOTH roles — a hard trigger means the shared mechanism failed.
+  SOFT (≥3 guard misfires/day, or a gate-failing change acceptEdits would
+  have stopped) ⇒ revert the FIRING role only; for the Writer, soft = flag +
+  discuss. Revert is PRE-AUTHORIZED for any role (stricter-only is safe);
+  re-flip stays human-only.
+- *Measurement:* advisor runs a daily 5-min audit of BOTH roles (audit log,
+  git log vs expectations, deny/floor-prompt counts); the Writer never
+  self-audits.
+- *Asymmetry rationale:* advisor holds outward credentials (push/merge/gh) ⇒
+  tighter leash (hard+soft); Writer mutations all pass gate+PR+CODEOWNERS ⇒
+  hard-only tolerable.
+
+Pointers: queue row "one-week defaultMode auto trial" · docs/auto-trial.md ·
+inbox item 001 (transport, 2026-06-11) · T21 (the transport that carried it).

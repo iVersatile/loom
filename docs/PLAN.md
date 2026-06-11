@@ -29,17 +29,18 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | T21 thread + OPEN-THREADS archival diet (11 ✅ threads → docs/threads/archive/, stubs + convention) | — | durable design record; relay → mechanism | loom-author | done | #49 |
 | T21 mechanism: inbox + Stop-hook drain + dispatcher | T21 thread merged | human stops being the message bus | loom-author | done | #50 |
 | AGENTS.md communication section (brief replies, lists/options, action+summary) | — | human-stated reply-style preference, team-wide | loom-advisor (human's hands) | done | #51 |
-| queue replan 2026-06-11 (flip #47–#51 → done, re-sort into done/live/blocked bands) | — | queue integrity (bookkeeping rule) | loom-author | in review | docs/queue-replan |
-| SPEC-playbook `harness:` clause (drafted by agent, ALLOW_SPEC_CHANGE human-authorized 2026-06-11; merge = acceptance) | ADR-0015 ✓ | T16 engine work — FR grounding | loom-author (human accepts) | in review | docs/spec-harness-section |
-| drain-hook role guard (LL-011: advisor stop drained Writer's inbox; inbox item 002) | — | T21 transport correctness; AUTOPILOT re-flip gate | loom-author | in review | fix/drain-role-guard |
-| auto-trial evidence ledger (day-0 LL-011 record + daily audit table; trial spec links it) | — | trial measurement (decided package §4) | loom-advisor (human's hands) | in review | docs/trial-evidence |
-| T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix | T12 criterion 4 | loom-author | next | — |
+| queue replan 2026-06-11 (flip #47–#51 → done, re-sort into done/live/blocked bands) | — | queue integrity (bookkeeping rule) | loom-author | done | #52 |
+| SPEC-playbook `harness:` clause (drafted by agent, ALLOW_SPEC_CHANGE human-authorized 2026-06-11; merge = acceptance) | ADR-0015 ✓ | T16 engine work — FR grounding | loom-author (human accepts) | done — accepted | #53 |
+| drain-hook role guard (LL-011: advisor stop drained Writer's inbox; inbox item 002) | — | T21 transport correctness; AUTOPILOT re-flip gate | loom-author | done | #54 |
+| auto-trial evidence ledger (day-0 LL-011 record + daily audit table; trial spec links it) | — | trial measurement (decided package §4) | loom-advisor (human's hands) | done | #55 |
+| T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix ✓, `harness:` clause accepted ✓ (#53) | T12 criterion 4 | loom-author | next | — |
 | T9 shell impl (TTY sugar over exec; session-open audit) | exec merged ✓ (#43) | human topologies entry | loom-author | queued | — |
 | guard-bash segment-aware evaluation (specimen: --force + main matched one regex across unrelated chain segments) | — | fewer false blocks AND false prompts | loom-author | queued | — |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
 | T15 successor: AI-first credential acquisition (incl. VCS/gh) | — | autonomy (T18 push gap) | loom-author | queued | — |
 | T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |
-| one-week defaultMode "auto" trial (classifier mode; deny floor + never-auto floor unchanged) | feat/fewer-prompts merged | prompt volume ↓ | **human decision — propose only** | proposed — metric: prompts/session vs the 2026-06-10 baseline week (transcript-counted); revert at week's end unless renewed | — |
+| one-week defaultMode "auto" trial (classifier mode; deny floor + never-auto floor unchanged) | exit/rollback package T22 ✓ (docs/auto-trial.md) | prompt volume ↓ | **human flips — package decided; revert pre-authorized, re-flip human-only** | decided — awaiting flip; per-role baseline scan BEFORE flip; day-7 verdict: keep iff zero S1+S2 | — |
+| T22 transcription: auto-trial exit/rollback package (thread stub + docs/auto-trial.md; inbox item 001) | — | trial failure contract on record | loom-author | in review | docs/t22-auto-trial |
 | bootstrap-entry spec clause (loom-bootstrap.sh first touch — no clause covers it; C3) | — | FR-BUILD-008 remainder | human | flagged — awaiting human-authored clause | — |
 | Phase-1 close (PLAN edit) | guided run satisfactory | phase boundary | **human — no agent self-approves phase completion** | blocked on: guided run | — |
 | T12 closeout: delete archived devenv | archive + 14d | cutover bookkeeping | human | scheduled 2026-06-24 | — |
