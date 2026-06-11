@@ -38,6 +38,7 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | ci-red auto-file workflow (CI failure on main → auto-filed issue; dedup, ci-red label) | — | reds become tracked work, not human-noticed accidents | loom-author | queued | — |
 | /achievements project skill (queue-anchored daily/period digest: spec/decision/mechanism categories; report-only, no tree writes) | — | consistent shipped-work narration for human + reviews | loom-author | done | #63 |
 | guard-bash segment-aware evaluation (specimen: --force + main matched one regex across unrelated chain segments) | — | fewer false blocks AND false prompts | loom-author | queued | — |
+| T20 egress: observe→enforce proxy (decided 2026-06-11: logged sidecar, evidence-built allowlist, graduate to playbook `network:` field) | trial verdict (post-trial build) | code-level exfil closed; unblocks bootstrap-fetch amendment, D-stage minting, full-auto re-eval | loom-author | queued — decision blessed, envelope = inbox item 009 | — |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
 | T15 successor: AI-first credential acquisition (incl. VCS/gh) | — | autonomy (T18 push gap) | loom-author | queued | — |
 | T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |
