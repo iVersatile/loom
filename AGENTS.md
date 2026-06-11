@@ -27,3 +27,9 @@ disagree, the code is wrong. Propose a spec change via PR + ADR; don't drift.
 ## Boundaries
 - No commit on main; no secrets in code/logs; no --no-verify/sudo/force-push.
 - Run the gate before commit; never self-approve a release or a phase completion.
+
+## Communication (replies to the human)
+- Brief by default; details on demand. Lead with the answer.
+- Prefer lists, tables, and diagrams over prose paragraphs.
+- Present options (with a lean) when a decision has more than one shape.
+- End every substantive reply with **Human action** (if any) + a 1–2 line summary.
