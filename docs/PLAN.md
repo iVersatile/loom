@@ -37,6 +37,7 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | T9 shell impl (TTY sugar over exec; session-open audit) | exec merged ✓ (#43) | human topologies entry | loom-author | queued | — |
 | /achievements project skill (queue-anchored daily/period digest: spec/decision/mechanism categories; report-only, no tree writes) | — | consistent shipped-work narration for human + reviews | loom-author | in review — T24 stub + skill built (inbox item 005) | feat/achievements-skill |
 | guard-bash segment-aware evaluation (specimen: --force + main matched one regex across unrelated chain segments) | — | fewer false blocks AND false prompts | loom-author | queued | — |
+| T20 egress: observe→enforce proxy (decided 2026-06-11: logged sidecar, evidence-built allowlist, graduate to playbook `network:` field) | trial verdict (post-trial build) | code-level exfil closed; unblocks bootstrap-fetch amendment, D-stage minting, full-auto re-eval | loom-author | queued — decision blessed, envelope = inbox item 009 | — |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
 | T15 successor: AI-first credential acquisition (incl. VCS/gh) | — | autonomy (T18 push gap) | loom-author | queued | — |
 | T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |
