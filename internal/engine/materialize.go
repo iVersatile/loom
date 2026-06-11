@@ -7,7 +7,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"github.com/iVersatile/loom/internal/playbook"
 )
 
 // materializeResult is one dotfile written into $HOME.
@@ -35,6 +38,85 @@ func materializeDotfiles(src fs.FS, refs []string, homeDir string) ([]materializ
 			return nil, err
 		}
 		out = append(out, materializeResult{Display: dotfileDisplay(ref), Changed: changed})
+	}
+	return out, nil
+}
+
+// materializeHarness writes each agent's declared harness-home artifacts
+// (SPEC-playbook#harness, ADR-0015 decision 3) into homeDir through the same
+// write-if-changed pipeline as dotfiles — so the T7 home-digest sentinel
+// covers them for free. Per agent namespace ("claude" -> <home>/.claude):
+//
+//	settings -> resolved from dotfiles/<ref>, whole-file to <agent home>/<base>
+//	hooks    -> resolved from hooks/<name>, to <agent home>/hooks/<name>, 0755
+//	skills   -> skills/<name>/ copied recursively to <agent home>/skills/<name>/
+//
+// Deterministic order (sorted agents, then settings, hooks, skills) so audit
+// entries and --json output are stable across runs.
+func materializeHarness(src fs.FS, harness map[string]playbook.HarnessAgent, homeDir string) ([]materializeResult, error) {
+	agents := make([]string, 0, len(harness))
+	for a := range harness {
+		agents = append(agents, a)
+	}
+	sort.Strings(agents)
+
+	var out []materializeResult
+	for _, agent := range agents {
+		h := harness[agent]
+		agentHome := filepath.Join(homeDir, "."+agent)
+		display := "~/." + agent + "/"
+
+		if h.Settings != "" {
+			data, err := fs.ReadFile(src, path.Join("dotfiles", h.Settings))
+			if err != nil {
+				return nil, fmt.Errorf("harness.%s.settings %q: %w", agent, h.Settings, err)
+			}
+			base := path.Base(h.Settings)
+			changed, err := writeIfChanged(filepath.Join(agentHome, base), data, 0o644)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, materializeResult{Display: display + base, Changed: changed})
+		}
+
+		for _, name := range h.Hooks {
+			data, err := fs.ReadFile(src, path.Join("hooks", name))
+			if err != nil {
+				return nil, fmt.Errorf("harness.%s.hooks %q: %w", agent, name, err)
+			}
+			changed, err := writeIfChanged(filepath.Join(agentHome, "hooks", name), data, 0o755)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, materializeResult{Display: display + "hooks/" + name, Changed: changed})
+		}
+
+		for _, name := range h.Skills {
+			root := path.Join("skills", name)
+			err := fs.WalkDir(src, root, func(p string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if d.IsDir() {
+					return nil
+				}
+				data, err := fs.ReadFile(src, p)
+				if err != nil {
+					return err
+				}
+				rel := strings.TrimPrefix(p, root+"/")
+				target := filepath.Join(agentHome, "skills", name, filepath.FromSlash(rel))
+				changed, err := writeIfChanged(target, data, dotfileMode(p))
+				if err != nil {
+					return err
+				}
+				out = append(out, materializeResult{Display: display + "skills/" + name + "/" + rel, Changed: changed})
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("harness.%s.skills %q: %w", agent, name, err)
+			}
+		}
 	}
 	return out, nil
 }

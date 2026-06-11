@@ -48,15 +48,20 @@ there and loom never touches it.
   │  │ build; drift erased     │                                │  │
   │  │  settings.json     LIVE │  .credentials.json (OAuth) LIVE│  │
   │  │  statusline.sh     LIVE │  settings.local.json       LIVE│  │
-  │  │  hooks/     PENDING-T16 │  projects/<p>/memory/      LIVE│  │
-  │  │  skills/    PENDING-T16 │  session history           LIVE│  │
+  │  │  hooks/   ENGINE-LIVE*  │  projects/<p>/memory/      LIVE│  │
+  │  │  skills/  ENGINE-LIVE*  │  session history           LIVE│  │
   │  │  ~/.gitconfig PENDING-T16 (must declare the noreply     │  │
-  │  │   identity — docs/TEAM.md commit-identity rule)         │  │
+  │  │   identity — docs/TEAM.md commit-identity rule; ships   │  │
+  │  │   as a dotfiles: ref, T16 PR 3)                         │  │
   │  └─────────────────────────┴────────────────────────────────┘  │
   │  volume survives --force/teardown; wiped only by the opt-in    │
   │  --clean-state tier (ADR-0014 addendum)                        │
   └────────────────────────────────────────────────────────────────┘
-  * harness: section = PENDING-T16 (ADR-0015 decision 3)
+  * harness: schema + materialize handlers = LIVE in the engine
+    (T16 PR 1: FR-BUILD-009, FR-SCHEMA-008; rides the dotfiles staging
+    pipeline, T7 digest covers it). ENGINE-LIVE becomes plain LIVE when
+    the base playbook declares harness: (T16 PR 2) — declared-but-empty
+    today, so verify-loom-dev GAPs stand until then.
 ```
 
 Why the split is where it is: a converge build erased harness-written runtime

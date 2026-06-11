@@ -48,8 +48,33 @@ func Merge(layers ...*Playbook) *Playbook {
 		out.Ports = appendDedup(out.Ports, l.Ports)
 		out.Env = appendDedup(out.Env, l.Env)
 		out.CI = appendDedup(out.CI, l.CI)
+		out.Harness = mergeHarness(out.Harness, l.Harness)
 	}
 	return out
+}
+
+// mergeHarness merges per agent namespace (SPEC-playbook#harness): list fields
+// follow the dotfiles rule (concatenate + dedup in layer order; whole-file
+// later-wins applies at materialization), settings is a scalar — last
+// non-empty wins (Phase 1 keeps it base-tier-only via Validate, so in
+// practice the base value survives).
+func mergeHarness(dst, src map[string]HarnessAgent) map[string]HarnessAgent {
+	if len(src) == 0 {
+		return dst
+	}
+	if dst == nil {
+		dst = make(map[string]HarnessAgent, len(src))
+	}
+	for agent, in := range src {
+		cur := dst[agent]
+		if in.Settings != "" {
+			cur.Settings = in.Settings
+		}
+		cur.Hooks = appendDedup(cur.Hooks, in.Hooks)
+		cur.Skills = appendDedup(cur.Skills, in.Skills)
+		dst[agent] = cur
+	}
+	return dst
 }
 
 // appendDedup appends src to dst, skipping values already present (stable order).
