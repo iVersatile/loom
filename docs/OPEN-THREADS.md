@@ -662,3 +662,28 @@ is transcription — acceptance via merge).**
 Pointers: TEAM.md "Cross-session transport" (encoded) ·
 `.claude/hooks/drain-inbox.sh` (HALT gate) · `guard.TestDrainHalt*` ·
 docs/auto-trial.md (rollback triggers) · LL-011 · inbox item 003.
+
+---
+
+## T24 — /achievements skill: queue-anchored shipped-work narration   🟢 decided — built (this PR)
+**Problem.** "What shipped since X" is answered today by hand-walking the
+queue, git log, threads, and lessons — relay work, and the day-1 trial
+evidence showed busy days outrun anyone's memory of them.
+
+**Decision (human-requested 2026-06-11, advisor discussion; design via inbox
+item 005).** A project skill, sibling of `/replan`: one audits the queue, one
+narrates it.
+- *On-demand only* — no cron/recurring form (explicitly rejected as
+  overkill). Invocation: `/achievements [since: date|"yesterday"|PR#]`.
+- *Anchor on the QUEUE, not git:* rows flipped done/in-review since <since>
+  are the "what shipped" truth; PRs, OPEN-THREADS stubs, LL entries,
+  flips.log, and inbox DONE items hang off them.
+- *Output:* the human-validated table — name/brief | category
+  (spec/decision/mechanism) — plus a lifecycle view (discussion →
+  transcribed → live | current state) and an optional housekeeping section.
+- *Report-only:* NO tree writes — usable by any role in any mode. Mechanical
+  gathering lives in a helper script inside the skill dir; synthesis and
+  categorization stay with the model.
+
+Pointers: `.claude/skills/achievements/` · inbox item 005 · T21 (transport
+that carried it) · `/replan` (sibling skill).
