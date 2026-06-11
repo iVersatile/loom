@@ -193,6 +193,15 @@ requirements:
     source: SPEC-verbs.md#doctor
     tests: [engine.TestDoctorChecks, engine.TestDoctorMissingTool]
     status: active
+  - id: FR-DOCTOR-002
+    kind: behavioral
+    # Guided-run finding ⑧ (LL-012 class): doctor answered tool checks from
+    # the host PATH while exec hit the container — a bill of health must name
+    # which environment it grades.
+    statement: every doctor check names its tier (host:* repo-side facts, container:* container reality); tool checks grade the CONTAINER — live probe when running, lock-pinned resolved values when stopped (never starting it) — and with no container or no runtime, container:state fails with the reason and no per-tool verdict is invented from the host PATH.
+    source: SPEC-verbs.md#doctor
+    tests: [engine.TestDoctorChecks, engine.TestDoctorAbsentContainer, engine.TestDoctorStoppedContainerGradesFromLock, engine.TestDoctorRuntimeUnavailable]
+    status: active
 
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
   - id: FR-INV-001
