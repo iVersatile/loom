@@ -32,6 +32,7 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | queue replan 2026-06-11 (flip #47–#51 → done, re-sort into done/live/blocked bands) | — | queue integrity (bookkeeping rule) | loom-author | done | #52 |
 | SPEC-playbook `harness:` clause (drafted by agent, ALLOW_SPEC_CHANGE human-authorized 2026-06-11; merge = acceptance) | ADR-0015 ✓ | T16 engine work — FR grounding | loom-author (human accepts) | done — accepted | #53 |
 | drain-hook role guard (LL-011: advisor stop drained Writer's inbox; inbox item 002) | — | T21 transport correctness; AUTOPILOT re-flip gate | loom-author | done | #54 |
+| auto-trial evidence ledger (day-0 LL-011 record + daily audit table; trial spec links it) | — | trial measurement (decided package §4) | loom-advisor (human's hands) | done | #55 |
 | T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix ✓, `harness:` clause accepted ✓ (#53) | T12 criterion 4 | loom-author | next | — |
 | T9 shell impl (TTY sugar over exec; session-open audit) | exec merged ✓ (#43) | human topologies entry | loom-author | queued | — |
 | guard-bash segment-aware evaluation (specimen: --force + main matched one regex across unrelated chain segments) | — | fewer false blocks AND false prompts | loom-author | queued | — |
