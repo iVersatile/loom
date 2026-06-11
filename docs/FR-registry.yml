@@ -132,6 +132,17 @@ requirements:
     source: [SPEC-playbook.md#frozen-decisions, SPEC-verbs.md#build]
     tests: [engine.TestBuildLockRecordsContainerVersions]
     status: active
+  - id: FR-BUILD-008
+    kind: behavioral
+    # Clean-machine proxy for Phase-1 exit criterion 1 (T1 doctrine: the
+    # guided-run EXPERIENCE is human feedback, never coverage; the mechanism is
+    # the FR). The bootstrap-entry aspect (loom-bootstrap.sh first touch) has no
+    # spec clause to cite and is deliberately NOT stretched onto #build — it
+    # awaits a human-authored clause (C3).
+    statement: from a verified-absent start (no project container, no loom.lock), one unattended build converges to a working env — container present, lock written, declared tools resolvable on the provisioned login PATH.
+    source: SPEC-verbs.md#build
+    tests: [engine.TestE2EBuildAndSurviveRebuild]
+    status: active
 
   # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---
   - id: FR-EXEC-001

@@ -28,6 +28,12 @@ func requireDocker(t *testing.T) {
 // TestE2EBuildAndSurviveRebuild covers the spine end-to-end and the survive-
 // rebuild property: build → container exists with $HOME config → teardown the
 // container → rebuild → $HOME config is back (reconciled from the config source).
+//
+// It is also the clean-machine proxy (FR-BUILD-008, Phase-1 exit criterion 1
+// per the T1 doctrine): the start state is VERIFIED absent — no container, no
+// lockfile — so "one unattended build converges to a working env" is proven
+// literally, from nothing. The guided-run experience itself remains human
+// feedback, never this FR's coverage.
 func TestE2EBuildAndSurviveRebuild(t *testing.T) {
 	requireDocker(t)
 	root := tempProject(t)
@@ -37,6 +43,14 @@ func TestE2EBuildAndSurviveRebuild(t *testing.T) {
 	// clean up afterward.
 	_ = exec.Command("docker", "rm", "-f", name).Run()
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+
+	// Clean-machine proxy precondition: verified absent, not assumed absent.
+	if ok, _ := (dockerRuntime{}).Exists(name); ok {
+		t.Fatal("precondition: container should be absent before the clean build")
+	}
+	if _, err := os.Stat(filepath.Join(root, "loom.lock")); !os.IsNotExist(err) {
+		t.Fatalf("precondition: loom.lock should be absent before the clean build (err=%v)", err)
+	}
 
 	if _, err := Detect(DetectOpts{PlaybookPath: pb}); err != nil {
 		t.Fatalf("detect: %v", err)

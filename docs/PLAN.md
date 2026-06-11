@@ -29,6 +29,9 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | Phase-1 reality audit (README quickstart + shape, T12 thread flips) | — | guided-run brief | loom-author | in review | docs/phase1-reality-audit |
 | one-week defaultMode "auto" trial (classifier mode; deny floor + never-auto floor unchanged) | feat/fewer-prompts merged | prompt volume ↓ | **human decision — propose only** | proposed — metric: prompts/session vs the 2026-06-10 baseline week (transcript-counted); revert at week's end unless renewed | — |
 | guard-bash segment-aware evaluation (specimen: --force + main matched one regex across unrelated chain segments) | — | fewer false blocks AND false prompts | loom-author | queued | — |
+| FR-BUILD-008 clean-machine proxy (Phase-1 criterion 1, T1 doctrine) | — | phase-close verification debt | loom-author | in review | feat/fr-clean-machine-proxy |
+| bootstrap-entry spec clause (loom-bootstrap.sh first touch — no clause covers it; C3) | — | FR-BUILD-008 remainder | human | flagged — awaiting human-authored clause | — |
+| Phase-1 close (PLAN edit) | guided run satisfactory | phase boundary | **human — no agent self-approves phase completion** | blocked on: guided run | — |
 | T21 thread + OPEN-THREADS archival diet (11 ✅ threads → docs/threads/archive/, stubs + convention) | — | durable design record; relay → mechanism | loom-author | in review | docs/t21-and-thread-archive |
 | T21 mechanism: inbox + Stop-hook drain + dispatcher | T21 thread merged | human stops being the message bus | loom-author | in review | feat/t21-inbox-drain |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
