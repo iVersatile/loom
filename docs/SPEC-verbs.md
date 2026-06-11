@@ -148,6 +148,30 @@ a TTY plus a login shell.
 - No output contract (interactive; exempt from `--json`). Audit: one
   session-open entry — commands typed in the shell are not captured.
 
+## entry: bootstrap  (execution-entry contract; added 2026-06-11, human-decided — C3)
+
+`bootstrap/loom-bootstrap.sh` is the **pre-trust surface**: the only code
+that runs before any guardrail exists. Its whole contract is
+detect-situation → ensure-engine-present → exec-engine; it stays small and
+auditable by construction (ADR-0008).
+
+- **Scope (strict):** no engine logic, no provisioning, no environment
+  mutation beyond building `bin/loom`.
+- **Engine presence, in order:** (i) an executable at `LOOM_BIN` (default
+  `bin/loom`) is used as-is; (ii) else, with a Go toolchain >= 1.26, build
+  from `./cmd/loom`; (iii) else fail per the frozen failure contract.
+  Bootstrap NEVER fetches binaries or any artifact over the network.
+- **Frozen failure contract:** no engine + no Go ⇒ exactly one line to
+  stderr naming BOTH remedies — install Go >= 1.26, or provide a prebuilt
+  binary at `bin/loom` or via `LOOM_BIN` — then exit 1.
+- **Audit exemption (explicit):** bootstrap predates the engine audit log
+  and is exempt by declaration; the first engine action after handoff is
+  audited as usual.
+- **Documented future amendments** (named so they arrive as decisions, not
+  drift): (a) native Windows entry (pwsh) — its own clause amendment when
+  the windows-dev topology activates; (b) prebuilt-binary fetch — an
+  amendment explicitly **gated on T20** (egress thread).
+
 ## import  (ADR-0003, staged)
 
 Ingest an existing `devcontainer.json` → a Loom project-tier playbook (Stage 1

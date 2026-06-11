@@ -44,7 +44,7 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | T22 transcription: auto-trial exit/rollback package (thread stub + docs/auto-trial.md; inbox item 001) | — | trial failure contract on record | loom-author | done | #56 |
 | T23 transcription: AUTOPILOT scoping (role × project, HALT kill-switch + test, flips.log; inbox item 003) | T21 ✓, LL-011 fix ✓ (#54) | transport trust model on record; atomic both-roles rollback | loom-author | done | #57 |
 | baseline scan, Writer side (would-prompt metric; inbox item 004 — flip gate) | advisor scan ✓ (#58) | auto-trial §1 precondition; the flip waits on this | loom-author | in review | docs/trial-baseline-author |
-| bootstrap-entry spec clause (loom-bootstrap.sh first touch — no clause covers it; C3) | — | FR-BUILD-008 remainder | human | flagged — awaiting human-authored clause | — |
+| bootstrap-entry spec clause (loom-bootstrap.sh first touch — no clause covers it; C3) | human decision 2026-06-11 ✓ (inbox item 007) | FR-BUILD-008 remainder | loom-author transcribes — **human admin-merge = acceptance** | in review — clause + conformance fix + T20 gate pointer | docs/spec-bootstrap-entry |
 | Phase-1 close (PLAN edit) | guided run satisfactory | phase boundary | **human — no agent self-approves phase completion** | blocked on: guided run | — |
 | T12 closeout: delete archived devenv | archive + 14d | cutover bookkeeping | human | scheduled 2026-06-24 | — |
 | re-run auto-mode evaluation (full-auto clearance) | T16 hooks landed, T10 non-root, T20 decided | autonomy | loom-advisor | blocked — event-driven (no calendar): when all three deps flip, checklist-diff vs the recorded evaluation (allowlist ✓, deny-floor ✓, code-exec egress, root, guard hooks) | — |

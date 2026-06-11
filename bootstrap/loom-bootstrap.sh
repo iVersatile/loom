@@ -11,7 +11,7 @@ BIN="${LOOM_BIN:-$REPO_ROOT/bin/loom}"
 
 if [ ! -x "$BIN" ]; then
 	if ! command -v go >/dev/null 2>&1; then
-		echo "loom-bootstrap: go toolchain not found; install Go to build the engine" >&2
+		echo "loom-bootstrap: no engine and no Go toolchain — install Go >=1.26, or provide a prebuilt binary at bin/loom or via LOOM_BIN" >&2
 		exit 1
 	fi
 	echo "loom-bootstrap: building engine -> $BIN" >&2
