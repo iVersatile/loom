@@ -44,11 +44,11 @@ func (pb *Playbook) Validate() error {
 		if agent == "" {
 			errs = append(errs, "harness: agent namespace key must be non-empty")
 		}
-		// Phase 1: settings is base-authored whole-file, base tier only
-		// (SPEC-playbook#harness; key-merge is Open question 1).
-		if pb.Tier == TierProject && h.Settings != "" {
-			errs = append(errs, fmt.Sprintf("harness.%s.settings is base-tier only in Phase 1 (whole-file, no key-merge)", agent))
-		}
+		// NOTE: the Phase-1 "settings is base-authored" rule lives in Load,
+		// enforced per non-base LAYER — Validate also runs on the MERGED
+		// playbook, which legitimately carries the base's settings under the
+		// project's tier (T16 PR 2 dogfood test caught the old tier check
+		// rejecting every real wire-up).
 		for _, ref := range h.Hooks {
 			if ref == "" {
 				errs = append(errs, fmt.Sprintf("harness.%s.hooks: empty reference", agent))
