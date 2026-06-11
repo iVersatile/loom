@@ -19,25 +19,26 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | topology doc (mac-dev / windows-dev / ai-user) | — | public face; topology-aware design | loom-author | done | #27 |
 | ADR-0015 bookkeeping (status → Accepted) | PR #24 merged | T16 | loom-author | done | #28–#34 |
 | harness synthesis doc (HARNESS.md, status-marked) | ADR-0015 ✓ | orientation; T16 PRs update its markers | loom-author | done | #28–#34 |
-| T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix | T12 criterion 4 | loom-author | next | — |
 | T9 spec clause (exec/shell — human-authored, C3) | — (decided, see T9 thread) | T12 criterion 2 | human | done — clause is law | #35–#40 |
 | T9 exec impl (cli + engine + FRs; shell follows) | clause merged ✓ (#35–#40) | T12 criterion 2 — met; criterion 5 human-verified through the verb | loom-author | done | #43 |
-| T9 shell impl (TTY sugar over exec; session-open audit) | exec merged | human topologies entry | loom-author | queued | — |
 | gate hermeticity: GIT_* scrub + fixture hardening (LL-010 incident) | — | gate integrity; every git client everywhere | loom-author | done | #41 |
 | ADR-0016 entry verbs (Accepted — human merge) | T9 decided ✓ | T9 impl | loom-author | done | #42 |
 | prompt-volume relief: evidence-based allowlist + compound allow-hook | — | human unbottlenecked; deny floor unchanged | loom-author | done | #45 (+ TEAM floor #46) |
-| Phase-1 reality audit (README quickstart + shape, T12 thread flips) | — | guided-run brief | loom-author | in review | docs/phase1-reality-audit |
-| one-week defaultMode "auto" trial (classifier mode; deny floor + never-auto floor unchanged) | feat/fewer-prompts merged | prompt volume ↓ | **human decision — propose only** | proposed — metric: prompts/session vs the 2026-06-10 baseline week (transcript-counted); revert at week's end unless renewed | — |
+| FR-BUILD-008 clean-machine proxy (Phase-1 criterion 1, T1 doctrine) | — | phase-close verification debt | loom-author | done | #47 |
+| Phase-1 reality audit (README quickstart + shape, T12 thread flips) | — | guided-run brief | loom-author | done | #48 |
+| T21 thread + OPEN-THREADS archival diet (11 ✅ threads → docs/threads/archive/, stubs + convention) | — | durable design record; relay → mechanism | loom-author | done | #49 |
+| T21 mechanism: inbox + Stop-hook drain + dispatcher | T21 thread merged | human stops being the message bus | loom-author | done | #50 |
+| AGENTS.md communication section (brief replies, lists/options, action+summary) | — | human-stated reply-style preference, team-wide | loom-advisor (human's hands) | done | #51 |
+| queue replan 2026-06-11 (flip #47–#51 → done, re-sort into done/live/blocked bands) | — | queue integrity (bookkeeping rule) | loom-author | in review | docs/queue-replan |
+| T16 engine work (`harness:` schema + materialize handlers) | ADR-0015 ✓, T7 fix | T12 criterion 4 | loom-author | next | — |
+| T9 shell impl (TTY sugar over exec; session-open audit) | exec merged ✓ (#43) | human topologies entry | loom-author | queued | — |
 | guard-bash segment-aware evaluation (specimen: --force + main matched one regex across unrelated chain segments) | — | fewer false blocks AND false prompts | loom-author | queued | — |
-| FR-BUILD-008 clean-machine proxy (Phase-1 criterion 1, T1 doctrine) | — | phase-close verification debt | loom-author | in review | feat/fr-clean-machine-proxy |
-| bootstrap-entry spec clause (loom-bootstrap.sh first touch — no clause covers it; C3) | — | FR-BUILD-008 remainder | human | flagged — awaiting human-authored clause | — |
-| Phase-1 close (PLAN edit) | guided run satisfactory | phase boundary | **human — no agent self-approves phase completion** | blocked on: guided run | — |
-| T21 thread + OPEN-THREADS archival diet (11 ✅ threads → docs/threads/archive/, stubs + convention) | — | durable design record; relay → mechanism | loom-author | in review | docs/t21-and-thread-archive |
-| T21 mechanism: inbox + Stop-hook drain + dispatcher | T21 thread merged | human stops being the message bus | loom-author | in review | feat/t21-inbox-drain |
-| AGENTS.md communication section (brief replies, lists/options, action+summary) | — | human-stated reply-style preference, team-wide | loom-advisor (human's hands) | in review | docs/comm-style |
 | T4 container PATH single declarative owner | — | env correctness | loom-author | queued | — |
 | T15 successor: AI-first credential acquisition (incl. VCS/gh) | — | autonomy (T18 push gap) | loom-author | queued | — |
 | T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |
+| one-week defaultMode "auto" trial (classifier mode; deny floor + never-auto floor unchanged) | feat/fewer-prompts merged | prompt volume ↓ | **human decision — propose only** | proposed — metric: prompts/session vs the 2026-06-10 baseline week (transcript-counted); revert at week's end unless renewed | — |
+| bootstrap-entry spec clause (loom-bootstrap.sh first touch — no clause covers it; C3) | — | FR-BUILD-008 remainder | human | flagged — awaiting human-authored clause | — |
+| Phase-1 close (PLAN edit) | guided run satisfactory | phase boundary | **human — no agent self-approves phase completion** | blocked on: guided run | — |
 | T12 closeout: delete archived devenv | archive + 14d | cutover bookkeeping | human | scheduled 2026-06-24 | — |
 | re-run auto-mode evaluation (full-auto clearance) | T16 hooks landed, T10 non-root, T20 decided | autonomy | loom-advisor | blocked — event-driven (no calendar): when all three deps flip, checklist-diff vs the recorded evaluation (allowlist ✓, deny-floor ✓, code-exec egress, root, guard hooks) | — |
 <!-- END TACTICAL QUEUE -->
