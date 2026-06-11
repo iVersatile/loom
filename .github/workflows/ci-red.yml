@@ -1,0 +1,44 @@
+name: ci-red
+# Auto-file an issue when CI goes red on MAIN (inbox item 006). PR reds are
+# the author's signal already; main reds are the team's. issues:write only —
+# no contents access, no tree changes, default GITHUB_TOKEN.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+permissions:
+  issues: write
+  actions: read # gh run view (failing job/step names)
+jobs:
+  file:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: file issue or comment on the open one (dedup by workflow)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          WF: ${{ github.event.workflow_run.name }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          SUBJECT: ${{ github.event.workflow_run.head_commit.message }}
+        run: |
+          short="${SHA:0:7}"
+          failing=$(gh run view "$RUN_ID" -R "$REPO" --json jobs --jq \
+            '[.jobs[] | select(.conclusion=="failure") | .name + " → " + ([.steps[]? | select(.conclusion=="failure") | .name] | join("; "))] | join(", ")') || failing=""
+          title="ci-red: $WF on $short"
+          body="Red on main.
+
+          - Run: $RUN_URL
+          - Failing: ${failing:-unknown (see run)}
+          - Head commit: ${SUBJECT%%$'\n'*} ($short)"
+          gh label create ci-red -R "$REPO" --color B60205 \
+            --description "auto-filed: CI red on main" 2>/dev/null || true
+          existing=$(gh issue list -R "$REPO" --label ci-red --state open \
+            --search "\"ci-red: $WF\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" -R "$REPO" --body "New red run: $RUN_URL ($short)"
+          else
+            gh issue create -R "$REPO" --title "$title" --label ci-red --body "$body"
+          fi
