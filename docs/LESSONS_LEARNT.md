@@ -6,6 +6,27 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud`
 
+## LL-011 — Repo-level hooks fire in EVERY session on a shared tree; role-scoped behavior needs an explicit role check
+- Date: 2026-06-11
+- Tags: `ci`
+- Symptom: the T21 drain Stop hook (`.claude/hooks/drain-inbox.sh`) hardwired
+  loom-author's inbox with no role resolution. Registered repo-level on the
+  shared bind mount, it fired in an ADVISOR session's stop: the wrong session
+  drained the Writer's cargo and flipped item 001 to TAKEN — which the
+  Writer's own drain would then have skipped silently. (Advisor contained it:
+  AUTOPILOT off, item restored, counter reset; no work was done on the item.)
+- Lesson: `.claude/settings.json` hooks travel with the TREE, not with a
+  session or role — every session on a shared mount runs them. Any hook whose
+  behavior is role-scoped (own-inbox drain, role-specific guards) must resolve
+  the session's role explicitly and no-op for everyone else. Same family as
+  the branch-guard/worktree and LL-010 shared-tree lessons: shared state +
+  per-context behavior requires an explicit context check, never an implicit
+  "whoever runs me is the owner".
+- Fix shape: `LOOM_SESSION_ROLE` env wins (explicit marker + test seam);
+  fallback `id -un` = root ⇒ loom-author (ground truth in loom-dev today;
+  revisit at T10 non-root). Regression: `guard.TestDrainRoleGuard*` —
+  foreign-role stop with AUTOPILOT on exits 0 and leaves the inbox untouched.
+
 ## LL-010 — Git-shelling tests must be hermetic to GIT_* repo-redirection env
 - Date: 2026-06-10
 - Tags: `ci`

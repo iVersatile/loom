@@ -34,6 +34,21 @@ command -v jq >/dev/null 2>&1 || exit 0
 [ -r "$INBOX" ] || exit 0
 [ -r "$QUEUE" ] || exit 0
 
+# Role guard (LL-011): this hook registers REPO-LEVEL, so it fires in every
+# session on the shared tree — advisor sessions included — but it owns
+# loom-author's inbox ONLY. Resolve the session's role and no-op for anyone
+# else, or the wrong session drains the Writer's cargo (the 2026-06-11
+# incident: an advisor stop flipped item 001 to TAKEN).
+# Resolution: LOOM_SESSION_ROLE env wins (explicit marker + test seam);
+# otherwise whoami is ground truth — root IS loom-author in loom-dev today.
+# Revisit at T10 (non-root container): the fallback must become a materialized
+# role marker, not a uid check.
+role="${LOOM_SESSION_ROLE:-}"
+if [ -z "$role" ] && [ "$(id -un 2>/dev/null)" = "root" ]; then
+	role="loom-author"
+fi
+[ "$role" = "loom-author" ] || exit 0
+
 # AUTOPILOT gate: default off; anything but exactly "on" allows a normal stop.
 ap=$(sed -n 's/^AUTOPILOT:[[:space:]]*//p' "$INBOX" | head -1)
 [ "$ap" = "on" ] || exit 0
