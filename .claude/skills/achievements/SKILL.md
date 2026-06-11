@@ -1,6 +1,6 @@
 ---
 name: achievements
-description: Narrate what shipped since a given point — queue rows flipped done/in-review, with PRs, threads, lessons, and trust-flips hanging off them — as the validated achievements table (name/brief | category) plus a lifecycle view. Use when the user asks /achievements, "what shipped", "what did we get done", or wants a progress narrative since a date or PR. Report-only: never writes the tree.
+description: Narrate what shipped since a given point — queue rows flipped done/in-review, with PRs, threads, lessons, and trust-flips hanging off them — as the validated lifecycle dashboard (Item | Lifecycle | Current). Use when the user asks /achievements, "what shipped", "what did we get done", or wants a progress narrative since a date or PR. Report-only: never writes the tree.
 ---
 
 # /achievements — queue-anchored shipped-work narration
@@ -46,15 +46,22 @@ fix it here.
      contracts, scoping clauses) that bind behavior but aren't engine code;
    - `mechanism` — code/hooks/tests/scripts that enforce or do something
      (engine work, guard hooks, skills, CI).
-5. **Render the report** (the validated format):
-   - **Achievements table:** `| achievement (name — one-line brief) |
-     category | current state |` where current state is the lifecycle stage:
-     `discussion → transcribed → live` (e.g. "live (#54)", "transcribed,
-     in review", "discussion — thread stub only").
-   - **Lifecycle view:** a short list grouping the same items by stage, so
-     the pipeline's shape is visible at a glance.
-   - **Housekeeping (optional):** bookkeeping-only merges (queue flips,
-     row syncs), plus any drift noticed — flagged, never fixed here.
+5. **Render the report** (validated format, human-confirmed 2026-06-11 —
+   the lifecycle DASHBOARD, not a category table):
+   - **One table:** `| Item | Lifecycle | Current |` where
+     - *Item* — short name (+ thread T-NN where one exists);
+     - *Lifecycle* — the arrow chain walked so far, e.g.
+       `discussion → transcribed → live`, `incident → fixed → live`,
+       `decision → transcribed → in acceptance`; mark a stalled stage
+       explicitly (e.g. `→ not live`);
+     - *Current* — concrete state NOW: pointers (#PR, item id), blockers,
+       and who/what it waits on (e.g. "merged #57; HALT armed",
+       "all gates cleared — only the human flip remains").
+   - The `category` (spec/decision/mechanism) from step 4 is NOT a column;
+     mention it inline only if the user asks for categories.
+   - **Housekeeping (optional, after the table):** bookkeeping-only merges
+     (queue flips, row syncs), plus any drift noticed — flagged, never
+     fixed here.
 6. **Cite as you go:** every line carries its PR number(s) and, where
    relevant, thread (T-NN) / lesson (LL-NNN) / inbox item id. No achievement
    without a pointer a reader can follow.
