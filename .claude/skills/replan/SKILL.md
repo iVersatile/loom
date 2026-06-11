@@ -28,6 +28,11 @@ anything else in PLAN.md (the phase roadmap is human-owned) or any other file.
    - *Done-but-unmarked:* a row whose work is visibly merged but status isn't
      done.
    - *Dependency inversion:* a row ordered above something it depends on.
+   - *Orphan inbox item (T21):* an envelope in `.scratch/inbox/*.md` whose
+     `serves:` matches no queue row — transport carrying work that canon
+     doesn't know about.
+   - *Stale TAKEN envelope (T21):* an inbox item sitting TAKEN while its
+     `serves:` row shows no movement — taken work that stalled silently.
 3. **Re-sort** by: unblocked work first, dependency order, then serves-weight
    (cutover/criteria items above hardening), human-owned rows where they fall.
 4. **Output a queue-diff proposal:** the current table, the proposed table,
