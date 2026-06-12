@@ -40,11 +40,16 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | context economy + intake lane + /coordinate (TEAM clause, fyi/draft kinds, drain guards + tests, two-mode skill, hat authority, standup rendering) | — | cross-role context without relay or over-minting; coordinator hat mechanized | loom-author | done | #78 |
 | guard-bash segment-aware evaluation (specimen: --force + main matched one regex across unrelated chain segments) | — | fewer false blocks AND false prompts | loom-author | queued | — |
 | T20 egress: observe→enforce proxy (decided 2026-06-11: logged sidecar, evidence-built allowlist, graduate to playbook `network:` field) | trial verdict (post-trial build) | code-level exfil closed; unblocks bootstrap-fetch amendment, D-stage minting, full-auto re-eval | loom-author | queued — decision blessed, envelope = inbox item 009 | — |
-| T4 container PATH single declarative owner | — | env correctness — decided 2026-06-11 (option 2 + spec note) | loom-author | in review — branch fix/t4-path-single-owner (unconditional shell-init, generated path.*.sh dotfiles, spec note [frozen — merge = acceptance], T4 thread flipped) | — |
-| weekly report: /coordinate WEEKLY MODE (docs/reports/YYYY-WW.md; confidence lens, dependency graph, coverage map, EXPERIMENTS section; absorbs P8) | — | human-decided P12 2026-06-11; first issue 2026-06-18 = trial day-7 verdict report | loom-author | queued — envelope item 021 (triage 2026-06-12) | — |
+| T4 container PATH single declarative owner | — | env correctness — decided 2026-06-11 (option 2 + spec note) | loom-author | in review — PR #105 (unconditional shell-init, generated path.*.sh dotfiles, spec note [frozen — merge = acceptance], T4 thread flipped) | #105 |
+| weekly report: /coordinate WEEKLY MODE (docs/reports/YYYY-WW.md; confidence lens, dependency graph, coverage map, EXPERIMENTS section; absorbs P8) | — | human-decided P12 2026-06-11; first issue 2026-06-18 = trial day-7 verdict report | loom-author | done — merged 2026-06-12 (relay push by advisor git-controller routine) | #109 |
 | phase-close review gate transcription (TEAM.md clause + rubric doc + RULES pointer [frozen — human admin-merge]) | — | human-decided P7 2026-06-11; gate already executed for Phase 1 (docs/reviews/phase-1-review.md) | loom-author | queued — envelope item 022 (triage 2026-06-12) | — |
 | work-selection policy transcription (cascade + principles p1–p5 + dormant mechanics; TEAM.md coordinator section, /coordinate + /replan SKILL.md) | — | human-blessed 018 2026-06-11; coordinator runs already apply it | loom-author | queued — envelope item 023 (triage 2026-06-12) | — |
-| Phase-1 review findings, Critical/High fix batch (C1 guardrail wiring [RULED FIX-NOW 2026-06-12]; H2–H4; F1 teardown state surface; F2 plan blind dimensions) | C1 ruling ✓; review on record (docs/reviews/phase-1-review.md) | phase-close gate: Critical = no waiver; Highs = fix or written acceptance | loom-author | in review — branch fix/phase1-review-fix-batch, 5 commits (C1 doctor-wiring+githooks, H2 fail-closed audit, H3/H4 guard-bash+deny floor, F1 clean-state real, F2 plan dimensions); awaits host push (T18); **gates Phase-1 close** | — |
+| Phase-1 review findings, Critical/High fix batch (C1 guardrail wiring [RULED FIX-NOW 2026-06-12]; H2–H4; F1 teardown state surface; F2 plan blind dimensions) | C1 ruling ✓; review on record (docs/reviews/phase-1-review.md) | phase-close gate: Critical = no waiver; Highs = fix or written acceptance | loom-author | done — merged 2026-06-12 (C1 doctor-wiring+githooks, H2 fail-closed audit, H3/H4 guard-bash+deny floor, F1 clean-state real, F2 plan dimensions); C1 fix verified live by e2e build-under-session same day (.scratch/live-build-experiment.md) | #92 |
+| live-build e2e findings F-a..F-d (build summary≠writes; home-sync audit gap; build.log overwrite; deliberate lock refresh w/ digest provenance) | — (e2e record: .scratch/live-build-experiment.md, promote to docs/e2e/ pending) | R1 audit-delta family (T26); build observability | loom-author | queued — envelope 038 (2026-06-12) | — |
+| 036 harness-state durability: playbook materializes trust/opt-in flags at build ("2-plus", human-decided 2026-06-12; `.claude.json` sibling file on overlay dies on recreate — BOTH seats, advisor-verified; declare-or-rederive per devcontainer/Codespaces precedent, ADR-0014/0015 aligned) | — | Writer durable opt-in; autopilot survives recreate; prerequisite for ADR-0017 target state | loom-author | queued — envelope 036 (ruled 2026-06-12) | — |
+| settings-files write protection (029.B): extend never-auto floor + protect-paths to `.claude/settings*.json` + `.claude/hooks/**` (deny Edit/Write + pre-commit guard) | — | T28/C1-family: trust config can't be agent-rewritten; closes the in-container judgment-only gap | loom-author | queued — envelope 040 (triage 2026-06-12) | — |
+| git-discipline transcription (028: end-on-main, currency contract, hand-off per-branch, resolver-as-tool script; 2 specimens) [TEAM clause frozen — human admin-merge] | — | shared-tree git discipline mechanized; human-blessed 2026-06-12 | loom-author | queued — envelope 041 (triage 2026-06-12) | — |
+| Writer SessionStart checkpoint hook (user-level /root/.claude, volume-backed; T28-A triad: own HALT sentinel + data-framing + 60-line cap) | — | cold-start continuity = mechanism on Writer seat (loss class: docs/e2e/cold-start-continuity.md) | loom-author | queued — envelope 042 (triage 2026-06-12; human go on record) | — |
 | T15 successor: AI-first credential acquisition (incl. VCS/gh) | trial verdict | autonomy (T18 push gap) | loom-author | queued — decided C′→D 2026-06-11, envelope item 008 (self-promotes at verdict) | — |
 | T10 non-root user / parameterized $HOME | — | hardening | loom-author | queued | — |
 | one-week defaultMode "auto" trial (classifier mode; deny floor + never-auto floor unchanged) | exit/rollback package T22 ✓ (docs/auto-trial.md) | prompt volume ↓ | **human flipped 2026-06-11; revert pre-authorized, re-flip human-only** | RUNNING — flipped #70, clock started 2026-06-11; day-7 verdict 2026-06-18: keep iff zero S1+S2 | #70 |
@@ -58,7 +63,7 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | FR extraction: entry:bootstrap → FR-ENTRY-001..004 + hermetic sh-fixture tests (inbox item 010; spec-map node → green) | clause accepted ✓ (#64) | registry debt closed; spec→FR→test joint | loom-author | done | #74 |
 | /specmap project skill (regenerates docs/spec-map.md; writes via PR — inbox item 011; row may dup docs/specmap-row) | spec-map v1 ✓ (#67) | spec→FR→thread shape on demand | loom-author | done | #80 |
 | guided-run findings batch (⑦ plan/build convergence disagreement +LL +regression; ⑧ doctor probe scope; ⑨ teardown unconfirmed; ①–⑥ doc/ergonomics gaps) | guided run ✓ (docs/guided-run.md results) | criterion-1 evidence → fixes; stranger-path ergonomics | loom-author | done — ⑦ #79, ⑧ #82, ⑨ #83, ①–⑥ #84 (item 013) | #79, #82–#84 |
-| Phase-1 close (PLAN edit) | guided run ✓ MET 2026-06-11 (docs/guided-run.md verdict); review gate 2026-06-12 (docs/reviews/phase-1-review.md) | phase boundary | **human — no agent self-approves phase completion** | RE-BLOCKED — review gate security verdict FAIL (C1 Critical, no waiver); human rules fix-now vs Phase-3 re-scope, then close edit | — |
+| Phase-1 close (PLAN edit) | guided run ✓ MET 2026-06-11 (docs/guided-run.md verdict); review gate 2026-06-12 (docs/reviews/phase-1-review.md) | phase boundary | **human — no agent self-approves phase completion** | done — **PHASE 1 CLOSED 2026-06-12**, human squash-merged the close edit (evidence block in the Phase-1 roadmap section); Phase 2 active | #99 |
 | T12 closeout: delete archived devenv | archive + 14d | cutover bookkeeping | human | scheduled 2026-06-24 | — |
 | re-run auto-mode evaluation (full-auto clearance) | T16 hooks landed, T10 non-root, T20 decided | autonomy | loom-advisor | blocked — event-driven (no calendar): when all three deps flip, checklist-diff vs the recorded evaluation (allowlist ✓, deny-floor ✓, code-exec egress, root, guard hooks) | — |
 <!-- END TACTICAL QUEUE -->
@@ -81,6 +86,25 @@ Exit criteria: a fresh machine reaches a working Go env in one guided run;
 an agent can `plan` then `build` unattended; guardrails block a destructive test.
 FR registry seeded from verb contracts; verify FR↔test and FR↔spec checks green
 (advisory during the phase, blocking at phase close).
+
+**Status: CLOSED 2026-06-12 (human).** Exit criteria met with evidence:
+- *Fresh machine, one guided run* — executed 2026-06-11, human verdict in
+  docs/guided-run.md (go 1.26.4 in-container via exec; build 3m08s, rebuild
+  2.5s, teardown clean); findings ①–⑨ filed and fixed (#79, #82–#84).
+- *Agent can plan then build unattended* — dogfood exceeded: `loom exec --
+  make gate` PASS on the Mac host (T12 criterion 5, loom-native); plan/build
+  convergence disagreement found and fixed (#79, FR-PLAN-003).
+- *Guardrails block a destructive test* — guard suite green plus live
+  specimens on record (guard-bash H4 block; deny floor held under the
+  2026-06-12 auto-trial stress, docs/trial-auto-evidence.md).
+- *FR registry seeded, FR↔test / FR↔spec checks green* — fr-verify is a
+  required branch-protection check; FR-BUILD-008 clean-machine proxy (#47).
+
+Phase-close review gate (P7, first application): docs/reviews/phase-1-review.md
+— C1 Critical (guardrails not wired into built containers) ruled fix-now,
+fixed #92, and verified live by the build-under-session e2e the same day;
+H2–H4 and F1/F2 fixed in the same batch. No waivers outstanding.
+Phase 2 is the active phase.
 
 ## Phase 2 — Evolution + second stack
 - `update` (delta reconcile; real removal). Add a Python or TS stack to prove
