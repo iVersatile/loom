@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -35,12 +36,13 @@ type fakeRuntime struct {
 }
 
 // execCall captures what the exec verb asked of the runtime, for contract
-// assertions (argv, workdir, start-before-exec).
+// assertions (argv, workdir, start-before-exec, tty).
 type execCall struct {
 	name    string
 	argv    []string
 	workdir string
 	started bool
+	tty     bool
 }
 
 func (r fakeRuntime) Exists(string) (bool, error) { return r.exists, r.err }
@@ -74,9 +76,10 @@ func (r fakeRuntime) Start(name string) error {
 	return r.startErr
 }
 
-func (r fakeRuntime) Exec(name string, argv []string, workdir string) (int, error) {
+func (r fakeRuntime) Exec(name string, argv []string, workdir string, tty bool) (int, error) {
 	if r.execRecord != nil {
 		r.execRecord.name, r.execRecord.argv, r.execRecord.workdir = name, argv, workdir
+		r.execRecord.tty = tty
 	}
 	return r.execExit, r.execErr
 }
@@ -220,4 +223,17 @@ func hasInstall(items []InstallItem, tool string) bool {
 		}
 	}
 	return false
+}
+
+// TestPlanHumanNamesTarget: the human verdict names the container it grades
+// (guided-run finding ⑤ — a target-less verdict can't be safety-checked
+// without --json).
+func TestPlanHumanNamesTarget(t *testing.T) {
+	res, err := planImpl(PlanOpts{PlaybookPath: testFixture}, fakeRuntime{exists: false})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if want := containerName("loom"); !strings.Contains(res.Human(), want) {
+		t.Errorf("plan human line should name %q, got %q", want, res.Human())
+	}
 }

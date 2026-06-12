@@ -219,6 +219,16 @@ requirements:
     tests: [engine.TestExecAuditsCommandAndExit]
     status: active
 
+  # --- Behavioral: shell (SPEC-verbs#shell) ---
+  - id: FR-SHELL-001
+    kind: behavioral
+    # T1 doctrine: the interactive TTY experience is human feedback, never
+    # coverage; the automatable proxy is the mechanism contract below.
+    statement: shell opens an interactive login shell through exec's engine path — ONE code path with a TTY option, same lifecycle (stopped starts; absent errors with the build hint; exit code verbatim; no command argument accepted) — and audits exactly one session-open entry that captures no command.
+    source: SPEC-verbs.md#shell
+    tests: [engine.TestShellUsesExecPathWithTTY, engine.TestShellAuditsSessionOpenNoCommands, engine.TestShellAbsentContainerErrors, cli.TestShellRejectsArgs]
+    status: active
+
   # --- Behavioral: teardown (SPEC-verbs#teardown) ---
   - id: FR-TEARDOWN-001
     kind: behavioral
@@ -232,6 +242,14 @@ requirements:
     source: SPEC-verbs.md#teardown
     tests: [engine.TestWipeProjectRequiresConfirmation, engine.TestWipeProjectWithConfirmation]
     status: active
+  - id: FR-TEARDOWN-003
+    kind: behavioral
+    # Guided-run finding ⑨: teardown ran unprompted on an interactive TTY —
+    # the most destructive routine verb must never act on silence.
+    statement: teardown acts only on explicit consent — an affirmative answer to its [y/N] prompt, or --yes for automation; on silence (EOF, empty, any other answer) it removes nothing. There is no --force, and --wipe-project's typed confirmation stays non-bypassable by --yes.
+    source: SPEC-verbs.md#teardown
+    tests: [cli.TestTeardownRequiresConsent, cli.TestTeardownPromptDecides]
+    status: active
 
   # --- Behavioral: doctor (SPEC-verbs#doctor) ---
   - id: FR-DOCTOR-001
@@ -239,6 +257,15 @@ requirements:
     statement: doctor reports environment checks (ok/missing).
     source: SPEC-verbs.md#doctor
     tests: [engine.TestDoctorChecks, engine.TestDoctorMissingTool]
+    status: active
+  - id: FR-DOCTOR-002
+    kind: behavioral
+    # Guided-run finding ⑧ (LL-012 class): doctor answered tool checks from
+    # the host PATH while exec hit the container — a bill of health must name
+    # which environment it grades.
+    statement: every doctor check names its tier (host:* repo-side facts, container:* container reality); tool checks grade the CONTAINER — live probe when running, lock-pinned resolved values when stopped (never starting it) — and with no container or no runtime, container:state fails with the reason and no per-tool verdict is invented from the host PATH.
+    source: SPEC-verbs.md#doctor
+    tests: [engine.TestDoctorChecks, engine.TestDoctorAbsentContainer, engine.TestDoctorStoppedContainerGradesFromLock, engine.TestDoctorRuntimeUnavailable]
     status: active
 
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---

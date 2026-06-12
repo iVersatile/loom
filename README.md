@@ -13,7 +13,12 @@ operated by a human or an autonomous AI coding agent.
 
 ## Quickstart
 
-Requirements: a Go toolchain (≥ 1.26) and Docker.
+Requirements: Docker, plus a Go toolchain (≥ 1.26) **or** a prebuilt `loom`
+binary. There is no release channel yet (Phase 1), so on a no-Go machine the
+binary comes from a machine that has Go: `go build -o loom ./cmd/loom` there
+(cross-compile with `GOOS`/`GOARCH` as needed), then copy it into this clone
+as `bin/loom` — `mkdir -p bin` first, a fresh clone has no `bin/` — or point
+`LOOM_BIN` at it (bootstrap entry contract, docs/SPEC-verbs.md).
 
 ```sh
 sh bootstrap/loom-bootstrap.sh build     # builds bin/loom if absent, then: one
@@ -24,9 +29,21 @@ bin/loom plan                            # diff reality vs the playbook (--json 
                                          # every state verb)
 ```
 
+On a machine that may already host loom environments, run `bin/loom plan`
+before `build`: it grades the container against the playbook without mutating
+anything (exit 2 = work outstanding, 0 = converged), and its verdict names the
+target container.
+
+The container is named from the playbook `name:`, so it's **one instance per
+project per host** — a second checkout of the same project collides with the
+first; edit `name:` in the second checkout's `loom.yml` to run them side by
+side.
+
 The first `build` provisions live from `debian:bookworm-slim` (apt + Go
 toolchain installs) — expect minutes, not seconds, until the prebuilt base
-image lands (docs/PLAN.md Phase 2, ADR-0012).
+image lands (docs/PLAN.md Phase 2, ADR-0012). A host with the base image
+already cached (say, one that runs another loom container) builds much faster
+than a truly cold machine — don't let a warm host set your expectations.
 
 ## Start here
 - **docs/CHARTER.md** — what Loom is, goals, the AI-first north star, non-goals.
