@@ -60,6 +60,7 @@ hat (docs/TEAM.md) audits queue integrity and proposes re-sorts via `/replan`.
 | guided-run runbook (docs/guided-run.md) — orphan-PR backfill, /replan 2026-06-11 audit | — | Phase-1 close prep | loom-advisor (human's hands) | done | #62 |
 | bootstrap-entry spec clause (loom-bootstrap.sh first touch — no clause covers it; C3) | human decision 2026-06-11 ✓ (inbox item 007) | FR-BUILD-008 remainder | loom-author transcribed — human admin-merge | done — accepted; FR extraction = inbox item 010 | #64 |
 | spec-map v1 + r2 (docs/spec-map.md, threads shadow on SPECs/FRs) — orphan backfill, /replan audit | — | spec/thread shape visible | loom-advisor (human's hands) | done | #67, #71 |
+| spec-map r3 (post drain-proof: yellow band cleared, guards 4 FR, T28→lockfile edge, T10 authorized) | — | spec/thread shape current at Phase-2 open | loom-advisor | done | #124 |
 | /achievements format amendment (lifecycle dashboard) — orphan backfill, /replan audit | — | validated report format | loom-advisor (human's hands) | done | #65 |
 | FR extraction: entry:bootstrap → FR-ENTRY-001..004 + hermetic sh-fixture tests (inbox item 010; spec-map node → green) | clause accepted ✓ (#64) | registry debt closed; spec→FR→test joint | loom-author | done | #74 |
 | /specmap project skill (regenerates docs/spec-map.md; writes via PR — inbox item 011; row may dup docs/specmap-row) | spec-map v1 ✓ (#67) | spec→FR→thread shape on demand | loom-author | done | #80 |
