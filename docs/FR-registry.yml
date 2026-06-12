@@ -318,9 +318,12 @@ requirements:
   # --- Guardrails (per-hook; test = the hook's full pattern suite) ---
   - id: FR-GUARD-BASH
     kind: guardrail
-    statement: guard-bash blocks its defined class of dangerous bash and allows benign commands.
+    # Phase-1 review H3/H4: fixed substrings fell to spacing tricks and
+    # alternate tools; hook-path redirects, credential reach, and raw-socket /
+    # interpreter one-liner egress were unmatched entirely.
+    statement: guard-bash blocks its defined class of dangerous bash — including whitespace-normalized variants, alternate privilege tools, case-folded core.hooksPath redirects, credential-file reach, and /dev/tcp + interpreter one-liner egress — and allows benign commands.
     source: [RULES.md#§5, config/hooks/guard-bash]
-    tests: { suite: guard.TestGuardBashBlocksDangerousAllowsBenign, patterns: all }
+    tests: { suite: guard.TestGuardBashBlocksDangerousAllowsBenign + guard.TestGuardBashBlocksBypassClasses, patterns: all }
     status: active
   - id: FR-GUARD-BRANCH
     kind: guardrail
