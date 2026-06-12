@@ -26,6 +26,7 @@ type fakeRuntime struct {
 	ensureErr       error
 	teardownRemoved Removed
 	teardownErr     error
+	teardownRecord  *teardownArgs     // when set, Teardown records what was asked
 	probeVersions   map[string]string // canned in-container versions (T5)
 	homeSentinel    string            // canned home-sync sentinel digest (T7/C1)
 	running         bool              // canned container state (LL-012)
@@ -34,6 +35,15 @@ type fakeRuntime struct {
 	execErr         error     // canned transport error for Exec
 	startErr        error     // canned error for Start
 	execRecord      *execCall // when set, Start/Exec record into it
+}
+
+// teardownArgs captures what the teardown verb asked of the runtime — the
+// engine contract is the ASK (tier + cleanState passthrough), not a removal
+// the fake fabricates (phase-1 review F1).
+type teardownArgs struct {
+	name       string
+	level      string
+	cleanState bool
 }
 
 // execCall captures what the exec verb asked of the runtime, for contract
@@ -56,7 +66,11 @@ func (r fakeRuntime) Ensure(ContainerSpec) (ContainerInfo, error) {
 	return r.ensureInfo, r.ensureErr
 }
 
-func (r fakeRuntime) Teardown(string, string, io.Writer) (Removed, error) {
+func (r fakeRuntime) Teardown(name, level string, cleanState bool, _ io.Writer) (Removed, error) {
+	if r.teardownRecord != nil {
+		r.teardownRecord.name, r.teardownRecord.level = name, level
+		r.teardownRecord.cleanState = cleanState
+	}
 	return r.teardownRemoved, r.teardownErr
 }
 

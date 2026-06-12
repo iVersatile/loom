@@ -243,9 +243,17 @@ requirements:
   # --- Behavioral: teardown (SPEC-verbs#teardown) ---
   - id: FR-TEARDOWN-001
     kind: behavioral
-    statement: teardown removes by tier (stop|volumes|reset) and rejects invalid levels.
+    statement: teardown removes by tier (stop|volumes|reset) and rejects invalid levels; the report names only what was actually removed (Phase 1 creates no per-project data volume, so the volumes tier removes none — never a phantom).
     source: SPEC-verbs.md#teardown
     tests: [engine.TestTeardownRemovesAndAudits, cli.TestTeardownValidLevels, cli.TestTeardownInvalidLevel]
+    status: active
+  - id: FR-TEARDOWN-004
+    kind: behavioral
+    # Phase-1 review F1: --clean-state was declared, CLI-wired, and never
+    # read; the agent-home volume loom creates was removable by nothing.
+    statement: --clean-state removes the agent-home volume (agent auth/memory/logs) and is the ONLY path that does — no tier touches agent state without it; the flag reaches the runtime both ways, never a silent no-op.
+    source: SPEC-verbs.md#teardown
+    tests: [engine.TestTeardownPassesCleanStateThrough, engine.TestTeardownRemovesAndAudits]
     status: active
   - id: FR-TEARDOWN-002
     kind: behavioral

@@ -78,8 +78,10 @@ type ContainerRuntime interface {
 	// "created" when newly made, "exists" when already present.
 	Ensure(spec ContainerSpec) (ContainerInfo, error)
 	// Teardown removes the environment to the given tier (stop|volumes|reset)
-	// and reports what was removed; raw output is tee'd to logw.
-	Teardown(name, level string, logw io.Writer) (Removed, error)
+	// and reports what was removed; raw output is tee'd to logw. cleanState
+	// additionally removes the agent-home volume (auth/memory/logs — the
+	// opt-in SPEC-verbs --clean-state tier, orthogonal to the level).
+	Teardown(name, level string, cleanState bool, logw io.Writer) (Removed, error)
 	// Probe reports whether a tool binary exists INSIDE the named container and,
 	// best-effort, its version. The lock's `resolved` source of truth (T5): the
 	// lock pins the container, never the build host.
@@ -194,9 +196,15 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "created"}, nil
 }
 
-// Teardown removes the per-project container, and (by tier) its volume and image.
+// Teardown removes the per-project container, and (by tier) its volumes and
+// image. Phase 1 creates no per-project data volume, so the volumes tier has
+// nothing extra to remove today (phase-1 review F1: it used to claim a
+// `<name>-data` volume nothing creates — fiction); it stays a distinct level
+// as the Phase-2 data-volume surface. The agent-home volume (auth/memory/
+// logs) is removed ONLY by cleanState — wiping agent state must be an
+// explicit choice, never a side effect of a tier.
 // NOTE: the docker path is integration-validated (Work 7 / CI), not the local gate.
-func (dockerRuntime) Teardown(name, level string, logw io.Writer) (Removed, error) {
+func (dockerRuntime) Teardown(name, level string, cleanState bool, logw io.Writer) (Removed, error) {
 	r := Removed{Containers: []string{}, Volumes: []string{}, Images: []string{}}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return r, fmt.Errorf("docker not available: %w", err)
@@ -205,8 +213,8 @@ func (dockerRuntime) Teardown(name, level string, logw io.Writer) (Removed, erro
 	if _, err := dockerLogged(logw, "rm", name); err == nil {
 		r.Containers = append(r.Containers, name)
 	}
-	if level == "volumes" || level == "reset" {
-		vol := name + "-data"
+	if cleanState {
+		vol := agentHomeVolume(name)
 		if _, err := dockerLogged(logw, "volume", "rm", vol); err == nil {
 			r.Volumes = append(r.Volumes, vol)
 		}
@@ -449,9 +457,9 @@ func containerName(project string) string {
 
 // agentHomeVolume names the durable agent-home volume (T14): mounted at
 // ~/.claude so in-container credentials (and the agent home) survive
-// `build --force`/`teardown` (`docker rm` keeps named volumes). Removal is the
-// opt-in `--clean-state` Mac-side tier (SPEC-verbs teardown), NOT the volumes/
-// reset tiers — wiping agent auth must be an explicit choice.
+// `build --force`/`teardown` (`docker rm` keeps named volumes). Removed ONLY
+// by the opt-in `--clean-state` flag (SPEC-verbs teardown), never the
+// volumes/reset tiers — wiping agent auth must be an explicit choice.
 func agentHomeVolume(container string) string {
 	return container + "-claude"
 }
