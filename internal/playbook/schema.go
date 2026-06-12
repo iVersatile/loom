@@ -35,7 +35,28 @@ type Playbook struct {
 	Env      []string `json:"env,omitempty"`      // names only; values from .env/secret store
 	CI       []string `json:"ci,omitempty"`       // CI templates to emit
 
+	// Harness is the per-agent harness-home declaration (SPEC-playbook
+	// #harness, ADR-0015 decision 3): artifacts with semantics plain dotfiles
+	// lack — hook registration inside settings.json, executable bits,
+	// guardrail policy weight. Keyed by agent namespace ("claude" today).
+	Harness map[string]HarnessAgent `json:"harness,omitempty"`
+
 	ConfigSource *ConfigSource `json:"config_source,omitempty"`
+}
+
+// HarnessAgent is one agent's harness-home config. All fields are references
+// resolved against the config source (explicit-by-reference, like rules:).
+type HarnessAgent struct {
+	// Settings is a dotfiles/ reference materialized WHOLE-FILE into the
+	// agent home; it carries its own hook registrations (Phase 1: base-tier
+	// only, no key-merge — SPEC-playbook Open question 1).
+	Settings string `json:"settings,omitempty"`
+	// Hooks are hooks/ references materialized to <agent home>/hooks/<name>,
+	// executable.
+	Hooks []string `json:"hooks,omitempty"`
+	// Skills are skills/<name>/ directories materialized recursively to
+	// <agent home>/skills/<name>/.
+	Skills []string `json:"skills,omitempty"`
 }
 
 // ConfigSource locates where rules/skills/hooks/dotfiles resolve from (ADR-0006).

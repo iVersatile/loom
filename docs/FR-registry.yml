@@ -182,6 +182,20 @@ requirements:
     tests: [bootstrap.TestBootstrapInvokesNoNetworkTooling]
     status: active
 
+  # --- Behavioral/schema: harness (SPEC-playbook#harness, ADR-0015, clause #53) ---
+  - id: FR-BUILD-009
+    kind: behavioral
+    statement: build materializes declared harness artifacts into the agent home via write-if-changed — settings whole-file, hooks executable under hooks/, skills recursive under skills/ — idempotent, and a dangling reference is a loud error naming agent+field+ref.
+    source: [SPEC-playbook.md#harness, SPEC-verbs.md#build]
+    tests: [engine.TestMaterializeHarnessArtifacts, engine.TestMaterializeHarnessIdempotent, engine.TestMaterializeHarnessMissingRefErrors]
+    status: active
+  - id: FR-SCHEMA-008
+    kind: schema
+    statement: harness merges per agent namespace — hooks/skills concatenate + dedup in layer order, settings last-non-empty wins; Phase 1 validation rejects project-tier settings (base-authored whole-file only).
+    source: SPEC-playbook.md#harness
+    tests: [playbook.TestHarnessMergeRules, playbook.TestValidateHarnessSettingsBaseOnly]
+    status: active
+
   # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---
   - id: FR-EXEC-001
     kind: behavioral

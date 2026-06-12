@@ -40,6 +40,27 @@ func (pb *Playbook) Validate() error {
 		}
 	}
 
+	for agent, h := range pb.Harness {
+		if agent == "" {
+			errs = append(errs, "harness: agent namespace key must be non-empty")
+		}
+		// Phase 1: settings is base-authored whole-file, base tier only
+		// (SPEC-playbook#harness; key-merge is Open question 1).
+		if pb.Tier == TierProject && h.Settings != "" {
+			errs = append(errs, fmt.Sprintf("harness.%s.settings is base-tier only in Phase 1 (whole-file, no key-merge)", agent))
+		}
+		for _, ref := range h.Hooks {
+			if ref == "" {
+				errs = append(errs, fmt.Sprintf("harness.%s.hooks: empty reference", agent))
+			}
+		}
+		for _, ref := range h.Skills {
+			if ref == "" {
+				errs = append(errs, fmt.Sprintf("harness.%s.skills: empty reference", agent))
+			}
+		}
+	}
+
 	if cs := pb.ConfigSource; cs != nil {
 		switch cs.Type {
 		case "local":
