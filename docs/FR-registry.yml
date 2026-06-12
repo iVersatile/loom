@@ -202,6 +202,16 @@ requirements:
     tests: [engine.TestExecAuditsCommandAndExit]
     status: active
 
+  # --- Behavioral: shell (SPEC-verbs#shell) ---
+  - id: FR-SHELL-001
+    kind: behavioral
+    # T1 doctrine: the interactive TTY experience is human feedback, never
+    # coverage; the automatable proxy is the mechanism contract below.
+    statement: shell opens an interactive login shell through exec's engine path — ONE code path with a TTY option, same lifecycle (stopped starts; absent errors with the build hint; exit code verbatim; no command argument accepted) — and audits exactly one session-open entry that captures no command.
+    source: SPEC-verbs.md#shell
+    tests: [engine.TestShellUsesExecPathWithTTY, engine.TestShellAuditsSessionOpenNoCommands, engine.TestShellAbsentContainerErrors, cli.TestShellRejectsArgs]
+    status: active
+
   # --- Behavioral: teardown (SPEC-verbs#teardown) ---
   - id: FR-TEARDOWN-001
     kind: behavioral

@@ -29,6 +29,25 @@ func Exec(opts ExecOpts) (ExecResult, error) {
 	return execImpl(opts, defaultRuntime(), time.Now)
 }
 
+// Shell opens an interactive login shell in the project container —
+// SPEC-verbs "shell": sugar over exec's engine path, the same lifecycle and
+// no-filtering posture, ONE code path with a TTY option. Exits with the
+// shell's exit code. Audit: one session-open entry; commands typed inside
+// are never captured.
+func Shell(opts ShellOpts) (ExecResult, error) {
+	return shellImpl(opts, defaultRuntime(), time.Now)
+}
+
+func shellImpl(opts ShellOpts, rt ContainerRuntime, now func() time.Time) (ExecResult, error) {
+	// bash -l: the provisioned login env (PATH, prompt dotfiles) applies; the
+	// base image guarantees bash (debian bookworm, ADR-0012 territory).
+	return execImpl(ExecOpts{
+		PlaybookPath: opts.PlaybookPath,
+		Command:      []string{"bash", "-l"},
+		TTY:          true,
+	}, rt, now)
+}
+
 func execImpl(opts ExecOpts, rt ContainerRuntime, now func() time.Time) (ExecResult, error) {
 	// Command required (SPEC-verbs exec): the CLI rejects a bare invocation
 	// before reaching here; this is the engine-level backstop.
@@ -60,24 +79,40 @@ func execImpl(opts ExecOpts, rt ContainerRuntime, now func() time.Time) (ExecRes
 		return ExecResult{ExitCode: 1}, fmt.Errorf("exec: start %s: %w", cname, err)
 	}
 
-	exit, runErr := rt.Exec(cname, opts.Command, containerWorkspace(pb.Name))
+	// TTY = shell mode (SPEC-verbs shell): the audit entry is session-open,
+	// appended BEFORE entering — a crash mid-session still leaves the open on
+	// record — and it captures NO command: what is typed inside belongs to
+	// the session, not the log.
+	var openID string
+	if opts.TTY {
+		if log, lerr := audit.Open(resolved.Root); lerr == nil {
+			openID, _ = log.Append(audit.Entry{
+				TS: now().UTC().Format(time.RFC3339), Verb: "shell", Action: "container.shell",
+				Target: cname, Result: "opened", Actor: "cli",
+			})
+		}
+	}
+
+	exit, runErr := rt.Exec(cname, opts.Command, containerWorkspace(pb.Name), opts.TTY)
 	if runErr != nil {
 		// Transport-level failure (docker itself, not the command): no exit
 		// code to propagate.
 		return ExecResult{ExitCode: 1}, fmt.Errorf("exec: %w", runErr)
 	}
 
-	// The structured surface (SPEC-verbs exec): one audit entry per exec,
-	// carrying the command and its exit code; the entry id is the Append id.
-	res := ExecResult{ExitCode: exit}
-	if log, lerr := audit.Open(resolved.Root); lerr == nil {
-		if id, aerr := log.Append(audit.Entry{
-			TS: now().UTC().Format(time.RFC3339), Verb: "exec", Action: "container.exec",
-			Target: cname,
-			After:  map[string]any{"command": strings.Join(opts.Command, " "), "exit": exit},
-			Result: "exited", Actor: "cli",
-		}); aerr == nil {
-			res.Action = id
+	res := ExecResult{ExitCode: exit, Action: openID}
+	if !opts.TTY {
+		// The structured surface (SPEC-verbs exec): one audit entry per exec,
+		// carrying the command and its exit code; the entry id is the Append id.
+		if log, lerr := audit.Open(resolved.Root); lerr == nil {
+			if id, aerr := log.Append(audit.Entry{
+				TS: now().UTC().Format(time.RFC3339), Verb: "exec", Action: "container.exec",
+				Target: cname,
+				After:  map[string]any{"command": strings.Join(opts.Command, " "), "exit": exit},
+				Result: "exited", Actor: "cli",
+			}); aerr == nil {
+				res.Action = id
+			}
 		}
 	}
 	return res, nil
