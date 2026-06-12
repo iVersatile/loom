@@ -30,22 +30,29 @@ dotfiles:
   # completeness (host:gitconfig).
   - gitconfig
 
-# Guardrails enforced by mechanism (ADR-0005), not trust.
+# Guardrails enforced by mechanism (ADR-0005), not trust — plus
+# checkpoint-inject: continuity mechanism rather than guardrail, listed here
+# so doctor verifies it the same way (present + executable) — cold-start
+# recovery must not silently rot (envelope 042, T28-A).
 hooks:
   - guard-bash
   - branch-guard
   - protect-paths
+  - checkpoint-inject
 
 # Harness-home config (SPEC-playbook#harness, ADR-0015): declared by
 # reference, materialized into the agent home (~/.claude) on every build via
 # the dotfiles staging pipeline (T7 digest covers it). settings.json carries
 # its own hook registrations — the engine never synthesizes them. It sets NO
 # defaultMode: trust level is project-tier (the T22 trial owns it today).
-# branch-guard/protect-paths stay git-side guardrails (.githooks); only
-# guard-bash has harness-event semantics (PreToolUse). session-snapshot is
-# not declared: its content design is parked (judgment-trial C4).
+# branch-guard/protect-paths stay git-side guardrails (.githooks);
+# guard-bash (PreToolUse) and checkpoint-inject (SessionStart, envelope 042
+# T28-A triad) carry harness-event semantics and materialize into the agent
+# home. session-snapshot is not declared: its content design is parked
+# (judgment-trial C4).
 harness:
   claude:
     settings: claude/settings.json
     hooks:
       - guard-bash
+      - checkpoint-inject
