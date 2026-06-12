@@ -84,6 +84,11 @@ type ContainerRuntime interface {
 	// best-effort, its version. The lock's `resolved` source of truth (T5): the
 	// lock pins the container, never the build host.
 	Probe(container, binary string) (present bool, version string)
+	// Running reports whether the named container's main process is up —
+	// read-only verbs (plan) need it to choose between a live in-container
+	// probe and the lock fallback, because Probe requires a running container
+	// and plan must never Start one (LL-012).
+	Running(name string) (bool, error)
 	// Start brings a stopped container up; idempotent (starting a running
 	// container is a no-op). It never creates (SPEC-verbs exec lifecycle).
 	Start(name string) error
@@ -249,6 +254,12 @@ func provision(name, script string, logw io.Writer) error {
 		}
 	}
 	return lastErr
+}
+
+// Running implements the interface query via containerRunning. NOTE:
+// integration-validated (docker host), not the local gate.
+func (dockerRuntime) Running(name string) (bool, error) {
+	return containerRunning(name), nil
 }
 
 // containerRunning reports whether the named container's main process is still up.

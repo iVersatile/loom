@@ -6,6 +6,28 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud`
 
+## LL-012 — A verb must name the machine it grades; verdict and action must share a domain
+- Date: 2026-06-11
+- Tags: `engine`
+- Symptom: the guided run (criterion-1 pass, finding ⑦) hit `build` creating
+  a converged container while `plan` immediately reported 4 installs
+  outstanding (null→latest) and a second `build` no-op'd. Both could not be
+  true. Diagnosis: `plan`'s tool dimension probed the HOST PATH
+  (`execProber`) while `build` converged the CONTAINER — on a Mac host
+  without ripgrep/gitleaks/golangci-lint/gopls, plan graded the wrong
+  machine. `doctor` had the same disease (finding ⑧, fixed separately).
+- Lesson: every verb that grades an environment must state — and test —
+  WHICH machine it grades. The T5 rule ("the lock pins the container's
+  reality, never the build host's") applies to every read verb, not just the
+  lock writer. When a verdict verb (plan) and an action verb (build) share a
+  dimension, a regression must pin verdict == action on it.
+- Fix shape: plan grades the container — live in-container probe when
+  running; the lock's container-pinned `resolved` when stopped (plan never
+  mutates, so it must not Start to ask); absent container ⇒ create + every
+  declared tool is an install (no environment exists to grade — the host
+  PATH is never consulted). Regression: `engine.TestPlanGradesContainerNotHost`,
+  `engine.TestPlanStoppedContainerUsesLock` (FR-PLAN-003).
+
 ## LL-011 — Repo-level hooks fire in EVERY session on a shared tree; role-scoped behavior needs an explicit role check
 - Date: 2026-06-11
 - Tags: `ci`

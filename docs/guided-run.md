@@ -44,17 +44,52 @@
   (deviations feed README/bootstrap fixes; a deviation-heavy pass can still
   close the criterion at the human's judgment, with the fixes queued).
 
-## Results (fill during the run — 2026-06-12)
+## Results (run executed 2026-06-11, a day early — operator: human; clerk: loom-advisor)
+
+Setup: fresh clone as `~/loom-guided`; `loom.yml` `name:` edited to
+`loom-guided` (collision guard — the host runs the real `loom-dev`);
+engine = prebuilt `loom-darwin-arm64` copied to `bin/loom` (Mac has no Go);
+pre-build `plan` verified target `loom-guided-dev` via `--json`.
 
 | # | Step | Time | Observed | Pass/Deviation |
 |---|---|---|---|---|
-| 1 | bootstrap build | | | |
-| 2 | doctor | | | |
-| 3 | exec go version | | | |
-| 4 | plan | | | |
-| 5 | plan --json | | | |
-| 6 | rebuild no-op | | | |
+| 1 | bootstrap build | 3m08s | created `loom-guided-dev`, lock written, 3 materialized | ✅ (⑥ base image pre-cached, pull free) |
+| 2 | doctor | — | 9/13 — ripgrep/gitleaks/golangci-lint/gopls missing; probes answered by HOST tools (Apple git, go darwin/arm64) | ⚠ ⑧ |
+| 3 | exec go version | — | `go1.26.4 linux/arm64` from inside the container | ✅ **criterion met** |
+| 4 | plan | — | `+0 create, 4 install` outstanding (the 4 doctor-missing tools, `null→latest`) | ❌ expected no drift |
+| 5 | plan --json | — | valid JSON, verdict identical to 4 | ✅ invariant holds |
+| 6 | rebuild no-op | 2.5s | `converged`, lock untouched | ⚠ fast as expected, but contradicts step 4 → ⑦ |
+| 7 | teardown (added by operator) | — | `teardown stop: removed 1 containers, 0 volumes, 0 images`; `loom-guided-dev` gone, other containers untouched; `loom.lock` survives (observation, defensible) | ⚠ ⑨ no confirmation prompt observed |
 
 **Deviations / notes:**
+① `loom.yml name:` edit as collision guard — two instances of one project on
+a host collide by design (container name derives from playbook `name:`).
+② plan-first safety check before build (not in README flow).
+③ `bin/` absent in a fresh clone — the "provide a prebuilt binary" path needs
+`mkdir -p bin`; no doc says so.
+④ binary-provenance gap — a stranger has no way to know where prebuilt
+binaries live (no releases/registry pointer).
+⑤ `plan` human output doesn't name its target container — safety can't be
+verified without `--json`.
+⑥ base image pre-cached (host runs loom-dev on the same base) — 3m08s build
+time flatters a truly cold machine.
+⑦ **plan/build convergence disagreement** — plan reports 4 installs
+outstanding; build reports converged. Both can't be true (ADR-0011 /
+plan-semantics class). Filed to Writer.
+⑧ **doctor probe-scope ambiguity** — doctor reads the host PATH, not the
+container; a clean/failed bill doesn't say which environment it grades.
+Filed to Writer.
+⑨ **teardown executed without a confirmation prompt** — transcript goes
+straight from invocation to removal result. The harness deny-floor covers
+agents; the verb itself confirmed nothing for a human operator. The
+`teardown stop:` message prefix is a minor UX oddity. Filed to Writer.
 
-**Verdict (human-only):** _pending_
+**Verdict (human, 2026-06-11): Criterion 1 MET.** A fresh project instance
+reached a working in-container Go environment (`go1.26.4 linux/arm64` via
+`loom exec`) in one guided pass — bootstrap→build 3m08s, rebuild no-op 2.5s,
+teardown clean, zero restarts, zero collateral to the two running dev
+containers. Met **with findings**: deviations ①–⑥ are documentation/
+ergonomics gaps a true stranger would hit (queued as doc fixes); ⑦/⑧/⑨ are
+product defects, filed to the Writer. The criterion's substance — one guided
+run, working env — stands; the defects are exactly what the run existed to
+surface.

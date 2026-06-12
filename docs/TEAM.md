@@ -84,8 +84,15 @@ never only in an envelope).
 
 - **Format:** header `AUTOPILOT: off|on` (default **off**; only the human
   flips it); append-only blocks `--- id: NNN` / `from:` / `serves: <queue-row
-  fragment>` / optional `kind: task|design` / optional `after: <condition>` /
-  `status: WAITING|QUEUED|TAKEN|DONE` / body.
+  fragment>` / optional `kind: task|design|fyi|draft` / optional `after:
+  <condition>` / `status: WAITING|QUEUED|TAKEN|DONE|UNREAD|READ` / body.
+- **Non-work kinds (T25):** `kind: fyi` — ephemeral context (schedules,
+  intents, heads-ups): no `serves:` needed, the drain skips it BEFORE the
+  orphan check (never ridden, never orphan-flagged), read at orientation →
+  mark READ; READ fyis are pruned at the next session-end. `kind: draft` —
+  non-expiring intake (discussion results, ad-hoc proposals): never ridden,
+  never pruned; lives until a /coordinate triage verdict (promote |
+  merge-into | park | drop).
 - **Cross-agent write rule:** a role appends only to OTHERS' inboxes and
   updates only its OWN inbox's item statuses — the sole cross-agent write
   surface.
@@ -124,6 +131,38 @@ never only in an envelope).
   one line — `timestamp | actor | old→new | reason` — to
   `.scratch/inbox/flips.log` (untracked like the mail, but a trace): trust
   changes must not exist only in a chat transcript.
+
+## Context economy (T25, human-blessed 2026-06-11)
+
+- **State lives in artifacts; channels carry intent + work only.** Never
+  mail what an artifact already says — link the queue row, thread, or doc.
+- **As-of timestamps** on anything written-for-later; **ground truth is
+  re-read at act time** (the whoami law generalized: a reader resolves
+  reality when acting, never trusts a stale note).
+- **One decision = one envelope.** Amendments append to the existing item;
+  sibling-minting for the same decision is drift.
+- **Gates are events** (`row-done <fragment>`, `pr-merged #NN`), never
+  times; schedules live with the human (routines), not in inter-agent state.
+- **New channels pay rent:** a proposal for a new context surface must name
+  the failing channel and what is retired (per-role status boards stay
+  deferred BY NAME until fyi proves insufficient).
+
+## Coordinator authority (T25 — pinned to the HAT, not the skill)
+
+- `/coordinate` is **propose-only, always**: no verdict self-disposes; the
+  verdict batch PR is the proposal, disposal stays with the arming role.
+  Arming = an advisor review act; frozen paths keep human admin-merge.
+- **Scheduled runs are hat-holder only** (advisor today). Non-hat runs are
+  allowed but their output is marked "non-hat run".
+- **Self-verdict flags:** verdicts on items the runner authored, or that
+  route work to/away from the runner, are flagged for the arm-er.
+- **Drops always need cross-role ack** — the only verdict that destroys
+  information.
+- **Cadence:** one daily coordinator run under the advisor hat, rendered
+  yesterday / today / blockers into the 08:00Z reminder slot; absorbs the
+  trial daily audit during the trial week. No synchronous ceremony.
+- **Coordinator as a separate agent stays deferred BY NAME** — promotion by
+  evidence (volume or conflict-of-interest incidents; prerequisite T18).
 
 ## Outward ops ritual (until T18/T15 land)
 
