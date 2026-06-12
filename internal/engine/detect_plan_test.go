@@ -415,3 +415,27 @@ func TestPlanGradesHomeSyncDimension(t *testing.T) {
 		t.Errorf("stopped container must get no home-sync verdict, got %+v / %v", res2.Create, res2.Noop)
 	}
 }
+
+// TestPlanGradesGeneratedPathDotfile (T4): the engine-generated PATH dotfiles
+// are part of the staged-home surface plan grades — verdict and action share
+// a domain (F2/LL-012), so a missing ~/.bashrc.d/path.go.sh is create-work,
+// exactly what build would rewrite.
+func TestPlanGradesGeneratedPathDotfile(t *testing.T) {
+	pbPath, root := builtProject(t, fixtureProbes())
+	staged := filepath.Join(root, ".loom", "home", ".bashrc.d", "path.go.sh")
+	if _, err := os.Stat(staged); err != nil {
+		t.Fatalf("build should stage the generated PATH dotfile: %v", err)
+	}
+	if err := os.Remove(staged); err != nil {
+		t.Fatal(err)
+	}
+	converged := fakeRuntime{exists: true, running: true, probeVersions: fixtureProbes(),
+		homeSentinel: homeDigest(filepath.Join(root, ".loom", "home"))}
+	res, err := planImpl(PlanOpts{PlaybookPath: pbPath}, converged)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if !hasCreate(res.Create, "dotfile", "~/.bashrc.d/path.go.sh") {
+		t.Errorf("create = %+v, want the missing generated PATH dotfile flagged", res.Create)
+	}
+}

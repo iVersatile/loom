@@ -137,6 +137,14 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		return res, fmt.Errorf("materialize harness: %w", err)
 	}
 	mats = append(mats, hmats...)
+	// T4: engine-generated PATH dotfiles ride the same staging dir — one
+	// dotfile dir owns shell config; the provision script no longer appends
+	// PATH lines to shell-init files.
+	pmats, err := materializeFiles(expectedPathDotfiles(toolInstalls(resolution), agentInstalls(resolution), home))
+	if err != nil {
+		return res, fmt.Errorf("materialize path dotfiles: %w", err)
+	}
+	mats = append(mats, pmats...)
 	for _, m := range mats {
 		res.Materialized = append(res.Materialized, m.Display)
 		if !m.Changed {
