@@ -47,6 +47,51 @@ doc, not a frozen contract; the enforced pieces are marked.
   (`~/.gitconfig`, ADR-0015 item 1) must be this noreply address, never a
   personal one.
 
+## Shared-tree git discipline (human-blessed 2026-06-12, transcribed from envelope 041/draft 028)
+
+Four rules for the one tree two seats share. This clause is **frozen** —
+human admin-merge is the acceptance; agents propose changes via PR.
+
+1. **End-of-work: main, clean.** The Writer never leaves the tree parked on
+   a branch — every work block ends `git checkout main` with a clean status
+   (branch refs keep the work). Prevents stale-hook-stack execution (the
+   HIGH-2 class: a session inheriting whatever hook set the parked branch
+   carries) and the dirty-passenger hazard (uncommitted edits riding into
+   the next session's first commit).
+2. **Currency contract: main-is-current is the ADVISOR's deliverable**, at
+   exactly two event types — the morning standup (pull/ff) and handoff-merge
+   completion. The Writer *assumes* currency only at those events; at any
+   other moment it verifies before depending on main (anonymous fetch works
+   in-container). Nobody else moves shared refs casually (Shared-`.git`
+   rule above).
+3. **Hand off per-branch, not per-session.** Each built branch goes to the
+   advisor inbox immediately when it's done — push → PR → merge while the
+   diff is hours old, not at session end. A handoff that waits for the
+   session boundary is a handoff that rots (see the 2026-06-12 cold-start
+   loss class: in-flight branches unrelayed at orient,
+   docs/e2e/cold-start-continuity.md).
+4. **Resolver-as-tool.** Queue-table merge conflicts in docs/PLAN.md are
+   resolved by the row-union resolver (`scripts/resolve-plan-union.py`),
+   never by hand or by `HEAD`-wins — HEAD-wins silently reverts rows the
+   branch never edited (caught live 2026-06-12, 8/8 rows resolved by the
+   seed script). **Hard rule:** ALWAYS diff the resolved PLAN against
+   `origin/main` before pushing.
+
+Specimens (incidents the rules encode — keep with the clause):
+
+- **Cross-boundary worktree prune (2026-06-12):** an in-container cleanup
+  pruned host-side `.git/worktrees` metadata — the container cannot see the
+  host's tmp worktree directories, so `git worktree prune` judged them
+  dead. Never prune worktrees across the container/host boundary; prune
+  only from the seat that created them (existing law, now with incident).
+- **guard-bash flag-anchor misfire (2026-06-12, ×2):** the hook blocked a
+  legitimate recursive tmp-dir delete because its pattern anchors on the
+  slash after the flag, not the path root — and fired a second time on a
+  draft *quoting* the first block. Evidence feeds the T29 segment-aware
+  evaluation row (docs/threads: T29); until that lands, expect
+  false-positives on quoted commands and re-phrase rather than weaken the
+  pattern.
+
 ## Agent operating mode: safe-auto
 
 loom-author runs in **safe-auto** = `permissions.defaultMode: "acceptEdits"`

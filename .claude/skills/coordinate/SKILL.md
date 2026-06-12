@@ -13,18 +13,29 @@ MUST open with "non-hat run".
 ## Mode: read (default — `/coordinate`)
 
 Report-only, any role, any mode. No tree writes, no inbox status changes.
+(Two narrow carve-outs, both named in their steps: the advisor's ff-only
+currency pull in step 2, and marking reported fyis READ in step 4.)
 
 1. **Queue audit** — run the `/replan` procedure steps 1–2 (audit only,
    never apply): orphan PRs, stale blockers, done-but-unmarked rows, orphan
    inbox items, stale TAKEN envelopes.
-2. **Gates & watches** — `after:` conditions in both inboxes vs reality
+2. **Currency contract** (TEAM.md "Shared-tree git discipline" rule 2) —
+   anonymous `git fetch`, then report local main vs `origin/main`
+   (ahead/behind/diverged) and tree state (parked branch? dirty?).
+   Main-is-current is the ADVISOR's deliverable at the standup: when the
+   hat-holder runs this on the advisor seat, the `--ff-only` pull IS the
+   standup act (the one ref move read mode carves out — never a merge or
+   rebase); any other role reports the gap and names who owes the ff. A
+   tree parked on a branch or dirty at standup is a rule-1 violation —
+   render it as a blocker.
+3. **Gates & watches** — `after:` conditions in both inboxes vs reality
    (row-done / pr-merged); the trial clock and rollback triggers
    (docs/auto-trial.md) during the trial week; verify-loom-dev claims if
    run recently.
-3. **Context sweep** — UNREAD fyis in this role's inbox (report → mark
+4. **Context sweep** — UNREAD fyis in this role's inbox (report → mark
    READ); flips.log tail; drafts awaiting triage (count + ids, no verdicts
    in read mode).
-4. **Work-source cascade** (TEAM.md "Work selection") — if the queue's
+5. **Work-source cascade** (TEAM.md "Work selection") — if the queue's
    live band is dry, generate candidate rows from **spec gaps** (uncovered
    FRs, clauses without FRs, spec-map yellow/red verbs, unmet phase
    criteria) as PROPOSALS in the report — propose-only, human disposes;
@@ -32,7 +43,7 @@ Report-only, any role, any mode. No tree writes, no inbox status changes.
    exhausted too, render the **"PHASE SCOPE COMPLETE" report** (queue dry
    · coverage % · phase-criteria status · candidate next-scope menu) —
    never "project done"; phase boundaries are human sentences.
-5. **Render** as the standup: **yesterday** (achievements-style, queue rows
+6. **Render** as the standup: **yesterday** (achievements-style, queue rows
    flipped since the last run) / **today** (the live band: next + in-review
    + what each waits on) / **blockers** (human-owned gates, drift findings,
    pending acks). The standup carries the **mix line** (mandatory telemetry,
@@ -40,7 +51,7 @@ Report-only, any role, any mode. No tree writes, no inbox status changes.
    criteria last touched D days ago`. Close with refresh prompts when
    stale: "/achievements since last run?", "/specmap regen?" — prompts,
    not auto-runs.
-6. During the trial week, append the daily audit row data (S1/S2/S3
+7. During the trial week, append the daily audit row data (S1/S2/S3
    observations) for the advisor's ledger — observation, not the ledger
    write itself.
 
