@@ -189,6 +189,15 @@ requirements:
     source: [SPEC-playbook.md#harness, SPEC-verbs.md#build]
     tests: [engine.TestMaterializeHarnessArtifacts, engine.TestMaterializeHarnessIdempotent, engine.TestMaterializeHarnessMissingRefErrors, engine.TestDogfoodBasePlaybookHarnessMaterializes]
     status: active
+  - id: FR-BUILD-010
+    kind: behavioral
+    # Phase-1 review C1, git-side half: branch-guard/protect-paths reach a
+    # repo only through core.hooksPath; a project shipping .githooks with the
+    # config unset runs zero commit-time guards.
+    statement: build converges repo-local core.hooksPath=.githooks when the project ships a .githooks dir (audited as githooks.wire; idempotent — a wired repo re-audits nothing); a project without .githooks or .git is a silent skip, never an error.
+    source: SPEC-verbs.md#build
+    tests: [engine.TestBuildWiresGithooks, engine.TestBuildSkipsGithooksWhenAbsent]
+    status: active
   - id: FR-SCHEMA-008
     kind: schema
     # T16 PR 2: the base-authored rule is enforced at Load per non-base LAYER
@@ -266,6 +275,16 @@ requirements:
     statement: every doctor check names its tier (host:* repo-side facts, container:* container reality); tool checks grade the CONTAINER — live probe when running, lock-pinned resolved values when stopped (never starting it) — and with no container or no runtime, container:state fails with the reason and no per-tool verdict is invented from the host PATH.
     source: SPEC-verbs.md#doctor
     tests: [engine.TestDoctorChecks, engine.TestDoctorAbsentContainer, engine.TestDoctorStoppedContainerGradesFromLock, engine.TestDoctorRuntimeUnavailable]
+    status: active
+  - id: FR-DOCTOR-003
+    kind: behavioral
+    # Phase-1 review C1: guardrails were declared, doctor-verified for
+    # presence, and never wired into built containers — green bill of health
+    # over zero mechanism-level guardrails. Doctor must grade the wiring
+    # chain, not the source tree.
+    statement: doctor verifies guardrails are WIRED, not just present — declared harness settings carry a non-empty permissions.deny floor and a registration for every declared harness hook; the staged $HOME matches the config source; a running container's home sentinel matches the staged digest (stopped is graded at the staging tier, never started); and a project shipping .githooks fails the check until core.hooksPath points at it.
+    source: SPEC-verbs.md#doctor
+    tests: [engine.TestDoctorFailsCosmeticsOnlySettings, engine.TestDoctorPassesGuardedSettings, engine.TestDoctorStagedHomeDrift, engine.TestDoctorContainerHomeWiring, engine.TestDoctorGradesGithooksWiring]
     status: active
 
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---

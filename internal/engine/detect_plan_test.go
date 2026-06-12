@@ -27,6 +27,7 @@ type fakeRuntime struct {
 	teardownRemoved Removed
 	teardownErr     error
 	probeVersions   map[string]string // canned in-container versions (T5)
+	homeSentinel    string            // canned home-sync sentinel digest (T7/C1)
 	running         bool              // canned container state (LL-012)
 	runningErr      error
 	execExit        int       // canned command exit code for Exec
@@ -64,6 +65,9 @@ func (r fakeRuntime) Probe(_, binary string) (bool, string) {
 	v, ok := r.probeVersions[binary]
 	return ok, v
 }
+
+// HomeDigest returns the canned home sentinel ("" = absent/stopped).
+func (r fakeRuntime) HomeDigest(string) string { return r.homeSentinel }
 
 // Running reports the canned container state (LL-012: plan picks live probe
 // vs lock fallback on this).

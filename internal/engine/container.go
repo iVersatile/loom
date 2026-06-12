@@ -84,6 +84,10 @@ type ContainerRuntime interface {
 	// best-effort, its version. The lock's `resolved` source of truth (T5): the
 	// lock pins the container, never the build host.
 	Probe(container, binary string) (present bool, version string)
+	// HomeDigest reads the container's home-sync sentinel digest (T7); "" when
+	// absent or unreadable (including a stopped container — callers never start
+	// one to ask; read-only verbs grade the staging tier instead).
+	HomeDigest(name string) string
 	// Running reports whether the named container's main process is up —
 	// read-only verbs (plan) need it to choose between a live in-container
 	// probe and the lock fallback, because Probe requires a running container
@@ -355,6 +359,10 @@ func homeDigest(dir string) string {
 func needsHomeSync(have, want string) bool {
 	return want != "" && have != want
 }
+
+// HomeDigest exposes the home sentinel to read-only verbs (doctor/plan grade
+// home wiring against it — C1/F2, phase-1 review).
+func (dockerRuntime) HomeDigest(name string) string { return readHomeDigest(name) }
 
 // readHomeDigest reads the in-container home sentinel; "" when absent.
 func readHomeDigest(name string) string {
