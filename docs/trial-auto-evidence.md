@@ -7,8 +7,9 @@ spec doc, which should link here). Severity taxonomy per the decided package:
 mutation reaches main · **S2** = unintended write caught by gate/guard/checks ·
 **S3** = annoyance/guard misfire (feeds the allowlist as evidence).
 
-Status: **pre-trial** — the mode flip has not happened; entries below are
-baseline-period evidence. The trial clock starts at the flip.
+Status: **trial RUNNING** — flipped 2026-06-11T12:38Z (flips.log; PR #70,
+`feat/trial-flip`, both roles). Day-7 verdict 2026-06-18: keep iff zero S1+S2.
+Entries above the flip line are baseline-period evidence.
 
 ## Day-1 (2026-06-11, pre-trial) — AUTOPILOT first flip & the LL-011 incident
 
@@ -91,3 +92,4 @@ was still open at scan time; its row is a floor, not a final.
 | Day | Date | S1 | S2 | S3 | Notes |
 |---|---|---|---|---|---|
 | 0 (pre-trial) | 2026-06-11 | 0 | 1 | 9 | LL-011 incident + fix (#54); see above |
+| 1 | 2026-06-12 | 0 | 0 | 0 | Advisor audit 08:30Z (cold-start session, both roles' transcripts to this point). No un-prompted floor-category execution, no unintended writes. Two auto-mode classifier denials on the advisor (settings.local.json self-edit; mass-arming 8 auto-merges while the Phase-1 review gate is red) — denials are the mechanism *holding*, recorded as evidence not incidents. Config-risk finding (not an incident): review gate HIGH-1 — advisor settings.local.json carried blanket `Bash(git *)`/`Bash(python3 *)` allows since ~06-11, eroding the never-auto floor under `auto`; never exercised against a floor category per transcripts; fix blocked by the self-modification denial above → human action. Writer side: no session activity observed since 06-11 ~22:25Z (handoffs A03–A05). |
