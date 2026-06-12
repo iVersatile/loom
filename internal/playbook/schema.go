@@ -51,6 +51,13 @@ type HarnessAgent struct {
 	// agent home; it carries its own hook registrations (Phase 1: base-tier
 	// only, no key-merge — SPEC-playbook Open question 1).
 	Settings string `json:"settings,omitempty"`
+	// Trust is a dotfiles/ reference materialized WHOLE-FILE to the agent's
+	// top-level state file (<home>/.<agent>.json — a SIBLING of the agent
+	// home): the trust/opt-in flags the harness reads at session start
+	// (hasTrustDialogAccepted et al.). Declared trust posture is config,
+	// not state — the playbook owns the declared file; anything else the
+	// live file accumulates is rederivable cache (036 ruling, ADR-0018).
+	Trust string `json:"trust,omitempty"`
 	// Hooks are hooks/ references materialized to <agent home>/hooks/<name>,
 	// executable.
 	Hooks []string `json:"hooks,omitempty"`

@@ -171,6 +171,10 @@ harness:
     settings: claude/settings.json  # resolves from dotfiles/; base-authored
                                     #   WHOLE FILE (Phase 1) — it carries its
                                     #   own hook registrations
+    trust: claude/trust.json        # resolves from dotfiles/; whole-file to
+                                    #   $HOME/.<agent>.json (SIBLING of the
+                                    #   agent home) — trust/opt-in flags
+                                    #   (added 2026-06-12, 036 ruling, ADR-0018)
     hooks:                          # resolve from hooks/<name>; materialize to
       - guard-bash                  #   ~/.claude/hooks/<name>, executable
       - session-snapshot
@@ -188,9 +192,26 @@ harness:
   them materialize into that agent's home.
 - Git identity (`~/.gitconfig`) is harness config by weight but plain by
   shape — it ships as a `dotfiles:` reference, no new field.
+- `trust:` (added 2026-06-12 — 036 ruling "2-plus", ADR-0018) is a dotfiles/
+  reference materialized WHOLE-FILE to `$HOME/.<agent>.json`, the harness's
+  top-level state file and a *sibling* of the agent home. It carries the
+  trust/opt-in flags the harness reads at session start
+  (`hasTrustDialogAccepted` et al.). That file lives on the container
+  overlay, not the agent-home volume — it dies on recreate; build
+  re-materializing it is what makes the opt-in durable
+  (declare-or-rederive, ADR-0014 precedent). Layer rule: last non-empty
+  wins; trust posture is project-tier by doctrine (the flags name project
+  paths). Trust changes ship as playbook edits — a flip is a PR, and the
+  T23 flips.log records what happened outside that flow.
 - Mutable state (`settings.local.json`, `projects/`, credentials, session
   history) is never a valid `harness:` target: the engine materializes
   declared config only and never touches state (ADR-0015 decision 2).
+  `trust:` is the one deliberate carve-out (036 ruling): the *declared*
+  flag file is config the playbook owns — the engine still writes only
+  declared content at its declared target, never reads or key-merges the
+  live file. Whatever else the live `$HOME/.<agent>.json` accumulates at
+  runtime is rederivable cache: a home re-sync overwrites it, and that is
+  accepted by ruling ("caches may die").
 
 ## Devcontainer compatibility (ADR-0003)
 

@@ -201,12 +201,24 @@ requirements:
     source: SPEC-verbs.md#build
     tests: [engine.TestBuildWiresGithooks, engine.TestBuildSkipsGithooksWhenAbsent]
     status: active
+  - id: FR-BUILD-011
+    kind: behavioral
+    # 036 ruling ("2-plus", human-decided 2026-06-12, ADR-0018): the harness
+    # trust/opt-in file is an overlay SIBLING of the agent home — it dies on
+    # container recreate; build re-materializing it from the declared ref is
+    # what makes the opt-in durable (zero manual re-flips after recreate).
+    statement: build materializes harness.<agent>.trust whole-file to $HOME/.<agent>.json — a sibling of the agent home, never inside it — via write-if-changed; a dangling reference is a loud error naming agent+field+ref; staged-home drift grades the same surface.
+    source: SPEC-playbook.md#harness
+    tests: [engine.TestMaterializeHarnessTrustFlags, engine.TestDogfoodProjectPlaybookTrustMaterializes]
+    status: active
   - id: FR-SCHEMA-008
     kind: schema
     # T16 PR 2: the base-authored rule is enforced at Load per non-base LAYER
     # (authorship), not by tier-checking the merged playbook — the merge
     # legitimately carries the base's settings under the project's tier.
-    statement: harness merges per agent namespace — hooks/skills concatenate + dedup in layer order, settings last-non-empty wins; Phase 1 rejects a settings declaration on any non-base layer at Load, naming the layer (base-authored whole-file only).
+    # Trust (ADR-0018) is deliberately NOT base-restricted: trust posture is
+    # project-tier by doctrine (the flags name project paths).
+    statement: harness merges per agent namespace — hooks/skills concatenate + dedup in layer order, settings and trust last-non-empty win; Phase 1 rejects a settings declaration on any non-base layer at Load, naming the layer (base-authored whole-file only); trust may be authored by any layer.
     source: SPEC-playbook.md#harness
     tests: [playbook.TestHarnessMergeRules, playbook.TestValidateHarnessSettingsBaseOnly]
     status: active

@@ -53,3 +53,41 @@ func TestDogfoodBasePlaybookHarnessMaterializes(t *testing.T) {
 		}
 	}
 }
+
+// TestDogfoodProjectPlaybookTrustMaterializes pins the 036 fix against the
+// repo's own config (FR-BUILD-011, ADR-0018): loom.yml's project-tier
+// harness.claude.trust declaration survives the merge, resolves in the real
+// config source, and materializes ~/.claude.json carrying the opt-in flag for
+// /workspace/loom — the file whose death-on-recreate cost a manual trust
+// re-flip per restart (flips.log, T23).
+func TestDogfoodProjectPlaybookTrustMaterializes(t *testing.T) {
+	resolved, err := playbook.Load(filepath.Join("..", "..", "loom.yml"))
+	if err != nil {
+		t.Fatalf("load repo loom.yml: %v", err)
+	}
+	h, ok := resolved.Playbook.Harness["claude"]
+	if !ok || h.Trust == "" {
+		t.Fatal("merged playbook lacks harness.claude.trust — the 036 wire-up regressed")
+	}
+
+	home := t.TempDir()
+	if _, err := materializeHarness(resolved.Source, resolved.Playbook.Harness, home); err != nil {
+		t.Fatalf("materialize real harness: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil {
+		t.Fatalf("~/.claude.json not materialized: %v", err)
+	}
+	var trust struct {
+		Projects map[string]struct {
+			HasTrustDialogAccepted bool `json:"hasTrustDialogAccepted"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal(raw, &trust); err != nil {
+		t.Fatalf("materialized ~/.claude.json is not valid JSON: %v", err)
+	}
+	if p, ok := trust.Projects["/workspace/loom"]; !ok || !p.HasTrustDialogAccepted {
+		t.Errorf("declared trust must opt in /workspace/loom (hasTrustDialogAccepted): got %+v", trust.Projects)
+	}
+}

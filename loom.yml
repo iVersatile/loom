@@ -22,6 +22,16 @@ env:
 ci:
   - ci
 
+# Harness trust/opt-in flags (SPEC-playbook#harness `trust:`, 036 ruling,
+# ADR-0018): ~/.claude.json is an overlay SIBLING of the mounted agent home —
+# it dies on container recreate, costing a manual trust re-flip per restart
+# (flips.log, T23). Declared here because trust posture is project-tier; the
+# declared file is the playbook's, the rest of the live ~/.claude.json is
+# rederivable cache. Trust changes ship as edits to this declaration.
+harness:
+  claude:
+    trust: claude/trust.json
+
 config_source:
   type: local
   path: ./config

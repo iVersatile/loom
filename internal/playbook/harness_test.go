@@ -24,6 +24,7 @@ func TestHarnessMergeRules(t *testing.T) {
 	overlay := &Playbook{
 		Harness: map[string]HarnessAgent{
 			"claude": {
+				Trust:  "claude/trust.json",                    // project-tier trust posture (ADR-0018)
 				Hooks:  []string{"guard-bash", "project-hook"}, // dup + new
 				Skills: []string{"achievements"},
 			},
@@ -36,6 +37,9 @@ func TestHarnessMergeRules(t *testing.T) {
 	claude := got.Harness["claude"]
 	if claude.Settings != "claude/settings.json" {
 		t.Errorf("settings must survive a layer that doesn't set it: got %q", claude.Settings)
+	}
+	if claude.Trust != "claude/trust.json" {
+		t.Errorf("trust is last-non-empty-wins — a later layer must be able to declare it: got %q", claude.Trust)
 	}
 	wantHooks := []string{"guard-bash", "session-snapshot", "project-hook"}
 	if len(claude.Hooks) != len(wantHooks) {
