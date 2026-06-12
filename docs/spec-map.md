@@ -28,7 +28,7 @@ flowchart LR
     doctor["doctor (1 FR ✓)"]:::done
     logs["action+diag log (2 FR ✓)"]:::done
     shell["shell (staged, 0 FR)"]:::untouched
-    bootstrap["entry: bootstrap (clause #64 ✓, FRs queued: item 010)"]:::inprog
+    bootstrap["entry: bootstrap (clause #64, FR-ENTRY-001..004 ✓)"]:::done
     import["import (staged)"]:::untouched
     export["export (later)"]:::untouched
   end
