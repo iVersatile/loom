@@ -166,11 +166,13 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		if err := ensureShellInit(spec.Name, spec.LogW); err != nil {
 			return ContainerInfo{}, err
 		}
+		synced := false
 		if spec.HomeDir != "" {
 			if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
 				return ContainerInfo{}, fmt.Errorf("docker cp home (reconcile): %v: %s", err, out)
 			}
 			writeHomeSentinel(spec.Name, homeWant, spec.LogW)
+			synced = true
 		}
 		// Provision (tool/agent install) stays gated on its own digest: a
 		// dotfile-only change must not re-run apt/go-install (T7/T4 interplay).
@@ -179,7 +181,7 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 				return ContainerInfo{}, err
 			}
 		}
-		return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "converged"}, nil
+		return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "converged", HomeSynced: synced}, nil
 	}
 	hostHome, _ := os.UserHomeDir()
 	credsPath := filepath.Join(hostHome, ".claude", ".credentials.json")
@@ -193,18 +195,20 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	if err := ensureShellInit(spec.Name, spec.LogW); err != nil {
 		return ContainerInfo{}, err
 	}
+	synced := false
 	if spec.HomeDir != "" {
 		if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
 			return ContainerInfo{}, fmt.Errorf("docker cp home: %v: %s", err, out)
 		}
 		writeHomeSentinel(spec.Name, homeDigest(spec.HomeDir), spec.LogW)
+		synced = true
 	}
 	if len(spec.Tools) > 0 || len(spec.Agents) > 0 {
 		if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), spec.LogW); err != nil {
 			return ContainerInfo{}, err
 		}
 	}
-	return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "created"}, nil
+	return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "created", HomeSynced: synced}, nil
 }
 
 // Teardown removes the per-project container, and (by tier) its volumes and

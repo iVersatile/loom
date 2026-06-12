@@ -150,6 +150,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		if !m.Changed {
 			continue
 		}
+		res.Written++
 		changed = true
 		if id, err := log.Append(audit.Entry{
 			TS: ts, Verb: "build", Action: "materialize", Target: m.Display,
@@ -222,6 +223,22 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		if id, err := log.Append(audit.Entry{
 			TS: ts, Verb: "build", Action: "container.reconcile", Target: cname,
 			After: map[string]any{"image": info.Image}, Result: "converged", Actor: "cli",
+		}); err == nil {
+			res.Actions = append(res.Actions, id)
+		}
+	}
+
+	// Home-sync audit completeness (live-build e2e F-b): the bulk `docker cp`
+	// ships EVERY staged file into the container — including files this run
+	// did not rewrite on the host, which the per-write materialize entries
+	// above cannot account for. One entry names the full shipped set,
+	// reconcilable against `materialized` and the home digest.
+	if info.HomeSynced {
+		changed = true
+		if id, err := log.Append(audit.Entry{
+			TS: ts, Verb: "build", Action: "home.sync", Target: cname,
+			After:  map[string]any{"files": res.Materialized, "digest": homeDigest(home)},
+			Result: "synced", Actor: "cli",
 		}); err == nil {
 			res.Actions = append(res.Actions, id)
 		}
