@@ -17,7 +17,7 @@ because it surfaced two failure classes and validated the diagnosis loop.
 | ~19:16 | Human kick #2 → 041 built (direct pick). Same silent orphan-skip at Stop. |
 | 19:30 | Advisor root-causes from script source; fixes `serves:` on 040/042 to verbatim row fragments; files falsifiable prediction (fyi 043): next Stop picks 040, count→2. |
 | ~19:45 | **Prediction preempted:** human kick #3 → Writer takes 040 by **direct pick** inside the kicked turn — the drain never got its chance at 040. Human reports "040 picked up"; it READS like the predicted drain fire, but counter (1, not 2) and status (QUEUED, not TAKEN — the drain flips it mechanically) prove otherwise. Prediction moves one Stop later: at 040 completion, drain must inject 042, flip TAKEN, count→2. |
-| — | **PENDING:** the 042 injection is the first zero-human-input chain. Update this row with the result. |
+| 19:49 | **RESULT — preempted a second time, by a better behavior:** the Writer chained 040 → 042 **inside one kicked turn** (no Stop between; counter still 1). Both BUILT, queue now dry. The Stop-hook drain remains **unproven** post-serves-fix — at the next Stop, nothing-eligible → normal stop is CORRECT, so no test is possible until fresh QUEUED cargo exists. In-turn chaining is itself the cascade working (a session that finishes takes the next item *without even stopping*) — but it makes the drain a fallback path that organic load may rarely exercise. Test protocol for next time: file 2+ QUEUED envelopes, kick ONCE, hands off through TWO Stops. |
 
 ## Failure classes (new)
 
