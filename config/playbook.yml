@@ -19,8 +19,10 @@ rules:
   - common/safety
 
 # Env-wide $HOME config materialized into every container (survives rebuild).
+# claude/settings.json moved to harness.claude.settings below — one owner per
+# target; it is harness config (hook registrations, permission floor), not a
+# plain dotfile.
 dotfiles:
-  - claude/settings.json
   - claude/statusline.sh
 
 # Guardrails enforced by mechanism (ADR-0005), not trust.
@@ -28,3 +30,17 @@ hooks:
   - guard-bash
   - branch-guard
   - protect-paths
+
+# Harness-home config (SPEC-playbook#harness, ADR-0015): declared by
+# reference, materialized into the agent home (~/.claude) on every build via
+# the dotfiles staging pipeline (T7 digest covers it). settings.json carries
+# its own hook registrations — the engine never synthesizes them. It sets NO
+# defaultMode: trust level is project-tier (the T22 trial owns it today).
+# branch-guard/protect-paths stay git-side guardrails (.githooks); only
+# guard-bash has harness-event semantics (PreToolUse). session-snapshot is
+# not declared: its content design is parked (judgment-trial C4).
+harness:
+  claude:
+    settings: claude/settings.json
+    hooks:
+      - guard-bash

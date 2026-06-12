@@ -69,6 +69,18 @@ hooks_path=$(git -C /workspace/loom config core.hooksPath 2>/dev/null || true)
   && ok "repo gate hooks active (core.hooksPath=.githooks travels with the tree)" \
   || bad "gate hooks NOT active (core.hooksPath='$hooks_path') — run: git config core.hooksPath .githooks"
 
+# T16 PR 2 flips: the base playbook declares harness: (settings + guard-bash),
+# so these stopped being losses and became guarantees. A FAIL right after the
+# merge usually means the container wasn't rebuilt yet (stale-binary rule).
+[ -x "$HOME/.claude/hooks/guard-bash" ] \
+  && ok "harness hook materialized + executable: guard-bash (T16 PR 2)" \
+  || bad "guard-bash missing from ~/.claude/hooks — harness wire-up regression (or rebuild pending)"
+
+grep -q '"hooks"' "$HOME/.claude/settings.json" 2>/dev/null \
+  && grep -q '"permissions"' "$HOME/.claude/settings.json" 2>/dev/null \
+  && ok "settings.json declares hooks + permissions (T16 PR 2)" \
+  || bad "settings.json lacks hooks/permissions — harness wire-up regression (or rebuild pending)"
+
 # The lock is container-pinned (T5): the container should agree with it.
 lock_go=$(sed -n '/^  go:/,/source:/p' /workspace/loom/loom.lock 2>/dev/null | sed -n 's/ *resolved: //p')
 have_go=$(go version 2>/dev/null)
@@ -81,9 +93,9 @@ fi
 echo
 echo "== EXPECTED LOSSES — known T16 gaps; a PASS here is a SURPRISE =="
 
-[ -d "$HOME/.claude/hooks" ] \
-  && spr "harness hooks dir present" \
-  || gap "no harness hooks — no session snapshot, no guard-bash"
+[ -x "$HOME/.claude/hooks/session-snapshot" ] \
+  && spr "session-snapshot hook present" \
+  || gap "no session-snapshot hook — content design parked (judgment-trial C4)"
 
 [ -d "$HOME/.claude/projects" ] \
   && spr "memory/projects dir present" \
@@ -92,10 +104,6 @@ echo "== EXPECTED LOSSES — known T16 gaps; a PASS here is a SURPRISE =="
 [ -d "$HOME/.claude/skills" ] \
   && spr "skills dir present" \
   || gap "no skills/plugins"
-
-grep -q '"hooks"\|"permissions"' "$HOME/.claude/settings.json" 2>/dev/null \
-  && spr "settings.json has hooks/permissions" \
-  || gap "settings.json is statusLine-only — expect extra permission prompts"
 
 [ -n "$(git config --global user.email 2>/dev/null)" ] \
   && spr "global git identity set" \

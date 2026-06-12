@@ -48,15 +48,25 @@ there and loom never touches it.
   │  │ build; drift erased     │                                │  │
   │  │  settings.json     LIVE │  .credentials.json (OAuth) LIVE│  │
   │  │  statusline.sh     LIVE │  settings.local.json       LIVE│  │
-  │  │  hooks/     PENDING-T16 │  projects/<p>/memory/      LIVE│  │
-  │  │  skills/    PENDING-T16 │  session history           LIVE│  │
+  │  │  hooks/         LIVE*   │  projects/<p>/memory/      LIVE│  │
+  │  │  skills/  ENGINE-LIVE*  │  session history           LIVE│  │
   │  │  ~/.gitconfig PENDING-T16 (must declare the noreply     │  │
-  │  │   identity — docs/TEAM.md commit-identity rule)         │  │
+  │  │   identity — docs/TEAM.md commit-identity rule; ships   │  │
+  │  │   as a dotfiles: ref, T16 PR 3)                         │  │
   │  └─────────────────────────┴────────────────────────────────┘  │
   │  volume survives --force/teardown; wiped only by the opt-in    │
   │  --clean-state tier (ADR-0014 addendum)                        │
   └────────────────────────────────────────────────────────────────┘
-  * harness: section = PENDING-T16 (ADR-0015 decision 3)
+  * harness: schema + materialize handlers = LIVE in the engine
+    (T16 PR 1: FR-BUILD-009, FR-SCHEMA-008; rides the dotfiles staging
+    pipeline, T7 digest covers it). The base playbook declares harness:
+    since T16 PR 2 — settings.json (hook registrations + permission
+    floor, harness-owned, off the dotfiles: list) and hooks/guard-bash
+    are plain LIVE; verify-loom-dev asserts both as PRESERVE claims.
+    skills/ stays ENGINE-LIVE: the handler works, no env-wide skill is
+    declared yet (project skills live in the repo tier below).
+    session-snapshot stays undeclared — content design parked
+    (judgment-trial C4).
 ```
 
 Why the split is where it is: a converge build erased harness-written runtime
@@ -67,8 +77,9 @@ config, `settings.local.json` is state.
 ## 2. Two-tier policy ownership (ADR-0004 applied; ADR-0015 decision 4)
 
 ```
-  BASE PLAYBOOK (env-wide → materialized into ~/.claude)    PENDING-T16
-  │  guard hooks · base deny rules · git identity · statusline(LIVE)
+  BASE PLAYBOOK (env-wide → materialized into ~/.claude)    LIVE (PR 2)*
+  │  guard hooks(LIVE) · base deny rules(LIVE) · statusline(LIVE)
+  │  · git identity PENDING-T16 (PR 3)
   │  declared via harness: — explicit-by-reference, like rules:
   ▼
   PROJECT REPO (/workspace/<project>/.claude/ — tracked)    LIVE
@@ -95,8 +106,9 @@ config, `settings.local.json` is state.
   repo gate hooks (.githooks:    LIVE          commits on main · frozen-path
    protect-paths, branch-guard,                edits · failing/leaky commits
    make gate)
-  guard hooks in ~/.claude       PENDING-T16   the semantic layer — intent,
-   (guard-bash, session hooks)                 not just command names
+  guard hooks in ~/.claude       LIVE (PR 2)   the semantic layer — intent,
+   (guard-bash; session hooks                  not just command names
+   parked, judgment-trial C4)
   container egress restriction   MISSING-T20   allowed go test/go build run
    (networking: or proxy                       arbitrary code incl. network
    sidecar; in-container                       I/O — harness rules cannot

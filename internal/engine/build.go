@@ -127,6 +127,14 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 	if err != nil {
 		return res, fmt.Errorf("materialize: %w", err)
 	}
+	// harness: artifacts ride the same staging dir, so the T7 home-digest
+	// sentinel covers them — a harness-only change re-syncs the container
+	// home exactly like a dotfile change (SPEC-playbook#harness, ADR-0015).
+	hmats, err := materializeHarness(resolved.Source, pb.Harness, home)
+	if err != nil {
+		return res, fmt.Errorf("materialize harness: %w", err)
+	}
+	mats = append(mats, hmats...)
 	for _, m := range mats {
 		res.Materialized = append(res.Materialized, m.Display)
 		if !m.Changed {

@@ -40,6 +40,27 @@ func (pb *Playbook) Validate() error {
 		}
 	}
 
+	for agent, h := range pb.Harness {
+		if agent == "" {
+			errs = append(errs, "harness: agent namespace key must be non-empty")
+		}
+		// NOTE: the Phase-1 "settings is base-authored" rule lives in Load,
+		// enforced per non-base LAYER — Validate also runs on the MERGED
+		// playbook, which legitimately carries the base's settings under the
+		// project's tier (T16 PR 2 dogfood test caught the old tier check
+		// rejecting every real wire-up).
+		for _, ref := range h.Hooks {
+			if ref == "" {
+				errs = append(errs, fmt.Sprintf("harness.%s.hooks: empty reference", agent))
+			}
+		}
+		for _, ref := range h.Skills {
+			if ref == "" {
+				errs = append(errs, fmt.Sprintf("harness.%s.skills: empty reference", agent))
+			}
+		}
+	}
+
 	if cs := pb.ConfigSource; cs != nil {
 		switch cs.Type {
 		case "local":
