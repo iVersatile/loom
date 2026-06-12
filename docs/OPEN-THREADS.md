@@ -160,8 +160,8 @@ option 1's spec note. Built 2026-06-12 (branch fix/t4-path-single-owner):**
 - Edge accepted: a pre-T4 container whose sentinels are all clean keeps the
   old wiring until any home/provision change (or --force) re-converges it.
 
-Pointers: SPEC-playbook#shell-config-model · draft 014 / envelope 020 ·
-internal/engine/materialize.go (expectedPathDotfiles) ·
+Pointers: SPEC-playbook "Shell config model" · FR-BUILD-011 · draft 014 /
+envelope 020 · internal/engine/materialize.go (expectedPathDotfiles) ·
 internal/engine/container.go (ensureShellInit).
 
 ---

@@ -230,6 +230,10 @@ func stagedHomeDrift(src fs.FS, pb *playbook.Playbook, generated []homeFile, hom
 //
 //	claude/<x>  -> <home>/.claude/<x>      (env-wide Claude config, e.g. statusline)
 //	bash/<x>    -> <home>/.bashrc.d/<base> (per-project shell prompt)
+//	gitconfig   -> <home>/.gitconfig       (declared git identity, T16 PR 3 —
+//	                                        harness config by weight, plain
+//	                                        dotfile by shape per SPEC-playbook;
+//	                                        named, not hidden, in the source)
 //	<x>         -> <home>/<x>
 func dotfileTarget(home, ref string) string {
 	switch {
@@ -237,6 +241,8 @@ func dotfileTarget(home, ref string) string {
 		return filepath.Join(home, ".claude", strings.TrimPrefix(ref, "claude/"))
 	case strings.HasPrefix(ref, "bash/"):
 		return filepath.Join(home, ".bashrc.d", filepath.Base(ref))
+	case ref == "gitconfig":
+		return filepath.Join(home, ".gitconfig")
 	default:
 		return filepath.Join(home, ref)
 	}
@@ -248,6 +254,8 @@ func dotfileDisplay(ref string) string {
 		return "~/.claude/" + strings.TrimPrefix(ref, "claude/")
 	case strings.HasPrefix(ref, "bash/"):
 		return "~/.bashrc.d/" + filepath.Base(ref)
+	case ref == "gitconfig":
+		return "~/.gitconfig"
 	default:
 		return "~/" + ref
 	}

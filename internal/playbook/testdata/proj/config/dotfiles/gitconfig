@@ -1,0 +1,4 @@
+# fixture git identity (T16 PR 3)
+[user]
+	name = Fixture Bot
+	email = 0+fixture@users.noreply.github.com
