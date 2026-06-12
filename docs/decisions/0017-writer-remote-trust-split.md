@@ -64,6 +64,16 @@ protection). The two should not share one rule.
 - T28 (harness self-defense): merge-gate remains the named drift choke point;
   the guardrail-drift detector wish-list item should diff Writer seat allows
   against this ADR's scope (branch push + PR create, never merge).
+- **Prompt-fatigue caveat (human, 2026-06-12, accepted-as-trial):** a
+  permission prompt that fires often gets a blind "yes-always" — the gate
+  decays into theater and the allow-list grows ungoverned. The design must
+  therefore not lean on prompt-reading: deny rules + server-side branch
+  protection are the load-bearing layers; prompts must stay rare enough to
+  carry signal (a frequently-firing prompt is a design bug — convert it to a
+  scoped allow or a mechanism). The T28 guardrail-drift detector is the
+  compensating control for "yes-always" allow-list growth.
 - Revisit if: branch protection on `main` cannot be enforced server-side; a
-  second Writer seat appears (per-seat scoping question); or Phase-3 agent
-  topology changes who holds review authority.
+  second Writer seat appears (per-seat scoping question); Phase-3 agent
+  topology changes who holds review authority; **or the trial shows
+  prompt-fatigue in practice** (frequent outward prompts being blind-granted
+  — evidence: allow-list growth without matching review acts).
