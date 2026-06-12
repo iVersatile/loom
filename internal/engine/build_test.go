@@ -162,10 +162,18 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 		"go install golang.org/x/tools/gopls@latest",
 		"go install github.com/zricethezav/gitleaks/v8@latest",
 		"go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest",
-		"astral.sh/uv/install.sh", "bashrc.d",
+		"astral.sh/uv/install.sh",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("provision script missing %q\n---\n%s", want, s)
+		}
+	}
+	// T4: shell config has ONE owner. The provision script never appends to
+	// shell-init files (persistent PATH lives in ~/.bashrc.d/path.go.sh; the
+	// loader is ensureShellInit's, unconditional) and never hardcodes /root.
+	for _, never := range []string{".profile", ".bashrc", "/root/go/bin"} {
+		if strings.Contains(s, never) {
+			t.Errorf("provision script must not touch %q (T4 single owner)\n---\n%s", never, s)
 		}
 	}
 }
@@ -303,24 +311,49 @@ func TestNeedsHomeSync(t *testing.T) {
 }
 
 // TestProvisionScriptInstallsAgent pins T8: a declared agent yields its install
-// step + PATH wiring in the provision script (claude-code via the native installer,
-// no Node, landing on ~/.local/bin).
+// step in the provision script (claude-code via the native installer, no Node,
+// landing on ~/.local/bin). Its persistent PATH is dotfile-owned (T4): the
+// generated ~/.bashrc.d/path.local.sh, never an append to shell-init files here.
 func TestProvisionScriptInstallsAgent(t *testing.T) {
 	s := provisionScript(nil, []AgentInstall{{Name: "claude-code", Source: "native-installer"}})
 	for _, want := range []string{
 		"claude.ai/install.sh", // the native installer is invoked
 		"retry ",               // wrapped in the resilience retry helper
-		".local/bin",           // PATH wired so the binary is found
-		"/root/.profile",       // login shell
-		"/root/.bashrc",        // interactive shell
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("agent provision missing %q\n---\n%s", want, s)
 		}
 	}
+	for _, never := range []string{".profile", ".bashrc"} {
+		if strings.Contains(s, never) {
+			t.Errorf("agent provision must not touch %q (T4: PATH is dotfile-owned)\n---\n%s", never, s)
+		}
+	}
 	// An unknown agent emits no install step (recorded in the digest, not installed).
 	if got := provisionScript(nil, []AgentInstall{{Name: "mystery", Source: ""}}); strings.Contains(got, "install.sh") {
 		t.Errorf("unknown agent should emit no installer\n---\n%s", got)
+	}
+}
+
+// TestShellInitWiresBothShells pins T4's converged shell-init: ONE loader,
+// written to BOTH login (.profile) and interactive (.bashrc) init files, so a
+// dotfile-set PATH applies regardless of how the shell is invoked. $HOME-based
+// (T10 prep) and grep-guarded (idempotent across rebuilds and across the
+// loader line older builds appended).
+func TestShellInitWiresBothShells(t *testing.T) {
+	for _, want := range []string{
+		`"$HOME/.profile"`, // login shells load the dotfile dir
+		`"$HOME/.bashrc"`,  // interactive shells load the same dir
+		".bashrc.d",        // the one owning directory
+		"grep -qs",         // idempotence guard
+		"mkdir -p",         // dir exists even for a dotfile-less playbook
+	} {
+		if !strings.Contains(shellInitScript, want) {
+			t.Errorf("shell-init missing %q\n---\n%s", want, shellInitScript)
+		}
+	}
+	if strings.Contains(shellInitScript, "/root/") {
+		t.Errorf("shell-init must use $HOME, never /root (T10 prep)\n---\n%s", shellInitScript)
 	}
 }
 

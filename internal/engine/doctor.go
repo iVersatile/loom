@@ -14,6 +14,7 @@ import (
 	"github.com/iVersatile/loom/internal/guard"
 	"github.com/iVersatile/loom/internal/lock"
 	"github.com/iVersatile/loom/internal/playbook"
+	"github.com/iVersatile/loom/internal/resolver"
 )
 
 // Doctor self-checks the environment (docs/SPEC-verbs.md "doctor / verify"):
@@ -78,9 +79,13 @@ func doctorImpl(opts DoctorOpts, rt ContainerRuntime) (DoctorResult, error) {
 		ok, detail := settingsCarryGuards(resolved.Source, h)
 		res.Checks = append(res.Checks, Check{Name: "host:harness:" + agent + ":settings", OK: ok, Detail: detail})
 	}
-	if len(pb.Dotfiles)+len(pb.Harness) > 0 {
-		staging := filepath.Join(resolved.Root, ".loom", "home")
-		drift, derr := stagedHomeDrift(resolved.Source, pb, staging)
+	// Same expected set build writes and plan grades (F2/C1 doctrine):
+	// declared dotfiles + harness + the engine-generated PATH dotfiles (T4).
+	resolution := resolver.Resolve(pb, nullVersions{})
+	staging := filepath.Join(resolved.Root, ".loom", "home")
+	generated := expectedPathDotfiles(toolInstalls(resolution), agentInstalls(resolution), staging)
+	if len(pb.Dotfiles)+len(pb.Harness)+len(generated) > 0 {
+		drift, derr := stagedHomeDrift(resolved.Source, pb, generated, staging)
 		switch {
 		case derr != nil:
 			res.Checks = append(res.Checks, Check{Name: "host:staged-home", OK: false, Detail: derr.Error()})
