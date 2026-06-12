@@ -765,3 +765,43 @@ that re-implements an invariant fails it).
 Pointers: docs/reviews/phase-1-review.md (R1) · docs/BACKLOG.md (R1, C4) ·
 PLAN "Open items / task continuity" · .scratch/live-build-experiment.md
 (the experiment that raised it) · ADR-0006 (specs-as-product / convergence).
+
+---
+
+## T27 — AUTOPILOT control + observability: human override channel + drain verification/notification   🟡 open
+Origin: human proposals 2026-06-12, raised when a live-but-idle Writer could
+not be handed an urgent correctly-queued item by the autopilot drain. Two
+coupled facets — a control channel IN, observability OUT.
+
+**Facet A — human RECOMMEND/OVERRIDE keywords (intake: draft 032).** An
+in-band control channel that works WITH autopilot, preserving trust-spirit
+while giving immediate, dependable human intervention (a nudge is not
+dependable). Decomposes into (i) SELECTION control — which item / what
+priority (a marker the drain honors; OVERRIDE may bypass orphan-guard +
+budget, RECOMMEND is a soft judgment hint) and (ii) WAKE/trigger — the hard
+piece: the drain fires only at Stop, so an idle session never sees new work;
+needs an OUT-OF-BAND poke (host-side send-keys into the loom-dev pane = the
+missing "wake" primitive). Shape: OVERRIDE as HALT's symmetric counterpart
+(HALT freezes, OVERRIDE directs/wakes), human-authored, flips.log-logged,
+BOUNDED by the never-auto floor (reprioritize/wake, never escalate perms).
+
+**Facet B — close the mental-model↔reality gap (intake: draft 033).** The
+drain is silent today — you cannot tell "working" from "silently idle"
+(proven 2026-06-12: it never delivered item 031). Mechanisms: (A) a drain
+DECISION-TRACE (fired-at, picked X / skipped Y because orphan|draft|budget|
+nothing-eligible) so reality is observable, plus a doctor claim "AUTOPILOT
+on + eligible QUEUED + session idle = ANOMALY"; (B) a watchdog that NOTIFIES
+on absence-of-progress instead of sitting silent. SRE tiering (knowledge-
+based, env had no live web): LOG every decision (forensic), TICKET orphan/
+budget skips (standup), PAGE only the no-progress anomaly (actionable) —
+every page demands action or it's noise.
+
+Live specimens feeding this (2026-06-12): item 031 silently orphan-skipped
+(serves≠row); live-idle Writer never drained newly-queued work (drain is
+Stop-triggered, not inbox-watching). Doctrine: what the reviewer hand-checks
+once, doctor mechanizes (P7 gate).
+
+Pointers: drafts 032+033 (intake envelopes, loom-advisor inbox) · review M7
+(orphan-guard substring weakness) · T21/T23 (the transport this governs) ·
+C2 (stale-TAKEN) · PLAN "agent-initiated lifecycle / task continuity" open
+item · .scratch/inbox/HALT (the freeze primitive OVERRIDE mirrors).
