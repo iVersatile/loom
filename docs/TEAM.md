@@ -213,6 +213,19 @@ them in the handoff; the human pushes and opens PRs from the Mac
 (`scripts/push-from-host.sh`). Direct agent push arrives only with a leak-free
 credential mechanism, never via tokens at rest in the container.
 
+## Phase-close review gate (P7 — human-decided 2026-06-11)
+
+A phase closes only through the mandatory independent review
+(docs/review-gate.md): three dimensions (security, architecture,
+harness-health), each graded by a fresh context that **authored nothing in
+the phase** (excludes Writer and advisor authoring contexts). Severity rubric
+is fixed before the review: Critical = no waiver, the phase stays open; High
+= fix or written human risk-acceptance; Medium/Low → backlog. Findings name
+the WHAT, never the HOW. What a reviewer hand-checks once, doctor mechanizes
+next (the review's mechanization note feeds the doctor checklist). Precedent:
+docs/reviews/phase-1-review.md (executed 2026-06-12). The close edit itself
+stays human — no agent self-approves a phase completion.
+
 ## Merge policy
 
 - **Frozen contracts** — `docs/SPEC-*.md`, `docs/decisions/**`, `docs/RULES.md`:
