@@ -24,12 +24,23 @@ Report-only, any role, any mode. No tree writes, no inbox status changes.
 3. **Context sweep** — UNREAD fyis in this role's inbox (report → mark
    READ); flips.log tail; drafts awaiting triage (count + ids, no verdicts
    in read mode).
-4. **Render** as the standup: **yesterday** (achievements-style, queue rows
+4. **Work-source cascade** (TEAM.md "Work selection") — if the queue's
+   live band is dry, generate candidate rows from **spec gaps** (uncovered
+   FRs, clauses without FRs, spec-map yellow/red verbs, unmet phase
+   criteria) as PROPOSALS in the report — propose-only, human disposes;
+   this runs in the DAILY run only, never per-session. If specs are
+   exhausted too, render the **"PHASE SCOPE COMPLETE" report** (queue dry
+   · coverage % · phase-criteria status · candidate next-scope menu) —
+   never "project done"; phase boundaries are human sentences.
+5. **Render** as the standup: **yesterday** (achievements-style, queue rows
    flipped since the last run) / **today** (the live band: next + in-review
    + what each waits on) / **blockers** (human-owned gates, drift findings,
-   pending acks). Close with refresh prompts when stale: "/achievements
-   since last run?", "/specmap regen?" — prompts, not auto-runs.
-5. During the trial week, append the daily audit row data (S1/S2/S3
+   pending acks). The standup carries the **mix line** (mandatory telemetry,
+   TEAM.md work selection): `work mix: N% product-spec / M% meta; phase
+   criteria last touched D days ago`. Close with refresh prompts when
+   stale: "/achievements since last run?", "/specmap regen?" — prompts,
+   not auto-runs.
+6. During the trial week, append the daily audit row data (S1/S2/S3
    observations) for the advisor's ledger — observation, not the ledger
    write itself.
 
