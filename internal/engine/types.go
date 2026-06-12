@@ -81,6 +81,10 @@ type PlanResult struct {
 	Install []InstallItem `json:"install"`
 	Remove  []RemoveItem  `json:"remove"`
 	Noop    []string      `json:"noop"`
+	// Target is the graded container, for the human line (guided-run finding
+	// ⑤: a verdict that doesn't name its target can't be safety-checked
+	// without --json). json:"-": the spec'd --json shape is frozen.
+	Target string `json:"-"`
 }
 
 // Changed reports whether applying the plan would mutate state. It drives the
@@ -90,8 +94,12 @@ func (r PlanResult) Changed() bool {
 }
 
 func (r PlanResult) Human() string {
-	return fmt.Sprintf("plan: +%d create, %d install, -%d remove, %d noop",
-		len(r.Create), len(r.Install), len(r.Remove), len(r.Noop))
+	target := ""
+	if r.Target != "" {
+		target = " " + r.Target
+	}
+	return fmt.Sprintf("plan%s: +%d create, %d install, -%d remove, %d noop",
+		target, len(r.Create), len(r.Install), len(r.Remove), len(r.Noop))
 }
 
 // --- build ----------------------------------------------------------------
@@ -142,7 +150,9 @@ type TeardownResult struct {
 }
 
 func (r TeardownResult) Human() string {
-	return fmt.Sprintf("teardown %s: removed %d containers, %d volumes, %d images",
+	// Level is quoted so the line reads as a report, not a "teardown stop:"
+	// prefix label (guided-run finding ⑨ ergonomics note).
+	return fmt.Sprintf("teardown level %q: removed %d containers, %d volumes, %d images",
 		r.Level, len(r.Removed.Containers), len(r.Removed.Volumes), len(r.Removed.Images))
 }
 

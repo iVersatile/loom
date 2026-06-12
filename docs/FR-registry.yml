@@ -88,6 +88,14 @@ requirements:
     source: SPEC-verbs.md#plan
     tests: [engine.TestPlanChanged, cli.TestPlanEmitsJSONAndExitCode]
     status: active
+  - id: FR-PLAN-003
+    kind: behavioral
+    # LL-012 (guided-run finding ⑦): plan graded the host while build
+    # converged the container — verdict and action must share a domain.
+    statement: plan grades the CONTAINER on the tools dimension — live probe when running, the lock's container-pinned resolved values when stopped (never starting it), and with no container every declared tool is an install; the build host's PATH is never consulted.
+    source: SPEC-verbs.md#plan
+    tests: [engine.TestPlanGradesContainerNotHost, engine.TestPlanStoppedContainerUsesLock, engine.TestPlanDriftAndConverged]
+    status: active
 
   # --- Behavioral: build (SPEC-verbs#build) ---
   - id: FR-BUILD-001
@@ -174,6 +182,23 @@ requirements:
     tests: [bootstrap.TestBootstrapInvokesNoNetworkTooling]
     status: active
 
+  # --- Behavioral/schema: harness (SPEC-playbook#harness, ADR-0015, clause #53) ---
+  - id: FR-BUILD-009
+    kind: behavioral
+    statement: build materializes declared harness artifacts into the agent home via write-if-changed — settings whole-file, hooks executable under hooks/, skills recursive under skills/ — idempotent, and a dangling reference is a loud error naming agent+field+ref.
+    source: [SPEC-playbook.md#harness, SPEC-verbs.md#build]
+    tests: [engine.TestMaterializeHarnessArtifacts, engine.TestMaterializeHarnessIdempotent, engine.TestMaterializeHarnessMissingRefErrors, engine.TestDogfoodBasePlaybookHarnessMaterializes]
+    status: active
+  - id: FR-SCHEMA-008
+    kind: schema
+    # T16 PR 2: the base-authored rule is enforced at Load per non-base LAYER
+    # (authorship), not by tier-checking the merged playbook — the merge
+    # legitimately carries the base's settings under the project's tier.
+    statement: harness merges per agent namespace — hooks/skills concatenate + dedup in layer order, settings last-non-empty wins; Phase 1 rejects a settings declaration on any non-base layer at Load, naming the layer (base-authored whole-file only).
+    source: SPEC-playbook.md#harness
+    tests: [playbook.TestHarnessMergeRules, playbook.TestValidateHarnessSettingsBaseOnly]
+    status: active
+
   # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---
   - id: FR-EXEC-001
     kind: behavioral
@@ -194,6 +219,16 @@ requirements:
     tests: [engine.TestExecAuditsCommandAndExit]
     status: active
 
+  # --- Behavioral: shell (SPEC-verbs#shell) ---
+  - id: FR-SHELL-001
+    kind: behavioral
+    # T1 doctrine: the interactive TTY experience is human feedback, never
+    # coverage; the automatable proxy is the mechanism contract below.
+    statement: shell opens an interactive login shell through exec's engine path — ONE code path with a TTY option, same lifecycle (stopped starts; absent errors with the build hint; exit code verbatim; no command argument accepted) — and audits exactly one session-open entry that captures no command.
+    source: SPEC-verbs.md#shell
+    tests: [engine.TestShellUsesExecPathWithTTY, engine.TestShellAuditsSessionOpenNoCommands, engine.TestShellAbsentContainerErrors, cli.TestShellRejectsArgs]
+    status: active
+
   # --- Behavioral: teardown (SPEC-verbs#teardown) ---
   - id: FR-TEARDOWN-001
     kind: behavioral
@@ -207,6 +242,14 @@ requirements:
     source: SPEC-verbs.md#teardown
     tests: [engine.TestWipeProjectRequiresConfirmation, engine.TestWipeProjectWithConfirmation]
     status: active
+  - id: FR-TEARDOWN-003
+    kind: behavioral
+    # Guided-run finding ⑨: teardown ran unprompted on an interactive TTY —
+    # the most destructive routine verb must never act on silence.
+    statement: teardown acts only on explicit consent — an affirmative answer to its [y/N] prompt, or --yes for automation; on silence (EOF, empty, any other answer) it removes nothing. There is no --force, and --wipe-project's typed confirmation stays non-bypassable by --yes.
+    source: SPEC-verbs.md#teardown
+    tests: [cli.TestTeardownRequiresConsent, cli.TestTeardownPromptDecides]
+    status: active
 
   # --- Behavioral: doctor (SPEC-verbs#doctor) ---
   - id: FR-DOCTOR-001
@@ -214,6 +257,15 @@ requirements:
     statement: doctor reports environment checks (ok/missing).
     source: SPEC-verbs.md#doctor
     tests: [engine.TestDoctorChecks, engine.TestDoctorMissingTool]
+    status: active
+  - id: FR-DOCTOR-002
+    kind: behavioral
+    # Guided-run finding ⑧ (LL-012 class): doctor answered tool checks from
+    # the host PATH while exec hit the container — a bill of health must name
+    # which environment it grades.
+    statement: every doctor check names its tier (host:* repo-side facts, container:* container reality); tool checks grade the CONTAINER — live probe when running, lock-pinned resolved values when stopped (never starting it) — and with no container or no runtime, container:state fails with the reason and no per-tool verdict is invented from the host PATH.
+    source: SPEC-verbs.md#doctor
+    tests: [engine.TestDoctorChecks, engine.TestDoctorAbsentContainer, engine.TestDoctorStoppedContainerGradesFromLock, engine.TestDoctorRuntimeUnavailable]
     status: active
 
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
