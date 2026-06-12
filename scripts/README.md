@@ -54,3 +54,9 @@ credential scan + `teardown --clean-state` are the specced homes for it).
 | `verify-loom-dev.sh` | recurring — every loom-dev session start / post-rebuild | `loom doctor` checks + FRs; GAP list dies with T16; gate-dep claims promote to the Makefile↔playbook joint check (T19) |
 | `push-from-host.sh` | recurring — after every in-container session that leaves branches (T18 ritual) | outward-ops verb once T15 gives a leak-free agent credential path |
 | `dispatch-inbox.sh` | recurring — alongside push-from-host.sh, on the human's word (T21) | drain-integrated or loom-native dispatch (T21 promote-to) |
+| `resolve-plan-union.go` | recurring — any conflicted merge/rebase touching the PLAN queue table (TEAM.md git discipline rule 4; `go run ./scripts ...`) | /replan integration or a git merge driver |
+
+One exception to the POSIX-sh convention: `resolve-plan-union.go` is Go —
+loom-dev ships no python (the seed's language), and rule 4 is mechanism only
+if every seat can run the resolver; Go is the one toolchain all three
+environments carry, and `go test ./scripts/` puts it inside the gate.
