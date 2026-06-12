@@ -16,7 +16,7 @@ because it surfaced two failure classes and validated the diagnosis loop.
 | 18:19 | Writer Stops. Drain runs, orphan-skips ALL THREE envelopes (guard (a): `serves:` must be a **literal queue-row substring**; labels match nothing). Exits silently — count stays 1. **Nobody notices for ~1h** until the human asks why the Writer is idle. |
 | ~19:16 | Human kick #2 → 041 built (direct pick). Same silent orphan-skip at Stop. |
 | 19:30 | Advisor root-causes from script source; fixes `serves:` on 040/042 to verbatim row fragments; files falsifiable prediction (fyi 043): next Stop picks 040, count→2. |
-| ~19:45 | Human kick #3 → Writer takes 040 by **direct pick** (count still 1, status not flipped — drain untested by this). Prediction moves one Stop later: at 040 completion, drain must inject 042, flip TAKEN, count→2. |
+| ~19:45 | **Prediction preempted:** human kick #3 → Writer takes 040 by **direct pick** inside the kicked turn — the drain never got its chance at 040. Human reports "040 picked up"; it READS like the predicted drain fire, but counter (1, not 2) and status (QUEUED, not TAKEN — the drain flips it mechanically) prove otherwise. Prediction moves one Stop later: at 040 completion, drain must inject 042, flip TAKEN, count→2. |
 | — | **PENDING:** the 042 injection is the first zero-human-input chain. Update this row with the result. |
 
 ## Failure classes (new)
@@ -37,6 +37,14 @@ because it surfaced two failure classes and validated the diagnosis loop.
 4. **Direct-pick discipline gap:** a kicked Writer taking work directly
    does not flip the envelope to TAKEN (the drain does it mechanically);
    stale-QUEUED states lie to the next drain pass.
+5. **The kick races the mechanism it's meant to test (observer effect):**
+   every human "continue" consumes the exact queue head that would have
+   proven the drain at the next Stop — kick #3 ate 040, the item fyi
+   043's prediction was staked on. Worse, the *outcome* of a kick is
+   indistinguishable from a drain fire in the visible work product (both
+   yield "Writer working on 040"); only the side-channel state (counter,
+   mechanical TAKEN flip) disambiguates. Pick **provenance** must be
+   recorded by the mechanism itself, or every test of it is ambiguous.
 
 ## Mechanisms this episode argues for (T27 / fyi 043)
 
@@ -50,6 +58,10 @@ because it surfaced two failure classes and validated the diagnosis loop.
   at drain time.
 - **TAKEN-flip on direct pick** — fold into the 041 git-discipline
   family: whoever takes work flips the status, mechanically if possible.
+- **Pick provenance (class 5):** the drain's continuation report and any
+  direct-pick protocol should stamp HOW the item was taken (drain-N |
+  kick | self-selected) into the envelope status line — disambiguates
+  mechanism tests and feeds the 033 trace for free.
 
 ## Scoring note
 
