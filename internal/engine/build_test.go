@@ -539,6 +539,24 @@ func TestCreateRunArgs(t *testing.T) {
 	}
 }
 
+// TestHomeCpTargetSingleOwner (T10 PR 1): every in-container home path must
+// derive from the containerHome constant — ADR-0016's "T10 retargets entry by
+// changing one configured-user value" only holds if nothing bypasses it. Two
+// literal ":/root/" cp targets were found doing exactly that at T10 design
+// time; this pins the helper AND greps the source so a third can't return.
+func TestHomeCpTargetSingleOwner(t *testing.T) {
+	if got, want := homeCpTarget("loom-dev"), "loom-dev:"+containerHome+"/"; got != want {
+		t.Errorf("homeCpTarget = %q, want %q", got, want)
+	}
+	src, err := os.ReadFile("container.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(src), `":/root/"`); n > 0 {
+		t.Errorf("container.go has %d literal \":/root/\" bypass(es) of containerHome (T10 single-owner rule)", n)
+	}
+}
+
 func countLogLines(t *testing.T, root string) int {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, ".loom", "actions.log"))

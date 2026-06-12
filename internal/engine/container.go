@@ -168,7 +168,7 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		}
 		synced := false
 		if spec.HomeDir != "" {
-			if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
+			if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", homeCpTarget(spec.Name)); err != nil {
 				return ContainerInfo{}, fmt.Errorf("docker cp home (reconcile): %v: %s", err, out)
 			}
 			writeHomeSentinel(spec.Name, homeWant, spec.LogW)
@@ -197,7 +197,7 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	}
 	synced := false
 	if spec.HomeDir != "" {
-		if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
+		if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", homeCpTarget(spec.Name)); err != nil {
 			return ContainerInfo{}, fmt.Errorf("docker cp home: %v: %s", err, out)
 		}
 		writeHomeSentinel(spec.Name, homeDigest(spec.HomeDir), spec.LogW)
@@ -646,7 +646,18 @@ func envArgs(env []string) []string {
 
 // containerHome is the in-container $HOME loom materialises into. Hardcoded to
 // root's home for Phase 1; T10 will parameterise it for a non-root user.
+// SINGLE OWNER (T10 PR 1): every in-container home path — cp targets, volume
+// mounts, creds mounts — derives from this constant; a literal "/root"
+// anywhere else is a bug (two were found bypassing it, the cp targets).
 const containerHome = "/root"
+
+// homeCpTarget is the docker-cp destination for the staged $HOME tree. Routed
+// through containerHome so T10's parameterisation changes exactly one value
+// (ADR-0016 consequence: "T10 retargets entry by changing one configured-user
+// value" — that only holds if nothing bypasses the constant).
+func homeCpTarget(name string) string {
+	return name + ":" + containerHome + "/"
+}
 
 // credsMount returns a read-only single-file bind of the host's EXISTING Claude
 // credentials into the container, so the in-container agent reuses the same
