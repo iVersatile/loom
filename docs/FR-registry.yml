@@ -396,6 +396,17 @@ requirements:
     source: [RULES.md#§2, config/hooks/protect-paths]
     tests: { suite: guard.TestProtectPathsBlocksFrozenContract, patterns: all }
     status: active
+  - id: FR-GUARD-TRUST-CONFIG
+    kind: guardrail
+    # Envelope 040 / 029.B (T28, C1-family): trust-config edits are human-only
+    # (029.C); this is the git-side half of the protection. The two override
+    # classes never cross-unlock — a spec authorization is not a guardrail
+    # authorization. The harness-side half (Edit/Write deny rules) is itself a
+    # settings change and therefore human-only — tracked on the queue row.
+    statement: protect-paths blocks staged changes to trust config (.claude/settings*.json, .claude/hooks/**) absent the audited ALLOW_TRUST_CHANGE override; ALLOW_SPEC_CHANGE does not unlock trust config nor vice versa; .claude/skills/** stays unprotected.
+    source: [RULES.md#§5, config/hooks/protect-paths]
+    tests: { suite: guard.TestProtectPathsBlocksTrustConfig, patterns: all }
+    status: active
 
   # --- Schema / resolution (SPEC-playbook; one per merge/resolution rule) ---
   - id: FR-SCHEMA-001

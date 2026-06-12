@@ -116,9 +116,19 @@ network layer is where the deny floor's guarantees end):
   `filter-branch`/`filter-repo`, `rebase`, `push --force*`)
 - container self-destruction (`loom teardown`, `loom build --force` from
   inside the container)
+- trust-config writes (`.claude/settings*.json`, `.claude/hooks/**`, and the
+  user-level equivalents under `~/.claude`) — permission changes are trust
+  changes (029.C, envelope 040): agents propose diffs, never apply. Enforced
+  git-side by protect-paths (`ALLOW_TRUST_CHANGE=1` audited override, human
+  instruction only — deliberately separate from `ALLOW_SPEC_CHANGE`);
+  harness-side Edit/Write deny rules are themselves a settings change and
+  await human hands (queue row 029.B). `.claude/skills/**` is not trust
+  config — skills are instructions the permission stack mediates, not the
+  stack itself.
 Prompt-volume work (allowlists, the compound allow-hook) may grow what's
 *above* this floor; nothing ever moves *out* of it without a human-authored
-edit to this list.
+edit to this list. (Additions are the stricter direction and arrive by PR —
+the 2026-06-12 trust-config line landed that way, envelope 040.)
 
 ## Cross-session transport: inbox + drain (T21)
 

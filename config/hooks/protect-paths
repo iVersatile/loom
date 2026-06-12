@@ -1,18 +1,28 @@
 #!/bin/sh
 # protect-paths — guardrail enforced by mechanism (RULES §5, ADR-0005).
 #
-# Refuses commits that change FROZEN CONTRACT paths (specs + ADRs) unless an
-# explicit, audited override is set. Specs/decisions change deliberately via
-# PR + ADR (RULES §2/§3), never silently — including by an agent. This is the
-# canonical script; the engine bakes it into built environments (Work 6) and the
-# Loom repo itself dogfoods it via .githooks/pre-commit (RULES §8).
+# Refuses commits that change two deliberate-change-only path classes, each
+# with its own explicit, audited override:
+#   FROZEN CONTRACTS (specs + ADRs) — change via PR + ADR (RULES §2/§3),
+#     never silently, including by an agent. Override: ALLOW_SPEC_CHANGE=1.
+#   TRUST CONFIG (.claude/settings*.json, .claude/hooks/**) — the harness's
+#     permission stack and hook set (T28/C1-family, envelope 040): trust-config
+#     edits are human-only; agents propose diffs, never apply (029.C
+#     convention). Override: ALLOW_TRUST_CHANGE=1.
+# The overrides are deliberately SEPARATE: authorizing a spec change does not
+# authorize a guardrail change, and vice versa.
+#
+# This is the canonical script; the engine bakes it into built environments
+# (Work 6) and the Loom repo itself dogfoods it via .githooks/pre-commit
+# (RULES §8).
 set -eu
 
-OVERRIDE="${ALLOW_SPEC_CHANGE:-0}"
+SPEC_OVERRIDE="${ALLOW_SPEC_CHANGE:-0}"
+TRUST_OVERRIDE="${ALLOW_TRUST_CHANGE:-0}"
 
 # Frozen-contract path patterns. (Phase 1: hardcoded to Loom's own contracts;
 # later these come from the playbook's protect list.)
-is_protected() {
+is_frozen() {
 	case "$1" in
 	docs/SPEC-*.md) return 0 ;;
 	docs/decisions/*.md) return 0 ;;
@@ -20,21 +30,50 @@ is_protected() {
 	esac
 }
 
-violations=""
+# Trust-config path patterns: harness permission files and hook scripts.
+# (.claude/skills/** is deliberately NOT here — skills are instructions the
+# permission stack still mediates, not the stack itself.)
+is_trust() {
+	case "$1" in
+	.claude/settings*.json) return 0 ;;
+	.claude/hooks/*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+frozen=""
+trust=""
 for f in $(git diff --cached --name-only); do
-	if is_protected "$f"; then
-		violations="$violations $f"
+	if is_frozen "$f"; then
+		frozen="$frozen $f"
+	elif is_trust "$f"; then
+		trust="$trust $f"
 	fi
 done
 
-[ -z "$violations" ] && exit 0
+fail=0
 
-if [ "$OVERRIDE" = "1" ]; then
-	echo "protect-paths: ALLOW_SPEC_CHANGE=1 override — permitting frozen-contract changes:$violations" >&2
-	exit 0
+if [ -n "$frozen" ]; then
+	if [ "$SPEC_OVERRIDE" = "1" ]; then
+		echo "protect-paths: ALLOW_SPEC_CHANGE=1 override — permitting frozen-contract changes:$frozen" >&2
+	else
+		echo "protect-paths: BLOCKED — staged changes touch frozen contracts:$frozen" >&2
+		echo "  Specs/ADRs change via PR + ADR (RULES §2/§3). To override (audited):" >&2
+		echo "    ALLOW_SPEC_CHANGE=1 git commit ..." >&2
+		fail=1
+	fi
 fi
 
-echo "protect-paths: BLOCKED — staged changes touch frozen contracts:$violations" >&2
-echo "  Specs/ADRs change via PR + ADR (RULES §2/§3). To override (audited):" >&2
-echo "    ALLOW_SPEC_CHANGE=1 git commit ..." >&2
-exit 1
+if [ -n "$trust" ]; then
+	if [ "$TRUST_OVERRIDE" = "1" ]; then
+		echo "protect-paths: ALLOW_TRUST_CHANGE=1 override — permitting trust-config changes:$trust" >&2
+	else
+		echo "protect-paths: BLOCKED — staged changes touch trust config:$trust" >&2
+		echo "  Trust-config edits are human-only (TEAM.md never-auto floor, 029.C);" >&2
+		echo "  agents propose diffs. To override (audited, human instruction only):" >&2
+		echo "    ALLOW_TRUST_CHANGE=1 git commit ..." >&2
+		fail=1
+	fi
+fi
+
+exit "$fail"

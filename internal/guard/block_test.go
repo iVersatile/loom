@@ -183,6 +183,73 @@ func TestProtectPathsBlocksFrozenContract(t *testing.T) {
 	}
 }
 
+// TestProtectPathsBlocksTrustConfig (FR-GUARD-TRUST-CONFIG, envelope 040 /
+// 029.B): staged changes to the harness's trust config — settings files and
+// hook scripts — are blocked absent the audited ALLOW_TRUST_CHANGE=1
+// override. The test is the hook's FULL trust pattern set, and proves the
+// two override classes do NOT cross-unlock: a spec authorization is not a
+// guardrail authorization (and vice versa).
+func TestProtectPathsBlocksTrustConfig(t *testing.T) {
+	hook := absHook(t, "protect-paths")
+
+	for _, path := range []string{
+		".claude/settings.json",
+		".claude/settings.local.json",
+		".claude/hooks/guard-bash.sh",
+	} {
+		t.Run(path, func(t *testing.T) {
+			repo := newGitRepo(t, "feat/x")
+			if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(path)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(repo, path), []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gitIn(t, repo, "add", path)
+			if runHook(repo, nil, hook) == nil {
+				t.Errorf("protect-paths should BLOCK a staged change to %s", path)
+			}
+			if runHook(repo, []string{"ALLOW_SPEC_CHANGE=1"}, hook) == nil {
+				t.Errorf("ALLOW_SPEC_CHANGE must NOT unlock trust config %s — separate authorizations", path)
+			}
+			if err := runHook(repo, []string{"ALLOW_TRUST_CHANGE=1"}, hook); err != nil {
+				t.Errorf("ALLOW_TRUST_CHANGE=1 should permit %s (audited): %v", path, err)
+			}
+		})
+	}
+
+	// And the inverse: a trust authorization must not unlock a frozen contract.
+	t.Run("no-cross-unlock-of-specs", func(t *testing.T) {
+		repo := newGitRepo(t, "feat/x")
+		if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "docs/SPEC-x.md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitIn(t, repo, "add", "docs/SPEC-x.md")
+		if runHook(repo, []string{"ALLOW_TRUST_CHANGE=1"}, hook) == nil {
+			t.Error("ALLOW_TRUST_CHANGE must NOT unlock frozen contracts — separate authorizations")
+		}
+	})
+
+	// Skills are deliberately OUTSIDE the trust class: instructions the
+	// permission stack mediates, not the stack itself.
+	t.Run("skills-not-blocked", func(t *testing.T) {
+		repo := newGitRepo(t, "feat/x")
+		if err := os.MkdirAll(filepath.Join(repo, ".claude/skills/replan"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, ".claude/skills/replan/SKILL.md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitIn(t, repo, "add", ".claude/skills/replan/SKILL.md")
+		if err := runHook(repo, nil, hook); err != nil {
+			t.Errorf("a skill edit must pass without overrides: %v", err)
+		}
+	})
+}
+
 // TestGuardBashBlocksBypassClasses (phase-1 review H3/H4): each named bypass
 // class — spacing tricks, alternate privilege tools, hook-path redirects
 // (case-folded: git config keys are case-insensitive), credential reach,
