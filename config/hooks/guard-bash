@@ -3,6 +3,30 @@
 # Blocks dangerous shell commands. The candidate command comes from "$@", or from
 # stdin if no args. Exit non-zero = blocked. An agent cannot weaken this: it is a
 # mechanism in the path, not a policy it can choose to ignore.
+#
+# T29 segment-aware evaluation (envelope 046; design red-teamed, amendments
+# binding). Two-pass, fail-closed:
+#   pass 1 — split into logical commands where parsing is CERTAIN (shared
+#     splitter, segment-split; any uncertainty = one segment = today's
+#     whole-line behavior) and match per segment. A per-segment hit fires the
+#     pattern's own class action — every guard-bash pattern is deny-class, so
+#     hit = block (ask-class lives in allow-compound, the other side of the
+#     same splitter).
+#   pass 2 — the LEGACY pattern set against the whole line, always: the
+#     effective deny match set can never shrink for adversarial input. A hit
+#     here that pass 1 missed is a CROSS-SEGMENT match — blocked AND trace-
+#     marked (033 doctrine): each one is pattern-fix evidence, not silence.
+#   indirection — an assignment plus an expansion in one line can assemble a
+#     blocked token across segments (FLAG=--force; git push $FLAG main), so
+#     that shape gets an order-free conjunction check on top of the passes.
+# Pattern re-anchorings licensed by the 046 ruling (the two live false-block
+# specimens, each pinned by a was-false-blocking regression test):
+#   - recursive delete anchors on the PATH ROOT (target "/", "//", "/*",
+#     --no-preserve-root), not the slash after the flag — `rm -rf /tmp/x` is
+#     not root deletion.
+#   - force-push anchors WITHIN one logical command, gaining flag-order
+#     coverage per segment (git push origin main --force) without matching
+#     pieces from unrelated chain segments.
 set -eu
 
 raw="$*"
@@ -15,7 +39,8 @@ raw="$*"
 cmd="$(printf '%s' "$raw" | tr '\t\n\r' '   ' | tr -s ' ')"
 
 # Git config keys are case-insensitive (core.hooksPath == core.HOOKSPATH), so
-# the hook-redirect class is matched case-folded.
+# the hook-redirect class is matched case-folded, whole-line (a redirect is
+# dangerous wherever it sits).
 lower="$(printf '%s' "$cmd" | tr 'A-Z' 'a-z')"
 case "$lower" in
 *"core.hookspath"*)
@@ -24,28 +49,106 @@ case "$lower" in
 	;;
 esac
 
-case "$cmd" in
-*"sudo "* | \
-*"doas "* | \
-*"--dangerously-skip-permissions"* | \
-*"--no-verify"* | \
-*"git push --force"* | \
-*"git push -f "* | \
-*".credentials.json"* | \
-*"/dev/tcp/"* | \
-*"/dev/udp/"* | \
-*"python -c"* | \
-*"python3 -c"* | \
-*"node -e"* | \
-*"node --eval"* | \
-*"perl -e"* | \
-*"perl -E"* | \
-*"rm -rf /"* | \
-*"rm -fr /"* | \
-*"rm -rf ~"* | \
-*"rm -fr ~"*)
-	echo "guard-bash: BLOCKED dangerous command: $raw" >&2
-	exit 1
-	;;
-esac
+. "$(dirname "$0")/segment-split"
+
+# deny_legacy STR — the contiguous pattern set (deny floor), applied per
+# segment AND whole-line. rm patterns are root-anchored (046 amendment 2):
+# block when the target IS the filesystem root (bare /, //, the /* glob, or
+# --no-preserve-root anywhere); a path UNDER root (`rm -rf /tmp/x`) is not in
+# the set — that was the false-block specimen, twice.
+deny_legacy() {
+	case "$1" in
+	*"sudo "* | \
+	*"doas "* | \
+	*"--dangerously-skip-permissions"* | \
+	*"--no-verify"* | \
+	*"--no-preserve-root"* | \
+	*"git push --force"* | \
+	*"git push -f "* | \
+	*"git push -f" | \
+	*".credentials.json"* | \
+	*"/dev/tcp/"* | \
+	*"/dev/udp/"* | \
+	*"python -c"* | \
+	*"python3 -c"* | \
+	*"node -e"* | \
+	*"node --eval"* | \
+	*"perl -e"* | \
+	*"perl -E"* | \
+	*"rm -rf /" | *"rm -fr /" | \
+	*"rm -rf /." | *"rm -fr /." | \
+	*"rm -rf /"[!a-zA-Z0-9._-]* | *"rm -fr /"[!a-zA-Z0-9._-]* | \
+	*"rm -rf ~"* | \
+	*"rm -fr ~"*)
+		return 0
+		;;
+	esac
+	return 1
+}
+
+# deny_anchored SEG — multi-token patterns that are only sound WITHIN one
+# logical command (046 amendment 2): never applied to a multi-segment whole
+# line, so pieces from unrelated chain segments cannot assemble a match.
+deny_anchored() {
+	case "$1" in
+	*"git push"*" --force"* | \
+	*"git push"*" -f "* | \
+	*"git push"*" -f")
+		return 0
+		;;
+	esac
+	return 1
+}
+
+if segs=$(split_segments "$cmd"); then
+	# Certain split: per-segment pass (046 amendment 3 — a hit fires the
+	# pattern's own class action; all guard-bash patterns are deny-class).
+	oldifs=$IFS
+	IFS='
+'
+	set -f
+	for seg in $segs; do
+		if deny_legacy "$seg" || deny_anchored "$seg"; then
+			echo "guard-bash: BLOCKED dangerous command (segment: $seg): $raw" >&2
+			exit 1
+		fi
+	done
+	set +f
+	IFS=$oldifs
+	# Whole-line pass, legacy set only: the deny floor never shrinks. A hit
+	# only the whole line produces is a cross-segment match — block it AND
+	# mark it (046 amendment 5): these traces are pattern-fix evidence.
+	if deny_legacy "$cmd"; then
+		echo "guard-bash: BLOCKED (CROSS-SEGMENT match — T29 trace marker; candidate for pattern re-anchoring): $raw" >&2
+		exit 1
+	fi
+else
+	# Uncertain parse: one segment = the whole line (today's behavior), both
+	# pattern sets.
+	if deny_legacy "$cmd" || deny_anchored "$cmd"; then
+		echo "guard-bash: BLOCKED dangerous command: $raw" >&2
+		exit 1
+	fi
+fi
+
+# Indirection conjunction (046 amendment 4 / design point 3): assignment +
+# expansion can carry a blocked flag into a push in another segment, in
+# either order — match the force-push class order-free under that taint.
+# Plain expansion without an assignment (git push origin $BRANCH) is not
+# tainted; concatenation that never spells the token (F=--for; F=$F"ce")
+# stays outside substring reach — accepted residual, unchanged from today's
+# match set (the taint keeps such lines on whole-line semantics).
+if indirection_taint "$cmd"; then
+	case "$cmd" in
+	*"git push"*)
+		case "$cmd" in
+		*"--force"* | *" -f "* | *" -f")
+			echo "guard-bash: BLOCKED force-push via variable indirection (assignment + expansion): $raw" >&2
+			exit 1
+			;;
+		esac
+		;;
+	esac
+fi
+
 exit 0

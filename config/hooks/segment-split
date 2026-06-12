@@ -1,0 +1,56 @@
+#!/bin/sh
+# segment-split — THE shared segment splitter for command-line guard hooks
+# (T29, envelope 046 amendment 5: one splitter; two splitters drift).
+# Sourced (`.`) by guard-bash; allow-compound.sh adopts it via a proposed
+# human-applied diff (trust-config path). Not an executable hook by itself —
+# the executable bit only satisfies the doctor present+executable claim.
+#
+# Contract (fail-closed by shape, T29 design point 2):
+#
+#   split_segments CMD
+#     Certain split  -> prints one segment per line (trimmed), returns 0.
+#     ANY uncertainty -> prints nothing, returns 1; the CALLER must treat the
+#     whole line as ONE segment (today's whole-line behavior). Uncertainty =
+#     quoting, substitution/expansion braces, subshell/grouping, redirection,
+#     heredocs, comments, embedded newlines — anything where connector
+#     characters may not be top-level. Comments are never stripped (envelope
+#     046 test list: no strip; uncertainty = one segment).
+#
+#   indirection_taint CMD
+#     Returns 0 when the line carries an assignment AND an expansion —
+#     variable indirection can assemble a blocked token across segments
+#     (FLAG=--force; git push $FLAG), so per-segment precision must not be
+#     trusted (T29 design point 3; amendment 4 broadens to ANY assignment +
+#     ANY expansion, which also covers concatenation like F=--for; F=$F"ce"
+#     more conservatively than token-matching assignments would).
+#
+# POSIX sh + awk only (both present in every loom topology).
+
+split_segments() {
+	_ss_cmd=$1
+
+	case "$_ss_cmd" in
+	*"'"* | *'"'* | *'$'* | *'`'*) return 1 ;; # quoting / expansion / substitution
+	*'('* | *')'* | *'{'* | *'}'*) return 1 ;; # subshell / grouping / brace exp
+	*'<'* | *'>'*) return 1 ;;                 # redirection / heredoc / process subst
+	*'#'*) return 1 ;;                         # comment — never stripped
+	esac
+	_ss_nl=$(printf '\nx')
+	_ss_nl=${_ss_nl%x}
+	case "$_ss_cmd" in *"$_ss_nl"*) return 1 ;; esac
+
+	# Connectors are now top-level by construction: && || ; | & each end a
+	# logical command (leftmost-longest, so && wins over &).
+	printf '%s\n' "$_ss_cmd" \
+		| awk '{ gsub(/&&|\|\||[;|&]/, "\n"); print }' \
+		| sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+		| grep -v '^$' || true
+	return 0
+}
+
+indirection_taint() {
+	case "$1" in
+	*=*) case "$1" in *'$'*) return 0 ;; esac ;;
+	esac
+	return 1
+}
