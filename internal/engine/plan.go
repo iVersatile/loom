@@ -47,6 +47,7 @@ func planImpl(opts PlanOpts, rt ContainerRuntime) (PlanResult, error) {
 	// container there is no environment to grade: every declared tool is work
 	// build will do, regardless of what the HOST happens to have on PATH.
 	cname := containerName(pb.Name)
+	res.Target = cname
 	if exists, err := rt.Exists(cname); err != nil || !exists {
 		res.Create = append(res.Create, CreateItem{Kind: "container", Name: cname})
 		for _, intent := range pb.Tools {
