@@ -18,17 +18,12 @@ settings="${CLAUDE_PROJECT_DIR:-.}/.claude/settings.json"
 cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
 [ -n "$cmd" ] || exit 0
 
-# Bail-outs: substitution, redirection, expansion, quoting, backgrounding,
-# newlines — splitting these reliably needs a real parser; not our job.
-case "$cmd" in
-  *'$('* | *'`'* | *'${'* | *'>'* | *'<'* | *"'"* | *'"'*) exit 0 ;;
-esac
-# Backgrounding: any '&' left after removing the '&&' connectors.
-case "$(printf '%s' "$cmd" | sed 's/&&//g')" in *'&'*) exit 0 ;; esac
-# Newlines: $(printf '\n') would strip to "" and match everything — build the
-# newline character explicitly.
-nl=$(printf '\nx'); nl=${nl%x}
-case "$cmd" in *"$nl"*) exit 0 ;; esac
+# Splitting + bail-outs live in THE shared splitter (T29 amendment 5: one
+# splitter; two splitters drift). Uncertainty (quotes, expansion, redirection,
+# comments, newlines, grouping) -> split_segments returns 1 -> no opinion.
+. "${CLAUDE_PROJECT_DIR:-.}/config/hooks/segment-split"
+segs=$(split_segments "$cmd") || exit 0
+[ -n "$segs" ] || exit 0
 
 # Allow/deny prefixes from the same settings file the harness reads — one
 # source of truth. "Bash(x:*)" → prefix x; "Bash(x)" → exact x.
@@ -56,10 +51,8 @@ matches() {
   done | grep -q hit
 }
 
-# Split on && || ; | and require every segment to clear deny then match allow.
-printf '%s\n' "$cmd" \
-  | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g; s/|/\n/g' \
-  | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+# Every shared-splitter segment must clear deny then match allow.
+printf '%s\n' "$segs" \
   | {
     any=0
     while IFS= read -r seg; do
