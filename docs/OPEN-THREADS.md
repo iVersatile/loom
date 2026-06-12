@@ -249,31 +249,84 @@ Promote to: a SPEC-verbs addition (human-authored) + ADR + engine impl + FR.
 
 ---
 
-## T10 — container runs as root; should be a non-root `dev` user   🟡 open
+## T10 — container runs as root; should be a non-root `dev` user   🟢 design drafted 2026-06-12 (envelope 045) — advisor red-team before PR 2+
 Origin: `loom-loom-dev` is `root@/root` (confirmed `docker exec … whoami` → root),
 which is why dotfiles materialize to `/root` and the home-target confusion arose.
+Option 1 (non-root `dev`) was the standing lean; this drafts the full design.
 
-**Observation.** The base image (`debian:bookworm-slim`) defaults to root; loom does
-no user setup and hardcodes `/root` as the home (`container.go` cp to `:/root/`,
-provision writes `/root/.bashrc`/`.profile`). Running an interactive dev container as
-root is a hygiene/security smell and diverges from the `devenv` sandbox (non-root
-`dev`, `HOME=/home/dev`) the user is accustomed to.
+**Why it matters.** A non-root `dev` user (uid 1000, `HOME=/home/dev`) matches
+conventional dev containers, reduces blast radius (T20: root kills the
+in-container-iptables option and weakens everything), aligns with `devenv`, and
+makes the home-target explicit. Full-auto re-evaluation lists T10 as one of its
+three gates (TEAM.md, HARNESS.md).
 
-**Why it matters.** A non-root `dev` user (uid 1000, `HOME=/home/dev`) would: match
-conventional dev containers, reduce blast radius, align with `devenv`, and make the
-home-target explicit instead of an implicit `/root` assumption. It interacts with
-T8 (agent + creds land in the user's home) and the materialize path (must target the
-user's `$HOME`, parameterized, not hardcoded `/root`).
+**Design (drafted from the 045 envelope's four scope items + the engine map):**
 
-**Options.**
-1. Create a `dev` user in provision; set `HOME=/home/dev`; parameterize materialize/
-   provision on the resolved home; `docker exec` as `dev`.
-2. Keep root for Phase 1 (simplest) and revisit — but this perpetuates the smell and
-   the `/root` hardcode.
+1. **The configured value: playbook `user:` scalar** (SPEC amendment — frozen,
+   needs human authorization). Semantics: the container's runtime user; unset =
+   `root` (Phase-1 compatible — every existing playbook keeps meaning what it
+   meant). `$HOME` derives: `root → /root`, else `/home/<user>` (uid 1000,
+   useradd at provision). Merge: last-non-empty-wins scalar; any tier may
+   author (an env-wide base default with project override is the expected
+   shape). Engine: `containerHome` constant becomes a `ContainerSpec.Home`
+   field resolved from `user:`; PR 1 already forced every home path through
+   the single owner (cp targets had two literal bypasses — fixed + grep-guarded).
+   Proposed SPEC-playbook clause text (for the human to authorize verbatim or
+   edit): *"`user:` (optional, scalar, later-wins): the container's runtime
+   user. Unset means root (compatibility). A non-root user is created at
+   provision (uid 1000, home `/home/<user>`); every materialization targets
+   the resolved `$HOME` (ADR-0015 T10 rule); entry verbs run as this user
+   (ADR-0016 decision 7)."*
+2. **Provision-as-root / run-as-user split.** `docker run --user <user>` makes
+   the configured user the exec default — entry verbs (exec/shell) then need
+   no `-u` flag, exactly ADR-0016's "changes the config not this code".
+   Provisioning (apt-get, /usr/local/go, /var/lib/loom sentinels) keeps root
+   via explicit `docker exec -u root` on the provision/sentinel paths only.
+   Provision gains: `useradd -m -u 1000 <user>` (idempotent guard), and a
+   `chown -R <user>` of `$HOME` after every home sync — `docker cp` writes
+   root-owned files, so the sync path must restore ownership (new step, rides
+   the same dockerLogged call site as the cp).
+3. **Role marker replaces the uid check** (drain-inbox.sh role guard; LL-011).
+   Today's fallback `id -un == root ⇒ loom-author` dies with non-root. Design:
+   provision writes `/var/lib/loom/role` (content: the seat's role, from a new
+   `ContainerSpec.Role`; loom-dev declares `loom-author`). Resolution order in
+   the guard becomes: `LOOM_SESSION_ROLE` env (explicit + test seam) →
+   `/var/lib/loom/role` (materialized marker, in-container only) → UNRESOLVED
+   = no-op (fail-closed: a host-side advisor session has no marker and must
+   never drain the Writer's inbox — strictly safer than the uid guess).
+   Where the role value comes from is the open red-team question: lean is a
+   loom.yml-adjacent declaration rather than hardcode, but role is a TEAM
+   concept, not a playbook concept — alternatives: (a) `ContainerSpec.Role`
+   set by the loom-dev overlay; (b) env passthrough pinning
+   `LOOM_SESSION_ROLE` at `docker run -e`; (c) keep env-only and accept
+   no-op-without-env. The guard edit itself is a trust-path change
+   (.claude/hooks/**) — human-applied diff at PR 4.
+4. **Doctor claim:** `container:user` — compare `docker inspect -f
+   '{{.Config.User}}'` (cheap, works on stopped containers) against the
+   configured value; live `id -un` probe as the running-container variant.
+   Needs one new `ContainerRuntime` method; sits after `container:state`.
+5. **Migration:** the user value rides the provision sentinel digest, so a
+   `user:` change re-provisions an existing container; the agent-home volume
+   (`<name>-claude`) carries root-owned files from the root era — the
+   provision chown covers it. Recreate validates 039's trust-flag acceptance
+   at the same stroke (one recreate, two acceptances).
 
-Lean: (1), bundled with T8/T9 so the inhabit-the-container work lands coherently.
-Promote to: an engine change (user + parameterized home) + an ADR note (container
-user policy); FR once covered.
+**Slicing (PR 1 = this branch; remainder filed as drafts for triage):**
+- **PR 1 (landed here):** design 🟢 + containerHome single-owner fix (two
+  literal `:/root/` cp targets → `homeCpTarget`) + grep-guard test.
+- **PR 2:** SPEC `user:` clause [ALLOW_SPEC_CHANGE — human authorizes] +
+  schema/merge/validate + ContainerSpec.User/Home plumbing.
+- **PR 3:** engine behavior — `docker run --user`, provision useradd + chown,
+  `-u root` on provision/sentinel paths, integration-test updates (the
+  /root assertions in integration_test.go re-derive from the spec).
+- **PR 4:** role marker + drain-guard fallback swap [trust path — human-
+  applied diff] + doctor `container:user` + e2e doc updates.
+
+Promote to: ADR (container user policy: provision-as-root/run-as-user,
+default-root compatibility, role-marker doctrine) + FRs per slice.
+Red-team asks (advisor): the role-value source (3a/3b/3c above); whether
+`user:` is base-only by authorship like `settings:`; chown-after-sync vs
+`docker cp -a`; uid collision policy on images that already ship uid 1000.
 
 ---
 
