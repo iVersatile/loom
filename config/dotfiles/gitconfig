@@ -1,0 +1,8 @@
+# Declared git identity (T16 PR 3; ADR-0015 declared-config side) —
+# materialized to ~/.gitconfig in every container this base playbook builds.
+# TEAM.md commit-identity rule: every topology commits as the GitHub noreply
+# address, never a personal one. Re-converged each build; in-container edits
+# to ~/.gitconfig are drift and will be erased (declared config, not state).
+[user]
+	name = Ying Wang
+	email = 1323991+iVersatile@users.noreply.github.com

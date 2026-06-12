@@ -24,6 +24,11 @@ rules:
 # plain dotfile.
 dotfiles:
   - claude/statusline.sh
+  # Declared git identity -> ~/.gitconfig (T16 PR 3; harness config by
+  # weight, plain dotfile by shape — SPEC-playbook#shell-config sibling
+  # rule). Must declare the noreply identity (TEAM.md); doctor verifies
+  # completeness (host:gitconfig).
+  - gitconfig
 
 # Guardrails enforced by mechanism (ADR-0005), not trust.
 hooks:

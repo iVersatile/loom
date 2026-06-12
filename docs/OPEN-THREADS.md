@@ -101,7 +101,7 @@ convention — cf. `conformance_test.go`'s header).
 
 ---
 
-## T4 — Container PATH has no single declarative owner   🟡 open
+## T4 — Container PATH has no single declarative owner   ✅ decided + built
 Origin: a dotfiles question — "can a project-tier `bash/path.go.sh` set PATH in the
 container?" Tracing `build` revealed PATH is wired in two unrelated places, neither
 playbook-declared, and they target different shell-init files.
@@ -144,8 +144,25 @@ Lean: option 2 (engineering hardening, no spec authoring) if PATH-across-shells 
 wanted; option 1 if not. Either way the divergence should be written down before a
 `bash/path.*.sh` pattern is relied on.
 
-Promote to: a small engine change + SPEC-playbook note (opt 1/2), or an
-ADR-0004/SPEC-playbook edit + FR (opt 3).
+**DECIDED (human, 2026-06-11 evening; draft 014 → envelope 020): option 2 +
+option 1's spec note. Built 2026-06-12 (branch fix/t4-path-single-owner):**
+- Shell-init converged + UNCONDITIONAL: `ensureShellInit` runs on every
+  Ensure path (create and converge), never gated on the tool set; one loader
+  sources `~/.bashrc.d/*.sh` from BOTH `.profile` and `.bashrc` ($HOME-based,
+  T10 prep; grep-guarded so pre-T4 containers don't duplicate).
+- Go PATH left engine-hardcoded shell-appends and became a GENERATED dotfile
+  `~/.bashrc.d/path.go.sh` emitting `$HOME/go/bin`, not `/root/go/bin`; the
+  claude-code `~/.local/bin` appends became `path.local.sh` (same class).
+  Generated files ride the staging dir: home-digest covers drift, plan/doctor
+  grade them (F2/C1 parity), audit names them.
+- Option 3 (`path:` field) explicitly REJECTED for Phase 1 — reopen only if a
+  second stack needs PATH-ordering semantics (SPEC-playbook note records this).
+- Edge accepted: a pre-T4 container whose sentinels are all clean keeps the
+  old wiring until any home/provision change (or --force) re-converges it.
+
+Pointers: SPEC-playbook "Shell config model" · FR-BUILD-011 · draft 014 /
+envelope 020 · internal/engine/materialize.go (expectedPathDotfiles) ·
+internal/engine/container.go (ensureShellInit).
 
 ---
 

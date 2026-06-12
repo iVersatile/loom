@@ -154,6 +154,26 @@ rather than key-merge. For Phase 1 the statusline lives in the **base** tier onl
 no project overrides it; key-level JSON merge for `settings.json` is **deferred** (see
 Open questions and ADR-0004 "revisit if").
 
+## Shell config model (T4, decided 2026-06-11)
+
+One dotfile directory — `~/.bashrc.d/` — owns shell configuration for **all**
+shell types: the engine wires both login (`.profile`) and interactive
+(`.bashrc`) init files to source every `~/.bashrc.d/*.sh`, unconditionally
+(not gated on the tool set). A `bash/*` dotfile therefore applies however the
+shell is invoked, including the non-interactive login shells `exec`/`shell`
+use.
+
+**PATH is dotfile-owned.** Stack and agent PATH entries the engine knows about
+(the Go toolchain's `$HOME/go/bin`, an agent's `$HOME/.local/bin`) are
+**engine-generated dotfiles** in the same directory (`path.go.sh`,
+`path.local.sh`) — staged, drift-graded, and audited exactly like declared
+dotfiles; they emit `$HOME`, never a hardcoded user home. A project needing
+more PATH ships its own `bash/path.*.sh` dotfile.
+
+**There is deliberately NO `path:` field** in the schema. Rejected for
+Phase 1; reopen only if a second stack needs PATH-ordering semantics
+(ADR-0004 "revisit if" class).
+
 ## `harness:` section (added 2026-06-11, ADR-0015)
 
 Harness-home config — artifacts with semantics plain dotfiles lack: hook

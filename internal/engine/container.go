@@ -160,11 +160,19 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		if !reprovision && !homeSync {
 			return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "exists"}, nil
 		}
+		// Shell-init is wired on every converge, UNCONDITIONALLY — not gated
+		// on the tool set (T4): a toolless playbook's ~/.bashrc.d dotfiles
+		// must be sourced too, in login and interactive shells alike.
+		if err := ensureShellInit(spec.Name, spec.LogW); err != nil {
+			return ContainerInfo{}, err
+		}
+		synced := false
 		if spec.HomeDir != "" {
 			if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
 				return ContainerInfo{}, fmt.Errorf("docker cp home (reconcile): %v: %s", err, out)
 			}
 			writeHomeSentinel(spec.Name, homeWant, spec.LogW)
+			synced = true
 		}
 		// Provision (tool/agent install) stays gated on its own digest: a
 		// dotfile-only change must not re-run apt/go-install (T7/T4 interplay).
@@ -173,7 +181,7 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 				return ContainerInfo{}, err
 			}
 		}
-		return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "converged"}, nil
+		return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "converged", HomeSynced: synced}, nil
 	}
 	hostHome, _ := os.UserHomeDir()
 	credsPath := filepath.Join(hostHome, ".claude", ".credentials.json")
@@ -182,18 +190,25 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	if out, err := dockerLogged(spec.LogW, runArgs...); err != nil {
 		return ContainerInfo{}, fmt.Errorf("docker run: %v: %s", err, out)
 	}
+	// Unconditional shell-init (T4): wired on create regardless of the tool
+	// set, so the loader exists before any home sync or provision step.
+	if err := ensureShellInit(spec.Name, spec.LogW); err != nil {
+		return ContainerInfo{}, err
+	}
+	synced := false
 	if spec.HomeDir != "" {
 		if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
 			return ContainerInfo{}, fmt.Errorf("docker cp home: %v: %s", err, out)
 		}
 		writeHomeSentinel(spec.Name, homeDigest(spec.HomeDir), spec.LogW)
+		synced = true
 	}
 	if len(spec.Tools) > 0 || len(spec.Agents) > 0 {
 		if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), spec.LogW); err != nil {
 			return ContainerInfo{}, err
 		}
 	}
-	return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "created"}, nil
+	return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "created", HomeSynced: synced}, nil
 }
 
 // Teardown removes the per-project container, and (by tier) its volumes and
@@ -225,6 +240,29 @@ func (dockerRuntime) Teardown(name, level string, cleanState bool, logw io.Write
 		}
 	}
 	return r, nil
+}
+
+// shellInitScript wires the ONE shell-config loader (T4): both login
+// (.profile) and interactive (.bashrc) shells source every ~/.bashrc.d/*.sh,
+// so the single dotfile dir owns shell config for every shell type.
+// Idempotent (grep guard — also matches the loader older builds appended to
+// .bashrc, so upgrades don't duplicate it). $HOME, never /root: the same
+// wiring survives T10's non-root user.
+const shellInitScript = `loader='for f in "$HOME"/.bashrc.d/*.sh; do [ -r "$f" ] && . "$f"; done'
+mkdir -p "$HOME/.bashrc.d"
+for rc in "$HOME/.profile" "$HOME/.bashrc"; do
+  grep -qs bashrc.d "$rc" || printf '%s\n' "$loader" >> "$rc"
+done`
+
+// ensureShellInit runs the shell-init wiring inside the container. Called on
+// EVERY Ensure path (create and converge), never gated on tools — the T4 fix
+// for "a toolless playbook copies bash/* dotfiles but never sources them".
+// NOTE: integration-validated (docker host), not the local gate.
+func ensureShellInit(name string, logw io.Writer) error {
+	if out, err := dockerLogged(logw, "exec", name, "sh", "-c", shellInitScript); err != nil {
+		return fmt.Errorf("shell-init: %v: %s", err, out)
+	}
+	return nil
 }
 
 // provision copies the script into the container as a file and execs it (more
@@ -543,8 +581,7 @@ func provisionScript(tools []ToolInstall, agents []AgentInstall) string {
 GOVER="$(retry curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)"
 retry curl -fsSL "https://go.dev/dl/${GOVER}.linux-${ARCH}.tar.gz" -o /tmp/go.tgz
 rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz && rm -f /tmp/go.tgz
-export PATH="$PATH:/usr/local/go/bin:/root/go/bin"
-echo 'export PATH=$PATH:/usr/local/go/bin:/root/go/bin' >> /root/.profile
+export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin"
 # Keep memory-heavy installs (gopls) alive on a small VM / ~7GB CI box: serialize
 # the build (-p=1, GOMAXPROCS=1) and cap the Go heap (GOMEMLIMIT) so the GC stays
 # under the ceiling instead of OOMing. Trades build speed for survival.
@@ -559,16 +596,17 @@ export GOMEMLIMIT=1GiB
 	if needUv {
 		b.WriteString("retry sh -c 'curl -fsSL https://astral.sh/uv/install.sh | sh'\n")
 	}
-	// Install declared agent harnesses (T8). claude-code's native installer needs
-	// no Node; it lands at ~/.local/bin, so put that on PATH for both login
-	// (.profile) and interactive (.bashrc) shells (ties to T4's PATH split).
+	// Install declared agent harnesses (T8). claude-code's native installer
+	// needs no Node; it lands at ~/.local/bin — persistent PATH for it comes
+	// from the generated ~/.bashrc.d/path.local.sh dotfile (T4), not from
+	// appends here.
 	for _, a := range agents {
 		b.WriteString(agentInstallCmd(a))
 	}
 
-	// Make bash load the materialized per-project prompt from ~/.bashrc.d.
-	b.WriteString("grep -q bashrc.d /root/.bashrc 2>/dev/null || " +
-		"echo 'for f in ~/.bashrc.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done' >> /root/.bashrc\n")
+	// Shell-init wiring (the ~/.bashrc.d loader) is NOT here: it is owned by
+	// ensureShellInit, which runs unconditionally on every Ensure — a toolless
+	// playbook gets its dotfiles sourced too (T4).
 	// Provision sentinel, written LAST: marks the container converged to this exact
 	// tool set so a re-build can tell "fully provisioned" from "interrupted"
 	// (ADR-0011). set -e above guarantees we never reach here on a failed install.
@@ -577,16 +615,14 @@ export GOMEMLIMIT=1GiB
 	return b.String()
 }
 
-// agentInstallCmd emits the provision step that installs one agent harness and
-// puts it on PATH. Unknown agents (no installer yet) emit nothing — they are
-// still recorded in the provision digest so the intent is tracked.
+// agentInstallCmd emits the provision step that installs one agent harness.
+// Unknown agents (no installer yet) emit nothing — they are still recorded in
+// the provision digest so the intent is tracked. PATH wiring is dotfile-owned
+// (~/.bashrc.d/path.local.sh, T4), never appended to shell-init files here.
 func agentInstallCmd(a AgentInstall) string {
 	switch a.Name {
 	case "claude-code":
-		const localBin = "$PATH:$HOME/.local/bin"
-		return "retry sh -c 'curl -fsSL https://claude.ai/install.sh | bash'\n" +
-			"grep -q '.local/bin' /root/.profile 2>/dev/null || echo 'export PATH=" + localBin + "' >> /root/.profile\n" +
-			"grep -q '.local/bin' /root/.bashrc 2>/dev/null || echo 'export PATH=" + localBin + "' >> /root/.bashrc\n"
+		return "retry sh -c 'curl -fsSL https://claude.ai/install.sh | bash'\n"
 	default:
 		return ""
 	}
