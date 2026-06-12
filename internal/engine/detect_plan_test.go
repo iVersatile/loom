@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -220,4 +221,17 @@ func hasInstall(items []InstallItem, tool string) bool {
 		}
 	}
 	return false
+}
+
+// TestPlanHumanNamesTarget: the human verdict names the container it grades
+// (guided-run finding ⑤ — a target-less verdict can't be safety-checked
+// without --json).
+func TestPlanHumanNamesTarget(t *testing.T) {
+	res, err := planImpl(PlanOpts{PlaybookPath: testFixture}, fakeRuntime{exists: false})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if want := containerName("loom"); !strings.Contains(res.Human(), want) {
+		t.Errorf("plan human line should name %q, got %q", want, res.Human())
+	}
 }
