@@ -83,6 +83,25 @@ an agent can `plan` then `build` unattended; guardrails block a destructive test
 FR registry seeded from verb contracts; verify FR↔test and FR↔spec checks green
 (advisory during the phase, blocking at phase close).
 
+**Status: CLOSED 2026-06-12 (human).** Exit criteria met with evidence:
+- *Fresh machine, one guided run* — executed 2026-06-11, human verdict in
+  docs/guided-run.md (go 1.26.4 in-container via exec; build 3m08s, rebuild
+  2.5s, teardown clean); findings ①–⑨ filed and fixed (#79, #82–#84).
+- *Agent can plan then build unattended* — dogfood exceeded: `loom exec --
+  make gate` PASS on the Mac host (T12 criterion 5, loom-native); plan/build
+  convergence disagreement found and fixed (#79, FR-PLAN-003).
+- *Guardrails block a destructive test* — guard suite green plus live
+  specimens on record (guard-bash H4 block; deny floor held under the
+  2026-06-12 auto-trial stress, docs/trial-auto-evidence.md).
+- *FR registry seeded, FR↔test / FR↔spec checks green* — fr-verify is a
+  required branch-protection check; FR-BUILD-008 clean-machine proxy (#47).
+
+Phase-close review gate (P7, first application): docs/reviews/phase-1-review.md
+— C1 Critical (guardrails not wired into built containers) ruled fix-now,
+fixed #92, and verified live by the build-under-session e2e the same day;
+H2–H4 and F1/F2 fixed in the same batch. No waivers outstanding.
+Phase 2 is the active phase.
+
 ## Phase 2 — Evolution + second stack
 - `update` (delta reconcile; real removal). Add a Python or TS stack to prove
   container-per-project with different stacks side-by-side (ADR-0001).
