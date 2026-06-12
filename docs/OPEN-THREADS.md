@@ -691,3 +691,44 @@ narrates it.
 
 Pointers: `.claude/skills/achievements/` · inbox item 005 · T21 (transport
 that carried it) · `/replan` (sibling skill).
+
+---
+
+## T25 — context economy + intake lane + /coordinate   🟢 decided — transcription (this PR)
+**Problem.** Cross-role context still travels by relay (the trial-flip
+schedule existed only in a conversation), discussion residue mints ad-hoc
+inbox items ("the old way"), and the coordinator hat runs by hand with no
+defined authority. Three gaps, one economy.
+
+**Decision (human-blessed as-is 2026-06-11, advisor discussion; C3
+transcription — acceptance via merge; inbox item 012, five parts, ONE
+package — amendments append to the item, never sibling-mint).**
+- *Context economy (TEAM.md clause):* state lives in artifacts, channels
+  carry intent + work only; as-of timestamps on anything written-for-later,
+  ground truth re-read at act time; one decision = one envelope; gates are
+  events, never times (schedules live with the human); new channels pay
+  rent — name the failing channel and what is retired.
+- *Inbox kinds:* `fyi` — ephemeral context, drain skips BEFORE the orphan
+  check, no `serves:` needed, read at orientation → READ, pruned at next
+  session-end. `draft` — non-expiring intake, never ridden, never pruned,
+  lives until a /coordinate verdict.
+- */coordinate (skill, two modes):* read (any role, report-only standup) ·
+  verdict (draft triage: promote | merge-into | park | drop) — output ONE
+  batch PR; the PR is the proposal, disposal stays with the arming role.
+- *Authority (pinned to the HAT, not the skill):* propose-only always;
+  arming = advisor review act; frozen paths keep human admin-merge;
+  scheduled runs = hat-holder only (non-hat runs marked); self-verdict
+  flags for items the runner authored or that route work to/from the
+  runner; drops always need cross-role ack.
+- *Cadence:* daily coordinator run under the advisor hat, rendered
+  yesterday/today/blockers into the 08:00Z slot; absorbs the trial daily
+  audit during trial week. No synchronous ceremony.
+
+Deferred BY NAME: per-role status boards (only if fyi proves insufficient —
+channel rent); coordinator as separate agent (promotion by evidence;
+prerequisite T18).
+
+Pointers: TEAM.md "Cross-session transport" + "Context economy" ·
+`.claude/hooks/drain-inbox.sh` (kind guards) · `guard.TestDrainSkips*` ·
+`.claude/skills/coordinate/` · inbox item 012 · T21/T23 (the transport
+this governs).
