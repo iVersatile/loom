@@ -962,7 +962,19 @@ self-audit, host security map) · AGENTS.md "guardrails are mechanism not trust"
 
 ---
 
-## T29 — guard-bash segment-aware evaluation: precision without weakening   🟢 design drafted, needs red-team
+## T29 — guard-bash segment-aware evaluation: precision without weakening   ✅ implemented 2026-06-12 (envelope 046)
+
+**Status flip (rides the impl PR per the red-team verdict):** advisor
+red-team 2026-06-12 returned CONDITIONAL PASS; all five binding amendments
+landed with the implementation — (1) two-pass fail-closed as drafted;
+(2) both specimen patterns re-anchored (recursive-delete on path root,
+force-push within one logical command) with was-false-blocking regressions;
+(3) per-segment hit fires the pattern's own class action; (4) broad
+indirection taint (any assignment + any expansion ⇒ whole-line semantics);
+(5) ONE shared splitter (`config/hooks/segment-split`) with cross-segment
+trace markers. guard-bash sources the splitter; allow-compound.sh adoption
+is a human-applied diff (trust-config path, 029.C/#120). Tests:
+`internal/guard` TestT29* (6 suites) + full FR-GUARD set green.
 Origin: queue row "guard-bash segment-aware evaluation". Two live false-block
 specimens (2026-06-12, item 028 note b): a `--force…main` pattern matched ACROSS
 unrelated `&&`-chain segments; the recursive-delete pattern anchors on the slash

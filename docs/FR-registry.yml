@@ -380,9 +380,17 @@ requirements:
     # Phase-1 review H3/H4: fixed substrings fell to spacing tricks and
     # alternate tools; hook-path redirects, credential reach, and raw-socket /
     # interpreter one-liner egress were unmatched entirely.
-    statement: guard-bash blocks its defined class of dangerous bash — including whitespace-normalized variants, alternate privilege tools, case-folded core.hooksPath redirects, credential-file reach, and /dev/tcp + interpreter one-liner egress — and allows benign commands.
-    source: [RULES.md#§5, config/hooks/guard-bash]
-    tests: { suite: guard.TestGuardBashBlocksDangerousAllowsBenign + guard.TestGuardBashBlocksBypassClasses, patterns: all }
+    # T29 (envelope 046, red-teamed): evaluation is segment-aware two-pass
+    # fail-closed — per-segment on certain splits (shared splitter:
+    # segment-split), whole-line legacy always (the deny match set never
+    # shrinks; cross-segment hits block WITH a trace marker), indirection
+    # conjunction for assignment+expansion. Licensed re-anchorings:
+    # recursive-delete on path root; force-push within one logical command
+    # (gaining flag-order coverage) — each pinned by a was-false-blocking
+    # regression.
+    statement: guard-bash blocks its defined class of dangerous bash — including whitespace-normalized variants, alternate privilege tools, case-folded core.hooksPath redirects, credential-file reach, /dev/tcp + interpreter one-liner egress, root-anchored recursive deletes, segment-anchored force-pushes in any flag order, and assignment+expansion force-push indirection — and allows benign commands, including the two 2026-06-12 false-block specimens.
+    source: [RULES.md#§5, config/hooks/guard-bash, config/hooks/segment-split]
+    tests: { suite: guard.TestGuardBashBlocksDangerousAllowsBenign + guard.TestGuardBashBlocksBypassClasses + guard.TestT29WasFalseBlockingSpecimens + guard.TestT29DenyFloorNeverShrinks + guard.TestT29SegmentAnchoredGainsFlagOrder + guard.TestT29IndirectionTaint, patterns: all }
     status: active
   - id: FR-GUARD-BRANCH
     kind: guardrail

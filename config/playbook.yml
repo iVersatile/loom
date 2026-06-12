@@ -39,6 +39,11 @@ hooks:
   - branch-guard
   - protect-paths
   - checkpoint-inject
+  # THE shared segment splitter (T29 amendment 5: one splitter, or they
+  # drift) — a sourced library, not an event hook: guard-bash sources it,
+  # allow-compound adopts it; listed so doctor verifies it ships next to
+  # the hooks that source it.
+  - segment-split
 
 # Harness-home config (SPEC-playbook#harness, ADR-0015): declared by
 # reference, materialized into the agent home (~/.claude) on every build via
@@ -56,3 +61,4 @@ harness:
     hooks:
       - guard-bash
       - checkpoint-inject
+      - segment-split # must land NEXT TO guard-bash (dirname-relative source)
