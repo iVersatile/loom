@@ -650,3 +650,98 @@ func TestDoctorGradesGithooksWiring(t *testing.T) {
 		t.Error("project without .githooks must get no githooks verdict")
 	}
 }
+
+// TestBuildSummaryCountsWrites (live-build e2e F-a): the human summary must
+// distinguish "ensured" (full declared set, idempotence) from "written"
+// (what THIS run changed) — it once printed "4 materialized" on a 0-write
+// re-run, indistinguishable from a run that rewrote the world.
+func TestBuildSummaryCountsWrites(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "created"}}
+
+	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock)
+	if err != nil {
+		t.Fatalf("first build: %v", err)
+	}
+	if res.Written == 0 || res.Written != len(res.Materialized) {
+		t.Errorf("first build: written=%d materialized=%d, want all written", res.Written, len(res.Materialized))
+	}
+
+	res2, err := buildImpl(BuildOpts{PlaybookPath: pbPath},
+		fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "exists"}}, fixedClock)
+	if err != nil {
+		t.Fatalf("re-build: %v", err)
+	}
+	if res2.Written != 0 || len(res2.Materialized) == 0 {
+		t.Errorf("idempotent re-build: written=%d materialized=%d, want 0 written / full ensured set",
+			res2.Written, len(res2.Materialized))
+	}
+	if !strings.Contains(res2.Human(), "0 written") {
+		t.Errorf("human summary must carry the write count, got %q", res2.Human())
+	}
+}
+
+// TestBuildAuditsHomeSync (live-build e2e F-b): the bulk docker cp ships every
+// staged file — files no staging-write entry names. When the runtime reports
+// the sync happened, the audit log carries ONE home.sync entry naming the
+// shipped set; when it didn't (exists/no-op), no such entry is invented.
+func TestBuildAuditsHomeSync(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+
+	// Converge WITH a home sync but zero staging writes (the e2e shape:
+	// "4 materialized, only 2 audited" — now the sync itself is the entry).
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath},
+		fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "created"}}, fixedClock); err != nil {
+		t.Fatalf("seed build: %v", err)
+	}
+	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath},
+		fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "converged", HomeSynced: true}}, fixedClock)
+	if err != nil {
+		t.Fatalf("converge build: %v", err)
+	}
+	if res.Written != 0 {
+		t.Fatalf("precondition: want a 0-staging-write run, got written=%d", res.Written)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".loom", "actions.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"home.sync"`) {
+		t.Error("audit log missing the home.sync entry for a synced run")
+	}
+	if !strings.Contains(string(data), "prompt.go.sh") {
+		t.Error("home.sync entry should name the shipped files")
+	}
+	// A no-op run (exists, no sync) must not invent one.
+	before := countLogLines(t, root)
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath},
+		fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "exists"}}, fixedClock); err != nil {
+		t.Fatalf("noop build: %v", err)
+	}
+	if got := countLogLines(t, root); got != before {
+		t.Errorf("no-op run appended %d audit entries, want 0", got-before)
+	}
+}
+
+// TestDiagLogAppendsAcrossRuns (live-build e2e F-c): the per-verb diagnostic
+// log must accumulate runs (separator-demarcated), never truncate — run 1's
+// forensics were gone by run 2.
+func TestDiagLogAppendsAcrossRuns(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "created"}}
+	for i := 0; i < 2; i++ {
+		if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err != nil {
+			t.Fatalf("build %d: %v", i+1, err)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".loom", "logs", "build.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(data), "----- loom build run -----"); got != 2 {
+		t.Errorf("diag log holds %d run separators, want 2 (append, not truncate)\n---\n%s", got, data)
+	}
+}
