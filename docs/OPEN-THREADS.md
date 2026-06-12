@@ -892,7 +892,7 @@ self-audit, host security map) · AGENTS.md "guardrails are mechanism not trust"
 
 ---
 
-## T28 — guard-bash segment-aware evaluation: precision without weakening   🟢 design drafted, needs red-team
+## T29 — guard-bash segment-aware evaluation: precision without weakening   🟢 design drafted, needs red-team
 Origin: queue row "guard-bash segment-aware evaluation". Two live false-block
 specimens (2026-06-12, item 028 note b): a `--force…main` pattern matched ACROSS
 unrelated `&&`-chain segments; the recursive-delete pattern anchors on the slash
