@@ -139,6 +139,39 @@ func expectedHarness(src fs.FS, harness map[string]playbook.HarnessAgent, homeDi
 	return out, nil
 }
 
+// expectedPathDotfiles is the engine-generated shell-config set (T4): the
+// PATH lines that used to be ad-hoc appends to /root/.profile inside the
+// provision script. Generated into ~/.bashrc.d so ONE dotfile dir owns shell
+// config: they ride the same staging dir as declared dotfiles (the T7 home
+// digest covers drift, plan grades them, the audit log names them) and the
+// unconditional shell-init loader sources them in login AND interactive
+// shells. $HOME, never /root — the same file works under T10's non-root user.
+// Keyed on the resolved install sources, mirroring provisionScript's needGo.
+func expectedPathDotfiles(tools []ToolInstall, agents []AgentInstall, homeDir string) []homeFile {
+	var out []homeFile
+	add := func(base, line string) {
+		out = append(out, homeFile{
+			Target:  filepath.Join(homeDir, ".bashrc.d", base),
+			Display: "~/.bashrc.d/" + base,
+			Data:    []byte(line + "\n"),
+			Mode:    0o755,
+		})
+	}
+	for _, t := range tools {
+		if t.Source == "go-tarball" || t.Source == "go-install" {
+			add("path.go.sh", `export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin"`)
+			break
+		}
+	}
+	for _, a := range agents {
+		if a.Name == "claude-code" {
+			add("path.local.sh", `export PATH="$PATH:$HOME/.local/bin"`)
+			break
+		}
+	}
+	return out
+}
+
 // materializeFiles writes an expected file set through the write-if-changed
 // pipeline. Idempotent: a target whose content already matches is left
 // untouched (Changed=false).
@@ -179,11 +212,11 @@ func materializeHarness(src fs.FS, harness map[string]playbook.HarnessAgent, hom
 }
 
 // stagedHomeDrift reports the ~/-relative names of declared $HOME artifacts
-// (dotfiles + harness) whose staged copy under homeDir is missing, stale, or
-// carries the wrong mode — a read-only dry run of materialize, for plan and
-// doctor (F2/C1: a verdict about wiring must grade the same surface build
-// converges).
-func stagedHomeDrift(src fs.FS, pb *playbook.Playbook, homeDir string) ([]string, error) {
+// (dotfiles + harness + the engine-generated set, e.g. T4 PATH dotfiles)
+// whose staged copy under homeDir is missing, stale, or carries the wrong
+// mode — a read-only dry run of materialize, for plan and doctor (F2/C1: a
+// verdict about wiring must grade the same surface build converges).
+func stagedHomeDrift(src fs.FS, pb *playbook.Playbook, generated []homeFile, homeDir string) ([]string, error) {
 	expected, err := expectedDotfiles(src, pb.Dotfiles, homeDir)
 	if err != nil {
 		return nil, err
@@ -193,6 +226,7 @@ func stagedHomeDrift(src fs.FS, pb *playbook.Playbook, homeDir string) ([]string
 		return nil, err
 	}
 	expected = append(expected, hfiles...)
+	expected = append(expected, generated...)
 
 	// Content-only comparison, mirroring writeIfChanged exactly: drift here
 	// IS "build would write this file" — verdict and action share a domain
@@ -212,6 +246,10 @@ func stagedHomeDrift(src fs.FS, pb *playbook.Playbook, homeDir string) ([]string
 //
 //	claude/<x>  -> <home>/.claude/<x>      (env-wide Claude config, e.g. statusline)
 //	bash/<x>    -> <home>/.bashrc.d/<base> (per-project shell prompt)
+//	gitconfig   -> <home>/.gitconfig       (declared git identity, T16 PR 3 —
+//	                                        harness config by weight, plain
+//	                                        dotfile by shape per SPEC-playbook;
+//	                                        named, not hidden, in the source)
 //	<x>         -> <home>/<x>
 func dotfileTarget(home, ref string) string {
 	switch {
@@ -219,6 +257,8 @@ func dotfileTarget(home, ref string) string {
 		return filepath.Join(home, ".claude", strings.TrimPrefix(ref, "claude/"))
 	case strings.HasPrefix(ref, "bash/"):
 		return filepath.Join(home, ".bashrc.d", filepath.Base(ref))
+	case ref == "gitconfig":
+		return filepath.Join(home, ".gitconfig")
 	default:
 		return filepath.Join(home, ref)
 	}
@@ -230,6 +270,8 @@ func dotfileDisplay(ref string) string {
 		return "~/.claude/" + strings.TrimPrefix(ref, "claude/")
 	case strings.HasPrefix(ref, "bash/"):
 		return "~/.bashrc.d/" + filepath.Base(ref)
+	case ref == "gitconfig":
+		return "~/.gitconfig"
 	default:
 		return "~/" + ref
 	}

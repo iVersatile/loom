@@ -77,7 +77,7 @@ func TestLoadMergesLayers(t *testing.T) {
 	if !slices.Equal(pb.Rules, wantRules) {
 		t.Errorf("rules = %v, want %v", pb.Rules, wantRules)
 	}
-	wantDotfiles := []string{"claude/settings.json", "claude/statusline.sh", "bash/prompt.go.sh"}
+	wantDotfiles := []string{"claude/settings.json", "claude/statusline.sh", "gitconfig", "bash/prompt.go.sh"}
 	if !slices.Equal(pb.Dotfiles, wantDotfiles) {
 		t.Errorf("dotfiles = %v, want %v", pb.Dotfiles, wantDotfiles)
 	}

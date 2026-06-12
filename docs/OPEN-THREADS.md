@@ -101,7 +101,7 @@ convention — cf. `conformance_test.go`'s header).
 
 ---
 
-## T4 — Container PATH has no single declarative owner   🟡 open
+## T4 — Container PATH has no single declarative owner   ✅ decided + built
 Origin: a dotfiles question — "can a project-tier `bash/path.go.sh` set PATH in the
 container?" Tracing `build` revealed PATH is wired in two unrelated places, neither
 playbook-declared, and they target different shell-init files.
@@ -144,8 +144,25 @@ Lean: option 2 (engineering hardening, no spec authoring) if PATH-across-shells 
 wanted; option 1 if not. Either way the divergence should be written down before a
 `bash/path.*.sh` pattern is relied on.
 
-Promote to: a small engine change + SPEC-playbook note (opt 1/2), or an
-ADR-0004/SPEC-playbook edit + FR (opt 3).
+**DECIDED (human, 2026-06-11 evening; draft 014 → envelope 020): option 2 +
+option 1's spec note. Built 2026-06-12 (branch fix/t4-path-single-owner):**
+- Shell-init converged + UNCONDITIONAL: `ensureShellInit` runs on every
+  Ensure path (create and converge), never gated on the tool set; one loader
+  sources `~/.bashrc.d/*.sh` from BOTH `.profile` and `.bashrc` ($HOME-based,
+  T10 prep; grep-guarded so pre-T4 containers don't duplicate).
+- Go PATH left engine-hardcoded shell-appends and became a GENERATED dotfile
+  `~/.bashrc.d/path.go.sh` emitting `$HOME/go/bin`, not `/root/go/bin`; the
+  claude-code `~/.local/bin` appends became `path.local.sh` (same class).
+  Generated files ride the staging dir: home-digest covers drift, plan/doctor
+  grade them (F2/C1 parity), audit names them.
+- Option 3 (`path:` field) explicitly REJECTED for Phase 1 — reopen only if a
+  second stack needs PATH-ordering semantics (SPEC-playbook note records this).
+- Edge accepted: a pre-T4 container whose sentinels are all clean keeps the
+  old wiring until any home/provision change (or --force) re-converges it.
+
+Pointers: SPEC-playbook "Shell config model" · FR-BUILD-011 · draft 014 /
+envelope 020 · internal/engine/materialize.go (expectedPathDotfiles) ·
+internal/engine/container.go (ensureShellInit).
 
 ---
 
@@ -889,3 +906,53 @@ floors · LL-010 (GIT config poison) / LL-011 (role bleed) · review M7 (orphan
 substring) + H4 (guard-bash substring) + C1 (guardrail wiring) · T20 egress ·
 T15/T18 creds · T23 HALT · T27 OVERRIDE/HALT control · A01 P5/P6 (security
 self-audit, host security map) · AGENTS.md "guardrails are mechanism not trust".
+
+---
+
+## T29 — guard-bash segment-aware evaluation: precision without weakening   🟢 design drafted, needs red-team
+Origin: queue row "guard-bash segment-aware evaluation". Two live false-block
+specimens (2026-06-12, item 028 note b): a `--force…main` pattern matched ACROSS
+unrelated `&&`-chain segments; the recursive-delete pattern anchors on the slash
+after a flag, not the path root — it fired twice, the second time on a draft
+QUOTING the first block.
+
+**Problem.** guard-bash regexes evaluate the WHOLE command line. A pipeline or
+`&&` chain is several commands; a pattern whose pieces land in *different*
+segments matches a command nobody ran. Cost: false blocks (friction, S3 trial
+evidence) and false prompts (prompt-volume).
+
+**The naive fix is a weakening — named here so it can't slip in.** Splitting on
+`&&`/`;`/`|` and matching per-segment lets *variable indirection* through:
+`FLAG=--force; git push $FLAG main` — no single segment contains
+`--force…main`, but the whole line does, and today's whole-line match blocks
+it (accidentally correct). Per AGENTS.md, a deny-rule's effective match set
+must never shrink for adversarial inputs.
+
+**Design shape (proposal — advisor red-team before any code):**
+1. **Two-pass, fail-closed:** evaluate per-segment first; on any per-segment
+   hit → block (unchanged). Then evaluate whole-line; a whole-line-only hit →
+   for **deny-floor patterns**: still block (no weakening, ever); for
+   **prompt/ask-class patterns**: prompt with a "cross-segment match" note —
+   the human sees WHY it fired and the misfire feeds the allowlist evidence.
+   Net effect: deny floor keeps its full match set; only the annoyance class
+   gets segment precision.
+2. **Conservative splitting:** split only where parsing is certain (top-level
+   `&&`, `||`, `;`, `|` outside quotes/subshells); any uncertainty → treat as
+   one segment (= today's behavior). The splitter is fail-closed by shape.
+3. **Indirection taint (the hazard above):** a segment assigning a value that
+   matches any blocked TOKEN taints the whole line back to whole-line
+   semantics. Cheap, conservative, kills the `$FLAG` bypass by construction.
+4. **Tests:** the two specimens (must stop false-blocking), the `$FLAG`
+   indirection (must STILL block), quote/subshell splits (must not split),
+   and the full existing guard suite unchanged (FR-GUARD coverage:
+   `patterns: all`).
+
+**Why not implemented in the same stroke:** guard semantics are the mechanism
+the trust model stands on (AGENTS.md: would the guardrails hold if I tried the
+worst thing?). The Writer drafting AND shipping a guard-matching change inside
+an auto-mode trial is exactly the self-serving shape the review gate exists
+for — design first, adversarial review, then code.
+
+Pointers: queue row (guard-bash segment-aware) · phase-1 review H4 (guard-bash
+substring classes) · item 028 specimens · #45 evidence-based allowlist ·
+docs/auto-trial.md (S3 class).

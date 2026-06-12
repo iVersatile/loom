@@ -55,7 +55,7 @@ func TestDogfoodBasePlaybookHarnessMaterializes(t *testing.T) {
 }
 
 // TestDogfoodProjectPlaybookTrustMaterializes pins the 036 fix against the
-// repo's own config (FR-BUILD-011, ADR-0018): loom.yml's project-tier
+// repo's own config (FR-BUILD-014, ADR-0018): loom.yml's project-tier
 // harness.claude.trust declaration survives the merge, resolves in the real
 // config source, and materializes ~/.claude.json carrying the opt-in flag for
 // /workspace/loom — the file whose death-on-recreate cost a manual trust

@@ -14,6 +14,7 @@ import (
 	"github.com/iVersatile/loom/internal/guard"
 	"github.com/iVersatile/loom/internal/lock"
 	"github.com/iVersatile/loom/internal/playbook"
+	"github.com/iVersatile/loom/internal/resolver"
 )
 
 // Doctor self-checks the environment (docs/SPEC-verbs.md "doctor / verify"):
@@ -78,9 +79,40 @@ func doctorImpl(opts DoctorOpts, rt ContainerRuntime) (DoctorResult, error) {
 		ok, detail := settingsCarryGuards(resolved.Source, h)
 		res.Checks = append(res.Checks, Check{Name: "host:harness:" + agent + ":settings", OK: ok, Detail: detail})
 	}
-	if len(pb.Dotfiles)+len(pb.Harness) > 0 {
-		staging := filepath.Join(resolved.Root, ".loom", "home")
-		drift, derr := stagedHomeDrift(resolved.Source, pb, staging)
+
+	// Declared git identity (T16 PR 3): a playbook that ships `gitconfig`
+	// must declare a COMPLETE [user] identity — the materialized ~/.gitconfig
+	// is what every in-container commit signs as (TEAM.md commit-identity
+	// rule; ADR-0015 declared-config side). Doctor verifies completeness
+	// mechanically and surfaces the value; WHICH identity it is stays repo
+	// policy, reviewed at the config-source PR (human acceptance via merge).
+	for _, ref := range pb.Dotfiles {
+		if ref != "gitconfig" {
+			continue
+		}
+		data, rerr := fs.ReadFile(resolved.Source, "dotfiles/"+ref)
+		if rerr != nil {
+			res.Checks = append(res.Checks, Check{Name: "host:gitconfig", OK: false,
+				Detail: fmt.Sprintf("declared gitconfig unreadable: %v", rerr)})
+			continue
+		}
+		name, email := gitIdentity(data)
+		if name == "" || email == "" {
+			res.Checks = append(res.Checks, Check{Name: "host:gitconfig", OK: false,
+				Detail: "missing user.name/user.email — in-container commits would sign as the image default"})
+			continue
+		}
+		res.Checks = append(res.Checks, Check{Name: "host:gitconfig", OK: true,
+			Detail: fmt.Sprintf("declares %s <%s>", name, email)})
+	}
+
+	// Same expected set build writes and plan grades (F2/C1 doctrine):
+	// declared dotfiles + harness + the engine-generated PATH dotfiles (T4).
+	resolution := resolver.Resolve(pb, nullVersions{})
+	staging := filepath.Join(resolved.Root, ".loom", "home")
+	generated := expectedPathDotfiles(toolInstalls(resolution), agentInstalls(resolution), staging)
+	if len(pb.Dotfiles)+len(pb.Harness)+len(generated) > 0 {
+		drift, derr := stagedHomeDrift(resolved.Source, pb, generated, staging)
 		switch {
 		case derr != nil:
 			res.Checks = append(res.Checks, Check{Name: "host:staged-home", OK: false, Detail: derr.Error()})
@@ -172,6 +204,32 @@ func doctorImpl(opts DoctorOpts, rt ContainerRuntime) (DoctorResult, error) {
 	}
 
 	return res, nil
+}
+
+// gitIdentity scans a gitconfig for the [user] section's name and email — a
+// minimal INI walk (sections + key=value), no dependency; enough to verify the
+// declared identity is complete. Keys outside [user] are ignored.
+func gitIdentity(data []byte) (name, email string) {
+	section := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "["):
+			section = strings.Trim(line, "[]")
+		case section == "user":
+			k, v, ok := strings.Cut(line, "=")
+			if !ok {
+				continue
+			}
+			switch strings.TrimSpace(k) {
+			case "name":
+				name = strings.TrimSpace(v)
+			case "email":
+				email = strings.TrimSpace(v)
+			}
+		}
+	}
+	return name, email
 }
 
 // settingsCarryGuards parses an agent's declared settings file and verifies it

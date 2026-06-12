@@ -91,7 +91,7 @@ func TestMaterializeHarnessIdempotent(t *testing.T) {
 	}
 }
 
-// TestMaterializeHarnessTrustFlags proves FR-BUILD-011's shape: the trust
+// TestMaterializeHarnessTrustFlags proves FR-BUILD-014's shape: the trust
 // reference lands WHOLE-FILE at <home>/.<agent>.json — a SIBLING of the agent
 // home, NOT inside it (the harness reads its trust/opt-in flags from the
 // top-level state file; 036 ruling, ADR-0018) — and a dangling trust ref is

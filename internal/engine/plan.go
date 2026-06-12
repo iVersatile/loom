@@ -78,9 +78,12 @@ func planImpl(opts PlanOpts, rt ContainerRuntime) (PlanResult, error) {
 		res.Create = append(res.Create, CreateItem{Kind: "lockfile", Name: "loom.lock"})
 	}
 
-	// Staged-home dimension (F2): a read-only dry run of materialize.
+	// Staged-home dimension (F2): a read-only dry run of materialize, over
+	// the same expected set build writes — declared dotfiles + harness + the
+	// engine-generated PATH dotfiles (T4).
 	staging := filepath.Join(root, ".loom", "home")
-	drift, derr := stagedHomeDrift(resolved.Source, pb, staging)
+	generated := expectedPathDotfiles(toolInstalls(resolution), agentInstalls(resolution), staging)
+	drift, derr := stagedHomeDrift(resolved.Source, pb, generated, staging)
 	if derr != nil {
 		return res, fmt.Errorf("plan: grade staged home: %w", derr)
 	}
@@ -88,7 +91,7 @@ func planImpl(opts PlanOpts, rt ContainerRuntime) (PlanResult, error) {
 		res.Create = append(res.Create, CreateItem{Kind: "dotfile", Name: d})
 	}
 	stagedClean := len(drift) == 0
-	if stagedClean && len(pb.Dotfiles)+len(pb.Harness) > 0 {
+	if stagedClean && len(pb.Dotfiles)+len(pb.Harness)+len(generated) > 0 {
 		res.Noop = append(res.Noop, "home")
 	}
 

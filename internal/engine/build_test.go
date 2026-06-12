@@ -162,10 +162,18 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 		"go install golang.org/x/tools/gopls@latest",
 		"go install github.com/zricethezav/gitleaks/v8@latest",
 		"go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest",
-		"astral.sh/uv/install.sh", "bashrc.d",
+		"astral.sh/uv/install.sh",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("provision script missing %q\n---\n%s", want, s)
+		}
+	}
+	// T4: shell config has ONE owner. The provision script never appends to
+	// shell-init files (persistent PATH lives in ~/.bashrc.d/path.go.sh; the
+	// loader is ensureShellInit's, unconditional) and never hardcodes /root.
+	for _, never := range []string{".profile", ".bashrc", "/root/go/bin"} {
+		if strings.Contains(s, never) {
+			t.Errorf("provision script must not touch %q (T4 single owner)\n---\n%s", never, s)
 		}
 	}
 }
@@ -303,24 +311,49 @@ func TestNeedsHomeSync(t *testing.T) {
 }
 
 // TestProvisionScriptInstallsAgent pins T8: a declared agent yields its install
-// step + PATH wiring in the provision script (claude-code via the native installer,
-// no Node, landing on ~/.local/bin).
+// step in the provision script (claude-code via the native installer, no Node,
+// landing on ~/.local/bin). Its persistent PATH is dotfile-owned (T4): the
+// generated ~/.bashrc.d/path.local.sh, never an append to shell-init files here.
 func TestProvisionScriptInstallsAgent(t *testing.T) {
 	s := provisionScript(nil, []AgentInstall{{Name: "claude-code", Source: "native-installer"}})
 	for _, want := range []string{
 		"claude.ai/install.sh", // the native installer is invoked
 		"retry ",               // wrapped in the resilience retry helper
-		".local/bin",           // PATH wired so the binary is found
-		"/root/.profile",       // login shell
-		"/root/.bashrc",        // interactive shell
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("agent provision missing %q\n---\n%s", want, s)
 		}
 	}
+	for _, never := range []string{".profile", ".bashrc"} {
+		if strings.Contains(s, never) {
+			t.Errorf("agent provision must not touch %q (T4: PATH is dotfile-owned)\n---\n%s", never, s)
+		}
+	}
 	// An unknown agent emits no install step (recorded in the digest, not installed).
 	if got := provisionScript(nil, []AgentInstall{{Name: "mystery", Source: ""}}); strings.Contains(got, "install.sh") {
 		t.Errorf("unknown agent should emit no installer\n---\n%s", got)
+	}
+}
+
+// TestShellInitWiresBothShells pins T4's converged shell-init: ONE loader,
+// written to BOTH login (.profile) and interactive (.bashrc) init files, so a
+// dotfile-set PATH applies regardless of how the shell is invoked. $HOME-based
+// (T10 prep) and grep-guarded (idempotent across rebuilds and across the
+// loader line older builds appended).
+func TestShellInitWiresBothShells(t *testing.T) {
+	for _, want := range []string{
+		`"$HOME/.profile"`, // login shells load the dotfile dir
+		`"$HOME/.bashrc"`,  // interactive shells load the same dir
+		".bashrc.d",        // the one owning directory
+		"grep -qs",         // idempotence guard
+		"mkdir -p",         // dir exists even for a dotfile-less playbook
+	} {
+		if !strings.Contains(shellInitScript, want) {
+			t.Errorf("shell-init missing %q\n---\n%s", want, shellInitScript)
+		}
+	}
+	if strings.Contains(shellInitScript, "/root/") {
+		t.Errorf("shell-init must use $HOME, never /root (T10 prep)\n---\n%s", shellInitScript)
 	}
 }
 
@@ -615,5 +648,100 @@ func TestDoctorGradesGithooksWiring(t *testing.T) {
 	res, _ = doctorImpl(DoctorOpts{PlaybookPath: filepath.Join(plain, "loom.yml")}, rt)
 	if _, ok := checksByName(res)["host:githooks"]; ok {
 		t.Error("project without .githooks must get no githooks verdict")
+	}
+}
+
+// TestBuildSummaryCountsWrites (live-build e2e F-a): the human summary must
+// distinguish "ensured" (full declared set, idempotence) from "written"
+// (what THIS run changed) — it once printed "4 materialized" on a 0-write
+// re-run, indistinguishable from a run that rewrote the world.
+func TestBuildSummaryCountsWrites(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "created"}}
+
+	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock)
+	if err != nil {
+		t.Fatalf("first build: %v", err)
+	}
+	if res.Written == 0 || res.Written != len(res.Materialized) {
+		t.Errorf("first build: written=%d materialized=%d, want all written", res.Written, len(res.Materialized))
+	}
+
+	res2, err := buildImpl(BuildOpts{PlaybookPath: pbPath},
+		fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "exists"}}, fixedClock)
+	if err != nil {
+		t.Fatalf("re-build: %v", err)
+	}
+	if res2.Written != 0 || len(res2.Materialized) == 0 {
+		t.Errorf("idempotent re-build: written=%d materialized=%d, want 0 written / full ensured set",
+			res2.Written, len(res2.Materialized))
+	}
+	if !strings.Contains(res2.Human(), "0 written") {
+		t.Errorf("human summary must carry the write count, got %q", res2.Human())
+	}
+}
+
+// TestBuildAuditsHomeSync (live-build e2e F-b): the bulk docker cp ships every
+// staged file — files no staging-write entry names. When the runtime reports
+// the sync happened, the audit log carries ONE home.sync entry naming the
+// shipped set; when it didn't (exists/no-op), no such entry is invented.
+func TestBuildAuditsHomeSync(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+
+	// Converge WITH a home sync but zero staging writes (the e2e shape:
+	// "4 materialized, only 2 audited" — now the sync itself is the entry).
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath},
+		fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "created"}}, fixedClock); err != nil {
+		t.Fatalf("seed build: %v", err)
+	}
+	res, err := buildImpl(BuildOpts{PlaybookPath: pbPath},
+		fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "converged", HomeSynced: true}}, fixedClock)
+	if err != nil {
+		t.Fatalf("converge build: %v", err)
+	}
+	if res.Written != 0 {
+		t.Fatalf("precondition: want a 0-staging-write run, got written=%d", res.Written)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".loom", "actions.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"home.sync"`) {
+		t.Error("audit log missing the home.sync entry for a synced run")
+	}
+	if !strings.Contains(string(data), "prompt.go.sh") {
+		t.Error("home.sync entry should name the shipped files")
+	}
+	// A no-op run (exists, no sync) must not invent one.
+	before := countLogLines(t, root)
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath},
+		fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "exists"}}, fixedClock); err != nil {
+		t.Fatalf("noop build: %v", err)
+	}
+	if got := countLogLines(t, root); got != before {
+		t.Errorf("no-op run appended %d audit entries, want 0", got-before)
+	}
+}
+
+// TestDiagLogAppendsAcrossRuns (live-build e2e F-c): the per-verb diagnostic
+// log must accumulate runs (separator-demarcated), never truncate — run 1's
+// forensics were gone by run 2.
+func TestDiagLogAppendsAcrossRuns(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "created"}}
+	for i := 0; i < 2; i++ {
+		if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err != nil {
+			t.Fatalf("build %d: %v", i+1, err)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".loom", "logs", "build.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(data), "----- loom build run -----"); got != 2 {
+		t.Errorf("diag log holds %d run separators, want 2 (append, not truncate)\n---\n%s", got, data)
 	}
 }

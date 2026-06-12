@@ -10,6 +10,7 @@ rules:
 dotfiles:
   - claude/settings.json
   - claude/statusline.sh
+  - gitconfig
 hooks:
   - guard-bash
   - branch-guard
