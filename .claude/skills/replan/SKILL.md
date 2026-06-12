@@ -35,6 +35,12 @@ anything else in PLAN.md (the phase roadmap is human-owned) or any other file.
      `serves:` row shows no movement — taken work that stalled silently.
 3. **Re-sort** by: unblocked work first, dependency order, then serves-weight
    (cutover/criteria items above hardening), human-owned rows where they fall.
+   Re-sorting serves the work-source cascade (docs/TEAM.md "Work selection"):
+   `/replan` audits and orders the queue band only — candidate-row generation
+   on a dry queue belongs to the coordinator's daily run, never to `/replan`.
+   The mix-balance principles (p1–p5) guide serves-weight judgment; their
+   dormant mechanical variant (class tags + product-spec-outranks-meta
+   invariant) stays OFF until the pre-agreed switch trigger fires.
 4. **Output a queue-diff proposal:** the current table, the proposed table,
    and a one-line rationale per moved/changed row. If invoked with authority
    to apply (the user said so), edit the fenced section to match; otherwise

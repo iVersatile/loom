@@ -50,9 +50,11 @@ there and loom never touches it.
   │  │  statusline.sh     LIVE │  settings.local.json       LIVE│  │
   │  │  hooks/         LIVE*   │  projects/<p>/memory/      LIVE│  │
   │  │  skills/  ENGINE-LIVE*  │  session history           LIVE│  │
-  │  │  ~/.gitconfig PENDING-T16 (must declare the noreply     │  │
-  │  │   identity — docs/TEAM.md commit-identity rule; ships   │  │
-  │  │   as a dotfiles: ref, T16 PR 3)                         │  │
+  │  │  ~/.gitconfig ENGINE-LIVE (T16 PR 3: `gitconfig` dotfiles│  │
+  │  │   ref → ~/.gitconfig; base playbook declares the noreply│  │
+  │  │   identity per docs/TEAM.md; doctor host:gitconfig      │  │
+  │  │   verifies completeness; goes plain LIVE at the next    │  │
+  │  │   host `loom build`)                                    │  │
   │  └─────────────────────────┴────────────────────────────────┘  │
   │  volume survives --force/teardown; wiped only by the opt-in    │
   │  --clean-state tier (ADR-0014 addendum)                        │

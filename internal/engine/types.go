@@ -113,6 +113,14 @@ type ContainerInfo struct {
 	Name   string `json:"name"`
 	Image  string `json:"image"`
 	Status string `json:"status"`
+
+	// HomeSynced reports that this Ensure actually shipped the staged $HOME
+	// into the container (the bulk docker cp) — the signal build needs to
+	// audit the sync as ONE named mutation (live-build e2e F-b: the cp
+	// materializes files in the container that no staging-write audit entry
+	// names). Excluded from --json: frozen shape; the audit log is the
+	// durable record.
+	HomeSynced bool `json:"-"`
 }
 
 type BuildResult struct {
@@ -123,14 +131,22 @@ type BuildResult struct {
 	Actions      []string                `json:"actions"`
 	Result       string                  `json:"result"` // created | converged | noop
 
+	// Written counts the staged files this run actually rewrote — the
+	// ensured/written split (live-build e2e F-a: the summary said
+	// "4 materialized" on a 0-write idempotent re-run; ensure-count and
+	// write-count are different facts and the human line must say which).
+	// Excluded from --json (frozen shape); reconcilable against the audit
+	// log, which carries one entry per write.
+	Written int `json:"-"`
+
 	// LogPath is the diagnostic log for this run. Excluded from --json (the
 	// shape is frozen); the CLI surfaces it on stderr for troubleshooting.
 	LogPath string `json:"-"`
 }
 
 func (r BuildResult) Human() string {
-	return fmt.Sprintf("build: %s (container %s, lock_written=%t, %d materialized)",
-		r.Result, r.Container.Name, r.LockWritten, len(r.Materialized))
+	return fmt.Sprintf("build: %s (container %s, lock_written=%t, %d ensured / %d written)",
+		r.Result, r.Container.Name, r.LockWritten, len(r.Materialized), r.Written)
 }
 
 // --- teardown -------------------------------------------------------------

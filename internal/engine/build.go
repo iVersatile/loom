@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/iVersatile/loom/internal/audit"
@@ -135,16 +137,41 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		return res, fmt.Errorf("materialize harness: %w", err)
 	}
 	mats = append(mats, hmats...)
+	// T4: engine-generated PATH dotfiles ride the same staging dir — one
+	// dotfile dir owns shell config; the provision script no longer appends
+	// PATH lines to shell-init files.
+	pmats, err := materializeFiles(expectedPathDotfiles(toolInstalls(resolution), agentInstalls(resolution), home))
+	if err != nil {
+		return res, fmt.Errorf("materialize path dotfiles: %w", err)
+	}
+	mats = append(mats, pmats...)
 	for _, m := range mats {
 		res.Materialized = append(res.Materialized, m.Display)
 		if !m.Changed {
 			continue
 		}
+		res.Written++
 		changed = true
 		if id, err := log.Append(audit.Entry{
 			TS: ts, Verb: "build", Action: "materialize", Target: m.Display,
 			Result: "written", Actor: "cli",
 		}); err == nil {
+			res.Actions = append(res.Actions, id)
+		}
+	}
+
+	// Git-side guardrail wiring (C1, phase-1 review): a project that ships
+	// .githooks gets core.hooksPath converged so the commit-time guards
+	// (branch-guard/protect-paths class) actually run — a declared guard no
+	// commit path invokes is fiction. Idempotent; audited like every mutation.
+	if wired, werr := ensureGithooksPath(root); werr != nil {
+		return res, fmt.Errorf("wire githooks: %w", werr)
+	} else if wired {
+		changed = true
+		if id, aerr := log.Append(audit.Entry{
+			TS: ts, Verb: "build", Action: "githooks.wire", Target: root,
+			After: map[string]any{"core.hooksPath": ".githooks"}, Result: "written", Actor: "cli",
+		}); aerr == nil {
 			res.Actions = append(res.Actions, id)
 		}
 	}
@@ -201,6 +228,22 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		}
 	}
 
+	// Home-sync audit completeness (live-build e2e F-b): the bulk `docker cp`
+	// ships EVERY staged file into the container — including files this run
+	// did not rewrite on the host, which the per-write materialize entries
+	// above cannot account for. One entry names the full shipped set,
+	// reconcilable against `materialized` and the home digest.
+	if info.HomeSynced {
+		changed = true
+		if id, err := log.Append(audit.Entry{
+			TS: ts, Verb: "build", Action: "home.sync", Target: cname,
+			After:  map[string]any{"files": res.Materialized, "digest": homeDigest(home)},
+			Result: "synced", Actor: "cli",
+		}); err == nil {
+			res.Actions = append(res.Actions, id)
+		}
+	}
+
 	// 5. Re-pin `resolved` from inside the converged container (T5) and rewrite
 	// the lock when reality differs. A binary the container lacks stays "" —
 	// honest — never a host value. Runs only after a successful container step,
@@ -233,6 +276,27 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		res.Result = "converged"
 	}
 	return res, nil
+}
+
+// ensureGithooksPath sets repo-local core.hooksPath=.githooks when the project
+// ships a .githooks dir and the config does not already point there. Returns
+// true only when it wrote the config (idempotent: a wired repo is a no-op).
+// Not applicable (no .githooks, not a git repo) is a silent skip, not an error.
+func ensureGithooksPath(root string) (bool, error) {
+	if _, err := os.Stat(filepath.Join(root, ".githooks")); err != nil {
+		return false, nil
+	}
+	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+		return false, nil
+	}
+	out, _ := exec.Command("git", "-C", root, "config", "--local", "--get", "core.hooksPath").Output()
+	if strings.TrimSpace(string(out)) == ".githooks" {
+		return false, nil
+	}
+	if err := exec.Command("git", "-C", root, "config", "--local", "core.hooksPath", ".githooks").Run(); err != nil {
+		return false, fmt.Errorf("git config core.hooksPath: %w", err)
+	}
+	return true, nil
 }
 
 // carryForwardResolved seeds a fresh resolution's `resolved` fields from the

@@ -27,6 +27,15 @@
 **Day-7 verdict:** keep auto **iff zero S1 and zero S2**; else revert.
 Re-flip / renewal is **human-only**.
 
+**Verdict scope addendum (human-decided 2026-06-12):** the day-7 verdict
+includes an **allow-list audit** — review accumulated grants across both
+seats (`settings.local.json` allows AND per-project `allowedTools` in
+`.claude.json`, which persist independent of the trial and are NOT reverted
+by the mode flip): tidy entries with no matching review act, and hand the
+result to T28's guardrail-drift detector as its first baseline. Rationale:
+prompt-fatigue "yes-always" grows allow-lists silently (ADR-0017 caveat);
+the verdict is the natural audit point.
+
 ## 3. Rollback triggers (cumulative; act mid-week, do not wait for day 7)
 
 - **HARD — applies to BOTH roles:** any S1-class event · any write outside

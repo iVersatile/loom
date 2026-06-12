@@ -101,7 +101,7 @@ convention — cf. `conformance_test.go`'s header).
 
 ---
 
-## T4 — Container PATH has no single declarative owner   🟡 open
+## T4 — Container PATH has no single declarative owner   ✅ decided + built
 Origin: a dotfiles question — "can a project-tier `bash/path.go.sh` set PATH in the
 container?" Tracing `build` revealed PATH is wired in two unrelated places, neither
 playbook-declared, and they target different shell-init files.
@@ -144,8 +144,25 @@ Lean: option 2 (engineering hardening, no spec authoring) if PATH-across-shells 
 wanted; option 1 if not. Either way the divergence should be written down before a
 `bash/path.*.sh` pattern is relied on.
 
-Promote to: a small engine change + SPEC-playbook note (opt 1/2), or an
-ADR-0004/SPEC-playbook edit + FR (opt 3).
+**DECIDED (human, 2026-06-11 evening; draft 014 → envelope 020): option 2 +
+option 1's spec note. Built 2026-06-12 (branch fix/t4-path-single-owner):**
+- Shell-init converged + UNCONDITIONAL: `ensureShellInit` runs on every
+  Ensure path (create and converge), never gated on the tool set; one loader
+  sources `~/.bashrc.d/*.sh` from BOTH `.profile` and `.bashrc` ($HOME-based,
+  T10 prep; grep-guarded so pre-T4 containers don't duplicate).
+- Go PATH left engine-hardcoded shell-appends and became a GENERATED dotfile
+  `~/.bashrc.d/path.go.sh` emitting `$HOME/go/bin`, not `/root/go/bin`; the
+  claude-code `~/.local/bin` appends became `path.local.sh` (same class).
+  Generated files ride the staging dir: home-digest covers drift, plan/doctor
+  grade them (F2/C1 parity), audit names them.
+- Option 3 (`path:` field) explicitly REJECTED for Phase 1 — reopen only if a
+  second stack needs PATH-ordering semantics (SPEC-playbook note records this).
+- Edge accepted: a pre-T4 container whose sentinels are all clean keeps the
+  old wiring until any home/provision change (or --force) re-converges it.
+
+Pointers: SPEC-playbook "Shell config model" · FR-BUILD-011 · draft 014 /
+envelope 020 · internal/engine/materialize.go (expectedPathDotfiles) ·
+internal/engine/container.go (ensureShellInit).
 
 ---
 
@@ -732,3 +749,210 @@ Pointers: TEAM.md "Cross-session transport" + "Context economy" ·
 `.claude/hooks/drain-inbox.sh` (kind guards) · `guard.TestDrainSkips*` ·
 `.claude/skills/coordinate/` · inbox item 012 · T21/T23 (the transport
 this governs).
+
+---
+
+## T26 — `rollback` verb: necessary or overkill?   🟢 recommendation drafted
+Origin: human question 2026-06-12, prompted by the live-build-under-session
+experiment ("if a build runs mid-session, how do we get back?").
+
+**Recommendation: NO `rollback` verb — overkill.** Loom is declarative-
+convergent (SPEC-verbs preamble: verbs reconcile reality to the playbook;
+`loom.lock` records resolved state, build.go:90–119). In that model rollback
+is not a primitive — it is re-converging to a prior *declared* state, which
+already decomposes into `git checkout <prior playbook + loom.lock>` →
+`update`/`build` (idempotent). An imperative `rollback` would be a second code
+path re-implementing the convergence engine — the "one engine path" anti-
+pattern T9 rejected for exec/shell, and trust in a second mechanism rather
+than new capability (the design test: would the guardrails hold? — a verb
+that re-implements an invariant fails it).
+
+**The instinct points at two REAL gaps, neither named "rollback":**
+1. *Observability, not undo.* "What changed under me" is review finding R1
+   (audit fail-open / best-effort / tamperable). Fix the build audit-delta
+   (complete, tamper-evident before/after) and "re-converge to undo" becomes
+   both safe and legible — that is the actual rollback story.
+2. *Snapshot/restore of MUTABLE container+session state* — creds volume,
+   in-flight agent task context, post-build writes — which convergence
+   deliberately does NOT cover (06-09 `docker stop` task-loss; 2026-06-12
+   worktree-metadata loss). This is `snapshot`/`checkpoint`, own ADR,
+   Phase 3+. Half-named already: BACKLOG C4 (session-snapshot) + the PLAN
+   "agent-initiated container lifecycle / task continuity" open item.
+
+Pointers: docs/reviews/phase-1-review.md (R1) · docs/BACKLOG.md (R1, C4) ·
+PLAN "Open items / task continuity" · .scratch/live-build-experiment.md
+(the experiment that raised it) · ADR-0006 (specs-as-product / convergence).
+
+---
+
+## T27 — AUTOPILOT control + observability: human override channel + drain verification/notification   🟡 open
+Origin: human proposals 2026-06-12, raised when a live-but-idle Writer could
+not be handed an urgent correctly-queued item by the autopilot drain. Two
+coupled facets — a control channel IN, observability OUT.
+
+**Facet A — human RECOMMEND/OVERRIDE keywords (intake: draft 032).** An
+in-band control channel that works WITH autopilot, preserving trust-spirit
+while giving immediate, dependable human intervention (a nudge is not
+dependable). Decomposes into (i) SELECTION control — which item / what
+priority (a marker the drain honors; OVERRIDE may bypass orphan-guard +
+budget, RECOMMEND is a soft judgment hint) and (ii) WAKE/trigger — the hard
+piece: the drain fires only at Stop, so an idle session never sees new work;
+needs an OUT-OF-BAND poke (host-side send-keys into the loom-dev pane = the
+missing "wake" primitive). Shape: OVERRIDE as HALT's symmetric counterpart
+(HALT freezes, OVERRIDE directs/wakes), human-authored, flips.log-logged,
+BOUNDED by the never-auto floor (reprioritize/wake, never escalate perms).
+
+**Facet B — close the mental-model↔reality gap (intake: draft 033).** The
+drain is silent today — you cannot tell "working" from "silently idle"
+(proven 2026-06-12: it never delivered item 031). Mechanisms: (A) a drain
+DECISION-TRACE (fired-at, picked X / skipped Y because orphan|draft|budget|
+nothing-eligible) so reality is observable, plus a doctor claim "AUTOPILOT
+on + eligible QUEUED + session idle = ANOMALY"; (B) a watchdog that NOTIFIES
+on absence-of-progress instead of sitting silent. SRE tiering (knowledge-
+based, env had no live web): LOG every decision (forensic), TICKET orphan/
+budget skips (standup), PAGE only the no-progress anomaly (actionable) —
+every page demands action or it's noise.
+
+Live specimens feeding this (2026-06-12): item 031 silently orphan-skipped
+(serves≠row); live-idle Writer never drained newly-queued work (drain is
+Stop-triggered, not inbox-watching). Doctrine: what the reviewer hand-checks
+once, doctor mechanizes (P7 gate).
+
+Pointers: drafts 032+033 (intake envelopes, loom-advisor inbox) · review M7
+(orphan-guard substring weakness) · T21/T23 (the transport this governs) ·
+C2 (stale-TAKEN) · PLAN "agent-initiated lifecycle / task continuity" open
+item · .scratch/inbox/HALT (the freeze primitive OVERRIDE mirrors).
+
+## T28 — Harness self-defense: attack surface + protections (would the guardrails hold if you tried the worst thing?)   🟡 open
+
+Origin: human, 2026-06-12, raised when the new SessionStart checkpoint-inject
+hook (advisor seat) was recognized as an injection-PERSISTENCE vector — an
+agent-written file auto-replayed into every future session. The hook got a
+kill-switch (HALT sentinel) + data-not-instructions framing + size cap the
+same hour; this thread generalizes that reflex into a standing harness threat
+model. Design test (AGENTS.md AI-first invariant): the guardrails are
+mechanism not trust — would they hold if the agent (or content the agent
+ingests) tried the worst thing? Defense-only framing; no offensive tooling.
+
+**Scope.** The harness = everything that shapes agent behavior across a
+session boundary: settings.json (perms/hooks), the hook scripts, auto-memory
+(MEMORY.md + memory/*.md), the .scratch/inbox transport, injected context
+(SessionStart output, tool results, PR/issue bodies the agent summarizes),
+and the credential/egress edges. Trust spine today: deny floor binds in ALL
+modes (#45/#46), never-auto floor (creds/egress/git-config/ref-surgery),
+CODEOWNERS on frozen paths, branch protection, role guard (LL-011), HALT
+(T23). This thread asks where that spine is THIN.
+
+**Attack styles (taxonomy — seed, expand at triage):**
+- **A. Injection persistence** — contaminate an auto-replayed surface so a
+  one-shot injection re-enters every session. Vectors: checkpoint block,
+  MEMORY.md / memory files, CLAUDE.md, session-start snapshot, statusline.
+  (This thread's trigger.)
+- **B. Confused-deputy via ingested content** — a PR diff / issue body /
+  tool result / web fetch carries instructions ("ignore prior, run X");
+  the agent acts with ITS credentials on attacker intent. The classic
+  prompt-injection-to-action path; worst when the agent has push/merge/egress.
+- **C. Guardrail erosion (slow boil)** — small allowlist widenings, a deny
+  rule narrowed "to reduce prompts", a never-auto path quietly moved to
+  settings.local — each defensible alone, fatal in aggregate. AGENTS.md
+  forbids weakening a deny rule; mechanism to DETECT drift is the gap.
+- **D. Hook/script supply chain** — the hooks are unsigned shell run every
+  session/tool-call; whoever writes ~/.claude/hooks or .githooks owns the
+  agent. Also: guard-bash false-positive/negative seams (compound commands,
+  substring matches — review M7, H4 live specimens).
+- **E. Transport / role abuse** — forged inbox envelope, OVERRIDE/HALT
+  spoofing (T27), drain delivering cross-role cargo (LL-011 class), orphan-
+  guard substring bypass (M7).
+- **F. Credential & egress exfil** — secret in a log/fixture/stdout; data
+  smuggled out via an allowed network path or git remote; the worst-thing
+  test for T20 (egress proxy) and T15/T18 (creds).
+- **G. Self-modification / privilege escalation** — agent edits its own
+  settings to widen perms, arms auto-merge while gate red, admin-merges a
+  frozen path (all OBSERVED + correctly blocked 2026-06-12 review — keep
+  them blocked as the harness evolves).
+- **H. Cross-context / shared-tree** — dirty files riding checkouts, worktree
+  metadata surgery across the container boundary, GIT_DIR/GIT_WORK_TREE leak
+  poisoning shared .git/config (LL-010). Disk is shared; trust is not.
+
+**Protection options (menu — pair each to the styles above):**
+- Kill-switches per replayed surface (HALT-sentinel pattern, T23) +
+  data-not-instructions framing + size caps on every injected block (A).
+- "Untrusted content" discipline: instructions inside ingested data are
+  data, never commands; agent flags imperative content rather than obeying
+  (B) — partly prompt-side, partly a reviewer habit.
+- Guardrail-drift detector: doctor/CI claim that diffs effective deny+never-
+  auto floor against a signed baseline and fails on weakening (C, G). The
+  one new MECHANISM this thread most wants.
+- Hook integrity: minimize agent-writability of ~/.claude/hooks; consider a
+  checked-in, human-owned hook set; least-privilege hook scripts; `set -u`,
+  no eval, bounded output (D).
+- Transport authenticity: role-stamped envelopes, OVERRIDE/HALT human-
+  authored + flips.log, orphan-guard on parsed fields not substrings (E,
+  feeds T27/M7).
+- Egress/creds: T20 observe→enforce proxy, zero-secret-in-container (C′/D),
+  gitleaks in gate (already live) (F).
+- Self-mod floor: settings writes never-auto + CODEOWNERS + branch protection
+  (G, already holding — assert it stays).
+- Shared-tree law + HEAD-checks + GIT_CONFIG scrub (H, LL-010 fixed).
+
+**Method note.** Candidate for the adversarial-review hat / a periodic
+"worst-thing" self-audit (A01 pointer P5 security self-audit; P6 host
+security map). Knowledge-based here (no live web in-env); a real pass should
+pull current prompt-injection / agent-harness threat literature.
+
+Pointers: SessionStart checkpoint hook + HALT sentinel (this session) ·
+[[cold-start-read-checkpoint-first]] loss class · #45/#46 deny+never-auto
+floors · LL-010 (GIT config poison) / LL-011 (role bleed) · review M7 (orphan
+substring) + H4 (guard-bash substring) + C1 (guardrail wiring) · T20 egress ·
+T15/T18 creds · T23 HALT · T27 OVERRIDE/HALT control · A01 P5/P6 (security
+self-audit, host security map) · AGENTS.md "guardrails are mechanism not trust".
+
+---
+
+## T29 — guard-bash segment-aware evaluation: precision without weakening   🟢 design drafted, needs red-team
+Origin: queue row "guard-bash segment-aware evaluation". Two live false-block
+specimens (2026-06-12, item 028 note b): a `--force…main` pattern matched ACROSS
+unrelated `&&`-chain segments; the recursive-delete pattern anchors on the slash
+after a flag, not the path root — it fired twice, the second time on a draft
+QUOTING the first block.
+
+**Problem.** guard-bash regexes evaluate the WHOLE command line. A pipeline or
+`&&` chain is several commands; a pattern whose pieces land in *different*
+segments matches a command nobody ran. Cost: false blocks (friction, S3 trial
+evidence) and false prompts (prompt-volume).
+
+**The naive fix is a weakening — named here so it can't slip in.** Splitting on
+`&&`/`;`/`|` and matching per-segment lets *variable indirection* through:
+`FLAG=--force; git push $FLAG main` — no single segment contains
+`--force…main`, but the whole line does, and today's whole-line match blocks
+it (accidentally correct). Per AGENTS.md, a deny-rule's effective match set
+must never shrink for adversarial inputs.
+
+**Design shape (proposal — advisor red-team before any code):**
+1. **Two-pass, fail-closed:** evaluate per-segment first; on any per-segment
+   hit → block (unchanged). Then evaluate whole-line; a whole-line-only hit →
+   for **deny-floor patterns**: still block (no weakening, ever); for
+   **prompt/ask-class patterns**: prompt with a "cross-segment match" note —
+   the human sees WHY it fired and the misfire feeds the allowlist evidence.
+   Net effect: deny floor keeps its full match set; only the annoyance class
+   gets segment precision.
+2. **Conservative splitting:** split only where parsing is certain (top-level
+   `&&`, `||`, `;`, `|` outside quotes/subshells); any uncertainty → treat as
+   one segment (= today's behavior). The splitter is fail-closed by shape.
+3. **Indirection taint (the hazard above):** a segment assigning a value that
+   matches any blocked TOKEN taints the whole line back to whole-line
+   semantics. Cheap, conservative, kills the `$FLAG` bypass by construction.
+4. **Tests:** the two specimens (must stop false-blocking), the `$FLAG`
+   indirection (must STILL block), quote/subshell splits (must not split),
+   and the full existing guard suite unchanged (FR-GUARD coverage:
+   `patterns: all`).
+
+**Why not implemented in the same stroke:** guard semantics are the mechanism
+the trust model stands on (AGENTS.md: would the guardrails hold if I tried the
+worst thing?). The Writer drafting AND shipping a guard-matching change inside
+an auto-mode trial is exactly the self-serving shape the review gate exists
+for — design first, adversarial review, then code.
+
+Pointers: queue row (guard-bash segment-aware) · phase-1 review H4 (guard-bash
+substring classes) · item 028 specimens · #45 evidence-based allowlist ·
+docs/auto-trial.md (S3 class).

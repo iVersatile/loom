@@ -106,3 +106,41 @@ func TestExecAuditsCommandAndExit(t *testing.T) {
 		t.Errorf("audit after = %+v, want the command string and exit 7", e.After)
 	}
 }
+
+// TestExecRefusesUnauditable (H2, phase-1 review): exec is the agent-facing
+// door; an exec that cannot append its audit entry must not run AT ALL —
+// fail-closed, never a silent unaudited passthrough (FR-EXEC-003).
+func TestExecRefusesUnauditable(t *testing.T) {
+	root := tempProject(t)
+	// .loom occupied by a FILE → audit.Open cannot create the log dir.
+	if err := os.WriteFile(filepath.Join(root, ".loom"), []byte("squat"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := &execCall{}
+	rt := fakeRuntime{exists: true, execRecord: rec}
+	_, err := execImpl(ExecOpts{PlaybookPath: filepath.Join(root, "loom.yml"), Command: []string{"true"}}, rt, fixedClock)
+	if err == nil || !strings.Contains(err.Error(), "unaudited") {
+		t.Fatalf("unauditable exec must refuse loudly, got err=%v", err)
+	}
+	if rec.started || rec.argv != nil {
+		t.Errorf("refused exec must not touch the container: %+v", rec)
+	}
+}
+
+// TestShellRefusesUnauditable: the shell path shares exec's fail-closed audit
+// gate — no session-open record possible, no session (FR-SHELL-001).
+func TestShellRefusesUnauditable(t *testing.T) {
+	root := tempProject(t)
+	if err := os.WriteFile(filepath.Join(root, ".loom"), []byte("squat"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := &execCall{}
+	rt := fakeRuntime{exists: true, execRecord: rec}
+	_, err := shellImpl(ShellOpts{PlaybookPath: filepath.Join(root, "loom.yml")}, rt, fixedClock)
+	if err == nil || !strings.Contains(err.Error(), "unaudited") {
+		t.Fatalf("unauditable shell must refuse loudly, got err=%v", err)
+	}
+	if rec.started || rec.argv != nil {
+		t.Errorf("refused shell must not touch the container: %+v", rec)
+	}
+}

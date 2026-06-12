@@ -164,6 +164,47 @@ never only in an envelope).
 - **Coordinator as a separate agent stays deferred BY NAME** — promotion by
   evidence (volume or conflict-of-interest incidents; prerequisite T18).
 
+## Work selection (T25 family — human-blessed 2026-06-11, transcribed from envelope 023)
+
+**Work-source cascade** — the order any role finds its next work; the
+coordinator *generates*, never assigns:
+
+1. **Drain** — inbox cargo (QUEUED envelopes, drain rules above).
+2. **Queue rows** — unblocked rows in docs/PLAN.md, dependency order.
+3. **Queue dry?** The coordinator's DAILY run (never per-session, never an
+   auto-`/replan` at session start) generates candidate rows from **spec
+   gaps** — uncovered FRs, clauses without FRs, spec'd-but-unbuilt verbs
+   (spec-map yellow/red), unmet phase criteria — and **proposes** rows
+   (propose-only; the human disposes).
+4. **Specs exhausted too?** Emit a **"PHASE SCOPE COMPLETE" report**:
+   queue dry · coverage % · phase-criteria status · candidate next-scope
+   menu. Never "project done" — phase/charter boundaries are human
+   sentences only.
+
+**Work-mix balance — principles, not rules** (the human's experiment,
+judgment-first; the boundary doctrine: *rules for safety* — irreversible —
+*principles for optimization* — drift-visible, reversible. This trial tests
+the principle side only; the deny floor and never-auto floor are untouched):
+
+- p1. The product is the specs made real; harness work exists to serve that.
+- p2. Among unblocked work, prefer what moves a phase criterion or spec/FR
+  coverage; choose meta work when it unblocks or de-risks product work.
+- p3. Low-hanging fruit is a tiebreak, never a diet.
+- p4. Human-priority jumps are legitimate and SIGNED (named in the row).
+- p5. Report the mix honestly; skew is a signal to surface, not hide.
+
+**Telemetry (mandatory — judgment's audit trail):** the daily standup
+carries `work mix: N% product-spec / M% meta; phase criteria last touched
+D days ago`; the weekly report graphs the history.
+
+**Dormant mechanics (noted, NOT active — cheap switch-on, do not implement
+early):** row class tags (`product-spec` | `meta`); a `/replan` invariant
+"unblocked product-spec outranks unblocked meta; meta jumps only by signed
+human priority"; triage parks meta drafts when the product band starves.
+**Switch trigger (pre-agreed evidence event, no relitigation):** product-spec
+share starving for TWO consecutive weekly reports without signed
+human-priority causes ⇒ the mechanics flip ON.
+
 ## Outward ops ritual (until T18/T15 land)
 
 The container has no VCS credentials and no `gh` (by design until the

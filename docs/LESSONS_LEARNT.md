@@ -6,6 +6,34 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud`
 
+## LL-013 — A test that assumes an env knob's default breaks under CI's pin; reproduce with the knob, don't presume the tier
+- Date: 2026-06-12
+- Tags: `engine` · `ci`
+- Symptom: PR #92 integration check red on
+  `TestPlanGradesLockfileAndHomeDimensions` ("want loom.lock flagged for
+  rewrite") while the same test passed in the local gate. The lock-staling
+  step did `strings.Replace(lock, defaultBaseImage, "debian:ancient")`; CI
+  exports `LOOM_BASE_IMAGE=ghcr.io/iversatile/loom-base:bookworm-slim`
+  (Docker-Hub rate-limit mirror), so the built lock never contained the
+  default-image substring and the replace silently NO-OP'd — the test then
+  "failed" precisely because plan correctly reported no drift. A test
+  environment-assumption bug, not a product defect; but until fixed, the F2
+  lock dimension was unproven in CI.
+- Lesson (two halves): (1) any fixture mutation keyed to a configurable
+  knob's DEFAULT value silently no-ops under a different pin — stale parsed
+  fields (`lk.BaseImage = …` via lock.Read/WriteFile), never substrings of
+  defaults, and guard against the no-op (fail if already stale). (2) The
+  triage read assumed the failure was integration-tier-only and "write-blind
+  to loom-author" (no docker in-container) — wrong: the failing variable was
+  the ENV PIN, not the tier; `LOOM_BASE_IMAGE=<ghcr pin> go test` reproduced
+  it in loom-dev in seconds. Before declaring a CI failure unreproducible,
+  diff the CI job's env/flags against local — the tier label is where the
+  failure SHOWED, not necessarily what it NEEDS.
+- Fix shape: stale via the parsed lock field + no-op guard; full engine
+  suite run under the ghcr pin to flush sibling assumptions (none found).
+  Verify path for env-pinned reds: replicate the pin locally first; CI
+  round-trips are the fallback, not the default.
+
 ## LL-012 — A verb must name the machine it grades; verdict and action must share a domain
 - Date: 2026-06-11
 - Tags: `engine`

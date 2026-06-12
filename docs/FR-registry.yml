@@ -92,9 +92,12 @@ requirements:
     kind: behavioral
     # LL-012 (guided-run finding ⑦): plan graded the host while build
     # converged the container — verdict and action must share a domain.
-    statement: plan grades the CONTAINER on the tools dimension — live probe when running, the lock's container-pinned resolved values when stopped (never starting it), and with no container every declared tool is an install; the build host's PATH is never consulted.
+    # Phase-1 review F2 widened the rule from "domain" to "dimensions":
+    # plan graded container+tools only while build also converged the
+    # lockfile, the staged $HOME, and the agent set.
+    statement: plan grades EVERY dimension build converges — container+tools and the agent set (live probe when running, the lock's container-pinned resolved values when stopped, never starting it; with no container every declared tool and agent is an install), the lockfile (the same resolve + carry-forward path build runs, compared content-equal), the staged $HOME (read-only dry run against the config source), and the running container's home-sync sentinel; the build host's PATH is never consulted.
     source: SPEC-verbs.md#plan
-    tests: [engine.TestPlanGradesContainerNotHost, engine.TestPlanStoppedContainerUsesLock, engine.TestPlanDriftAndConverged]
+    tests: [engine.TestPlanGradesContainerNotHost, engine.TestPlanStoppedContainerUsesLock, engine.TestPlanDriftAndConverged, engine.TestPlanGradesLockfileAndHomeDimensions, engine.TestPlanGradesAgentDimension, engine.TestPlanGradesHomeSyncDimension]
     status: active
 
   # --- Behavioral: build (SPEC-verbs#build) ---
@@ -189,6 +192,42 @@ requirements:
     source: [SPEC-playbook.md#harness, SPEC-verbs.md#build]
     tests: [engine.TestMaterializeHarnessArtifacts, engine.TestMaterializeHarnessIdempotent, engine.TestMaterializeHarnessMissingRefErrors, engine.TestDogfoodBasePlaybookHarnessMaterializes]
     status: active
+  - id: FR-BUILD-010
+    kind: behavioral
+    # Phase-1 review C1, git-side half: branch-guard/protect-paths reach a
+    # repo only through core.hooksPath; a project shipping .githooks with the
+    # config unset runs zero commit-time guards.
+    statement: build converges repo-local core.hooksPath=.githooks when the project ships a .githooks dir (audited as githooks.wire; idempotent — a wired repo re-audits nothing); a project without .githooks or .git is a silent skip, never an error.
+    source: SPEC-verbs.md#build
+    tests: [engine.TestBuildWiresGithooks, engine.TestBuildSkipsGithooksWhenAbsent]
+    status: active
+  - id: FR-BUILD-011
+    kind: behavioral
+    # T4 (decided 2026-06-11): one dotfile dir owns shell config. The loader
+    # is wired unconditionally (never gated on the tool set); known PATH
+    # entries are engine-generated dotfiles emitting $HOME, and the provision
+    # script never appends to shell-init files.
+    statement: shell config has one declarative owner — build wires both .profile and .bashrc to source ~/.bashrc.d/*.sh unconditionally; stack/agent PATH entries materialize as generated $HOME-based dotfiles in that dir (graded by plan/doctor like declared dotfiles); the provision script touches no shell-init file.
+    source: SPEC-playbook.md#shell-config-model
+    tests: [engine.TestShellInitWiresBothShells, engine.TestPathDotfilesSingleOwner, engine.TestProvisionScriptCoversSources, engine.TestPlanGradesGeneratedPathDotfile]
+    status: active
+  - id: FR-BUILD-012
+    kind: behavioral
+    # Live-build e2e R1 family (F-a/F-b/F-c): a third party must be able to
+    # reconstruct what a build changed AFTER the fact — summary counts writes,
+    # the bulk home sync is one named audit entry, diag logs accumulate runs.
+    statement: build observability is reconstruction-grade — the human summary splits ensured/written; a home sync into the container appends one home.sync audit entry naming the shipped file set (no-op runs append nothing); per-verb diagnostic logs append run-demarcated, never truncate.
+    source: SPEC-verbs.md#build
+    tests: [engine.TestBuildSummaryCountsWrites, engine.TestBuildAuditsHomeSync, engine.TestDiagLogAppendsAcrossRuns]
+    status: active
+  - id: FR-BUILD-013
+    kind: behavioral
+    # T16 PR 3: git identity is declared config (ADR-0015), shipped as a plain
+    # dotfiles: reference — no new schema field (SPEC-playbook#harness).
+    statement: the `gitconfig` dotfile reference (named, not hidden, in the config source) materializes to ~/.gitconfig through the standard staging pipeline, re-converged every build like any declared dotfile.
+    source: SPEC-playbook.md#harness
+    tests: [engine.TestGitconfigMapsToHomeDotfile]
+    status: active
   - id: FR-SCHEMA-008
     kind: schema
     # T16 PR 2: the base-authored rule is enforced at Load per non-base LAYER
@@ -214,9 +253,11 @@ requirements:
     status: active
   - id: FR-EXEC-003
     kind: behavioral
-    statement: every exec appends an action-log entry carrying the command, its exit code, and the entry id — the verb's structured surface (no --json, spec exemption).
+    # Phase-1 review H2: the append was best-effort (silently skipped when
+    # the log could not open) — an unaudited agent-facing door.
+    statement: every exec appends an action-log entry carrying the command, its exit code, and the entry id — the verb's structured surface (no --json, spec exemption). Fail-closed — an exec whose action log cannot open refuses to run, and a post-run append failure is a loud error, never a silent gap.
     source: SPEC-verbs.md#exec
-    tests: [engine.TestExecAuditsCommandAndExit]
+    tests: [engine.TestExecAuditsCommandAndExit, engine.TestExecRefusesUnauditable]
     status: active
 
   # --- Behavioral: shell (SPEC-verbs#shell) ---
@@ -224,17 +265,25 @@ requirements:
     kind: behavioral
     # T1 doctrine: the interactive TTY experience is human feedback, never
     # coverage; the automatable proxy is the mechanism contract below.
-    statement: shell opens an interactive login shell through exec's engine path — ONE code path with a TTY option, same lifecycle (stopped starts; absent errors with the build hint; exit code verbatim; no command argument accepted) — and audits exactly one session-open entry that captures no command.
+    statement: shell opens an interactive login shell through exec's engine path — ONE code path with a TTY option, same lifecycle (stopped starts; absent errors with the build hint; exit code verbatim; no command argument accepted) — and audits exactly one session-open entry that captures no command. Fail-closed — no session-open record possible, no session.
     source: SPEC-verbs.md#shell
-    tests: [engine.TestShellUsesExecPathWithTTY, engine.TestShellAuditsSessionOpenNoCommands, engine.TestShellAbsentContainerErrors, cli.TestShellRejectsArgs]
+    tests: [engine.TestShellUsesExecPathWithTTY, engine.TestShellAuditsSessionOpenNoCommands, engine.TestShellAbsentContainerErrors, engine.TestShellRefusesUnauditable, cli.TestShellRejectsArgs]
     status: active
 
   # --- Behavioral: teardown (SPEC-verbs#teardown) ---
   - id: FR-TEARDOWN-001
     kind: behavioral
-    statement: teardown removes by tier (stop|volumes|reset) and rejects invalid levels.
+    statement: teardown removes by tier (stop|volumes|reset) and rejects invalid levels; the report names only what was actually removed (Phase 1 creates no per-project data volume, so the volumes tier removes none — never a phantom).
     source: SPEC-verbs.md#teardown
     tests: [engine.TestTeardownRemovesAndAudits, cli.TestTeardownValidLevels, cli.TestTeardownInvalidLevel]
+    status: active
+  - id: FR-TEARDOWN-004
+    kind: behavioral
+    # Phase-1 review F1: --clean-state was declared, CLI-wired, and never
+    # read; the agent-home volume loom creates was removable by nothing.
+    statement: --clean-state removes the agent-home volume (agent auth/memory/logs) and is the ONLY path that does — no tier touches agent state without it; the flag reaches the runtime both ways, never a silent no-op.
+    source: SPEC-verbs.md#teardown
+    tests: [engine.TestTeardownPassesCleanStateThrough, engine.TestTeardownRemovesAndAudits]
     status: active
   - id: FR-TEARDOWN-002
     kind: behavioral
@@ -267,6 +316,25 @@ requirements:
     source: SPEC-verbs.md#doctor
     tests: [engine.TestDoctorChecks, engine.TestDoctorAbsentContainer, engine.TestDoctorStoppedContainerGradesFromLock, engine.TestDoctorRuntimeUnavailable]
     status: active
+  - id: FR-DOCTOR-003
+    kind: behavioral
+    # Phase-1 review C1: guardrails were declared, doctor-verified for
+    # presence, and never wired into built containers — green bill of health
+    # over zero mechanism-level guardrails. Doctor must grade the wiring
+    # chain, not the source tree.
+    statement: doctor verifies guardrails are WIRED, not just present — declared harness settings carry a non-empty permissions.deny floor and a registration for every declared harness hook; the staged $HOME matches the config source; a running container's home sentinel matches the staged digest (stopped is graded at the staging tier, never started); and a project shipping .githooks fails the check until core.hooksPath points at it.
+    source: SPEC-verbs.md#doctor
+    tests: [engine.TestDoctorFailsCosmeticsOnlySettings, engine.TestDoctorPassesGuardedSettings, engine.TestDoctorStagedHomeDrift, engine.TestDoctorContainerHomeWiring, engine.TestDoctorGradesGithooksWiring]
+    status: active
+  - id: FR-DOCTOR-004
+    kind: behavioral
+    # T16 PR 3: the materialized ~/.gitconfig is what every in-container
+    # commit signs as (TEAM commit-identity rule) — completeness is mechanism;
+    # WHICH identity stays repo policy, reviewed at the config-source PR.
+    statement: when the playbook ships a gitconfig, doctor's host:gitconfig check fails on a missing or [user]-incomplete declaration and surfaces the declared identity when complete.
+    source: SPEC-verbs.md#doctor
+    tests: [engine.TestDoctorGradesGitconfigIdentity, engine.TestGitIdentityParsesUserSection]
+    status: active
 
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
   - id: FR-INV-001
@@ -297,9 +365,12 @@ requirements:
   # --- Guardrails (per-hook; test = the hook's full pattern suite) ---
   - id: FR-GUARD-BASH
     kind: guardrail
-    statement: guard-bash blocks its defined class of dangerous bash and allows benign commands.
+    # Phase-1 review H3/H4: fixed substrings fell to spacing tricks and
+    # alternate tools; hook-path redirects, credential reach, and raw-socket /
+    # interpreter one-liner egress were unmatched entirely.
+    statement: guard-bash blocks its defined class of dangerous bash — including whitespace-normalized variants, alternate privilege tools, case-folded core.hooksPath redirects, credential-file reach, and /dev/tcp + interpreter one-liner egress — and allows benign commands.
     source: [RULES.md#§5, config/hooks/guard-bash]
-    tests: { suite: guard.TestGuardBashBlocksDangerousAllowsBenign, patterns: all }
+    tests: { suite: guard.TestGuardBashBlocksDangerousAllowsBenign + guard.TestGuardBashBlocksBypassClasses, patterns: all }
     status: active
   - id: FR-GUARD-BRANCH
     kind: guardrail

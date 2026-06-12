@@ -103,3 +103,52 @@ Scored result (advisor, 2026-06-11 ~20:10Z): **5.5 / 6 — artifacts won.**
 Verdict: the context-economy thesis held its first crash. Loss classes
 feed P2; the snapshot-staleness and worktree-stub catches feed the
 harness-health review checklist (P7).
+
+### Organic cold start — 2026-06-12 (subject: loom-advisor, post-reboot)
+
+Not a protocol run (no kill, no no-hint prompt) — an ordinary reboot
+cold start, scored honestly because it produced a NEW loss class.
+
+- **FAIL on landing**: the session oriented from PLAN.md + git log and
+  did not surface its own pickup list, last task, or the open human-todo
+  until the human steered it twice — even though all three were written
+  in the top STATE checkpoint of the advisor's workstream memory file.
+- **New loss class: "memory present but unread at orient."** Distinct
+  from every Run-1 class: the data survived (artifacts won) but the
+  orientation PROCEDURE never consulted the surface that held it.
+  Contributing cause: the memory index hook line advertised a day-old
+  state ("@2026-06-11 EOD"), under-selling the fresh checkpoint.
+- **Fixes applied same day** (advisor memory layer, off-tree): a
+  standing read-checkpoint-first orientation rule + an imperative,
+  date-current index hook ("READ TOP CHECKPOINT AT COLD START").
+- **Rubric impact**: add to the scoring table — recovery counts only if
+  the subject lands unprompted; "recoverable after human steering" is a
+  procedure failure even when no data was lost. Harness-health checklist
+  (P7) inherits: stale index/snapshot hooks are a named hazard
+  (Run 1 already flagged snapshot staleness; this is the same family on
+  the memory index).
+
+### Organic cold start — 2026-06-12 (subject: loom-advisor, same reboot, second find)
+
+Caught by the human mid-afternoon, hours after landing: five built Writer
+branches (T4, r1-build, t16-gitconfig, work-selection, weekly-mode) sat
+unpushed/un-PR'd across the restart; nobody surfaced them until the human
+asked "where are the weekly report artifacts?"
+
+- **New loss class: "in-flight branches present but unrelayed at orient."**
+  Sibling of "memory present but unread": the data survived (branch refs
+  held the work, 035 amendment even recorded the merge order), but no
+  orientation surface listed UNMERGED BRANCHES as parked deliverables —
+  the checkpoint's "branches swept" line referred to merged ones and
+  read as all-clear.
+- **Cost**: the weekly-report generator (needed 2026-06-18) was stranded
+  on a local branch; ~5h of built work invisible to the relay holder.
+- **Fixes applied same day**: (a) session-start hook (repo-clean-check.sh,
+  advisor seat) now emits an "UNRELAYED BRANCHES" block from
+  `git branch --no-merged main` with commit counts; (b) standing
+  git-controller routine (memory layer): sweep → push → PR → merge per
+  authority rules, muted; first sweep relayed all five (PRs #105–#109).
+- **Rubric impact**: orientation surfaces must enumerate WORK PRODUCTS,
+  not just tree cleanliness — a clean status with unmerged branches is
+  not "clean", it is "parked". Harness-health checklist (P7) inherits:
+  any "swept/clean" claim in a checkpoint must state its scope.

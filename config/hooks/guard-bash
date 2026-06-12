@@ -5,18 +5,46 @@
 # mechanism in the path, not a policy it can choose to ignore.
 set -eu
 
-cmd="$*"
-[ -n "$cmd" ] || cmd="$(cat 2>/dev/null || true)"
+raw="$*"
+[ -n "$raw" ] || raw="$(cat 2>/dev/null || true)"
+
+# Normalize before matching (phase-1 review H4): tabs/newlines/CRs become
+# spaces and runs collapse, so `git  push   --force` or a tab-separated sudo
+# cannot slip a fixed-substring pattern. Normalization only ever REMOVES
+# separators the shell itself ignores — it cannot make a benign command match.
+cmd="$(printf '%s' "$raw" | tr '\t\n\r' '   ' | tr -s ' ')"
+
+# Git config keys are case-insensitive (core.hooksPath == core.HOOKSPATH), so
+# the hook-redirect class is matched case-folded.
+lower="$(printf '%s' "$cmd" | tr 'A-Z' 'a-z')"
+case "$lower" in
+*"core.hookspath"*)
+	echo "guard-bash: BLOCKED hook-path redirect (defeats commit-time guards): $raw" >&2
+	exit 1
+	;;
+esac
 
 case "$cmd" in
 *"sudo "* | \
+*"doas "* | \
 *"--dangerously-skip-permissions"* | \
 *"--no-verify"* | \
 *"git push --force"* | \
 *"git push -f "* | \
+*".credentials.json"* | \
+*"/dev/tcp/"* | \
+*"/dev/udp/"* | \
+*"python -c"* | \
+*"python3 -c"* | \
+*"node -e"* | \
+*"node --eval"* | \
+*"perl -e"* | \
+*"perl -E"* | \
 *"rm -rf /"* | \
-*"rm -rf ~"*)
-	echo "guard-bash: BLOCKED dangerous command: $cmd" >&2
+*"rm -fr /"* | \
+*"rm -rf ~"* | \
+*"rm -fr ~"*)
+	echo "guard-bash: BLOCKED dangerous command: $raw" >&2
 	exit 1
 	;;
 esac

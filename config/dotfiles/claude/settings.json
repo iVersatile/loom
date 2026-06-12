@@ -9,11 +9,27 @@
       "Read(./.env)",
       "Read(./.env.*)",
       "Bash(sudo:*)",
+      "Bash(doas:*)",
       "Bash(git push --force)",
       "Bash(git push --force :*)",
       "Bash(git push -f)",
       "Bash(git push -f :*)",
-      "Bash(git commit --no-verify:*)"
+      "Bash(git commit --no-verify:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(nc:*)",
+      "Bash(ncat:*)",
+      "Bash(socat:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(sftp:*)",
+      "Bash(telnet:*)",
+      "Bash(python -c:*)",
+      "Bash(python3 -c:*)",
+      "Bash(node -e:*)",
+      "Bash(node --eval:*)",
+      "Bash(perl -e:*)",
+      "Bash(perl -E:*)"
     ]
   },
   "hooks": {

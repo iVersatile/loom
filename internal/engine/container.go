@@ -78,12 +78,18 @@ type ContainerRuntime interface {
 	// "created" when newly made, "exists" when already present.
 	Ensure(spec ContainerSpec) (ContainerInfo, error)
 	// Teardown removes the environment to the given tier (stop|volumes|reset)
-	// and reports what was removed; raw output is tee'd to logw.
-	Teardown(name, level string, logw io.Writer) (Removed, error)
+	// and reports what was removed; raw output is tee'd to logw. cleanState
+	// additionally removes the agent-home volume (auth/memory/logs — the
+	// opt-in SPEC-verbs --clean-state tier, orthogonal to the level).
+	Teardown(name, level string, cleanState bool, logw io.Writer) (Removed, error)
 	// Probe reports whether a tool binary exists INSIDE the named container and,
 	// best-effort, its version. The lock's `resolved` source of truth (T5): the
 	// lock pins the container, never the build host.
 	Probe(container, binary string) (present bool, version string)
+	// HomeDigest reads the container's home-sync sentinel digest (T7); "" when
+	// absent or unreadable (including a stopped container — callers never start
+	// one to ask; read-only verbs grade the staging tier instead).
+	HomeDigest(name string) string
 	// Running reports whether the named container's main process is up —
 	// read-only verbs (plan) need it to choose between a live in-container
 	// probe and the lock fallback, because Probe requires a running container
@@ -154,11 +160,19 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		if !reprovision && !homeSync {
 			return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "exists"}, nil
 		}
+		// Shell-init is wired on every converge, UNCONDITIONALLY — not gated
+		// on the tool set (T4): a toolless playbook's ~/.bashrc.d dotfiles
+		// must be sourced too, in login and interactive shells alike.
+		if err := ensureShellInit(spec.Name, spec.LogW); err != nil {
+			return ContainerInfo{}, err
+		}
+		synced := false
 		if spec.HomeDir != "" {
 			if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
 				return ContainerInfo{}, fmt.Errorf("docker cp home (reconcile): %v: %s", err, out)
 			}
 			writeHomeSentinel(spec.Name, homeWant, spec.LogW)
+			synced = true
 		}
 		// Provision (tool/agent install) stays gated on its own digest: a
 		// dotfile-only change must not re-run apt/go-install (T7/T4 interplay).
@@ -167,7 +181,7 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 				return ContainerInfo{}, err
 			}
 		}
-		return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "converged"}, nil
+		return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "converged", HomeSynced: synced}, nil
 	}
 	hostHome, _ := os.UserHomeDir()
 	credsPath := filepath.Join(hostHome, ".claude", ".credentials.json")
@@ -176,23 +190,36 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	if out, err := dockerLogged(spec.LogW, runArgs...); err != nil {
 		return ContainerInfo{}, fmt.Errorf("docker run: %v: %s", err, out)
 	}
+	// Unconditional shell-init (T4): wired on create regardless of the tool
+	// set, so the loader exists before any home sync or provision step.
+	if err := ensureShellInit(spec.Name, spec.LogW); err != nil {
+		return ContainerInfo{}, err
+	}
+	synced := false
 	if spec.HomeDir != "" {
 		if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", spec.Name+":/root/"); err != nil {
 			return ContainerInfo{}, fmt.Errorf("docker cp home: %v: %s", err, out)
 		}
 		writeHomeSentinel(spec.Name, homeDigest(spec.HomeDir), spec.LogW)
+		synced = true
 	}
 	if len(spec.Tools) > 0 || len(spec.Agents) > 0 {
 		if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), spec.LogW); err != nil {
 			return ContainerInfo{}, err
 		}
 	}
-	return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "created"}, nil
+	return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "created", HomeSynced: synced}, nil
 }
 
-// Teardown removes the per-project container, and (by tier) its volume and image.
+// Teardown removes the per-project container, and (by tier) its volumes and
+// image. Phase 1 creates no per-project data volume, so the volumes tier has
+// nothing extra to remove today (phase-1 review F1: it used to claim a
+// `<name>-data` volume nothing creates — fiction); it stays a distinct level
+// as the Phase-2 data-volume surface. The agent-home volume (auth/memory/
+// logs) is removed ONLY by cleanState — wiping agent state must be an
+// explicit choice, never a side effect of a tier.
 // NOTE: the docker path is integration-validated (Work 7 / CI), not the local gate.
-func (dockerRuntime) Teardown(name, level string, logw io.Writer) (Removed, error) {
+func (dockerRuntime) Teardown(name, level string, cleanState bool, logw io.Writer) (Removed, error) {
 	r := Removed{Containers: []string{}, Volumes: []string{}, Images: []string{}}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return r, fmt.Errorf("docker not available: %w", err)
@@ -201,8 +228,8 @@ func (dockerRuntime) Teardown(name, level string, logw io.Writer) (Removed, erro
 	if _, err := dockerLogged(logw, "rm", name); err == nil {
 		r.Containers = append(r.Containers, name)
 	}
-	if level == "volumes" || level == "reset" {
-		vol := name + "-data"
+	if cleanState {
+		vol := agentHomeVolume(name)
 		if _, err := dockerLogged(logw, "volume", "rm", vol); err == nil {
 			r.Volumes = append(r.Volumes, vol)
 		}
@@ -213,6 +240,29 @@ func (dockerRuntime) Teardown(name, level string, logw io.Writer) (Removed, erro
 		}
 	}
 	return r, nil
+}
+
+// shellInitScript wires the ONE shell-config loader (T4): both login
+// (.profile) and interactive (.bashrc) shells source every ~/.bashrc.d/*.sh,
+// so the single dotfile dir owns shell config for every shell type.
+// Idempotent (grep guard — also matches the loader older builds appended to
+// .bashrc, so upgrades don't duplicate it). $HOME, never /root: the same
+// wiring survives T10's non-root user.
+const shellInitScript = `loader='for f in "$HOME"/.bashrc.d/*.sh; do [ -r "$f" ] && . "$f"; done'
+mkdir -p "$HOME/.bashrc.d"
+for rc in "$HOME/.profile" "$HOME/.bashrc"; do
+  grep -qs bashrc.d "$rc" || printf '%s\n' "$loader" >> "$rc"
+done`
+
+// ensureShellInit runs the shell-init wiring inside the container. Called on
+// EVERY Ensure path (create and converge), never gated on tools — the T4 fix
+// for "a toolless playbook copies bash/* dotfiles but never sources them".
+// NOTE: integration-validated (docker host), not the local gate.
+func ensureShellInit(name string, logw io.Writer) error {
+	if out, err := dockerLogged(logw, "exec", name, "sh", "-c", shellInitScript); err != nil {
+		return fmt.Errorf("shell-init: %v: %s", err, out)
+	}
+	return nil
 }
 
 // provision copies the script into the container as a file and execs it (more
@@ -356,6 +406,10 @@ func needsHomeSync(have, want string) bool {
 	return want != "" && have != want
 }
 
+// HomeDigest exposes the home sentinel to read-only verbs (doctor/plan grade
+// home wiring against it — C1/F2, phase-1 review).
+func (dockerRuntime) HomeDigest(name string) string { return readHomeDigest(name) }
+
 // readHomeDigest reads the in-container home sentinel; "" when absent.
 func readHomeDigest(name string) string {
 	out, err := exec.Command("docker", "exec", name, "cat", homeSentinel).Output()
@@ -441,9 +495,9 @@ func containerName(project string) string {
 
 // agentHomeVolume names the durable agent-home volume (T14): mounted at
 // ~/.claude so in-container credentials (and the agent home) survive
-// `build --force`/`teardown` (`docker rm` keeps named volumes). Removal is the
-// opt-in `--clean-state` Mac-side tier (SPEC-verbs teardown), NOT the volumes/
-// reset tiers — wiping agent auth must be an explicit choice.
+// `build --force`/`teardown` (`docker rm` keeps named volumes). Removed ONLY
+// by the opt-in `--clean-state` flag (SPEC-verbs teardown), never the
+// volumes/reset tiers — wiping agent auth must be an explicit choice.
 func agentHomeVolume(container string) string {
 	return container + "-claude"
 }
@@ -527,8 +581,7 @@ func provisionScript(tools []ToolInstall, agents []AgentInstall) string {
 GOVER="$(retry curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)"
 retry curl -fsSL "https://go.dev/dl/${GOVER}.linux-${ARCH}.tar.gz" -o /tmp/go.tgz
 rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz && rm -f /tmp/go.tgz
-export PATH="$PATH:/usr/local/go/bin:/root/go/bin"
-echo 'export PATH=$PATH:/usr/local/go/bin:/root/go/bin' >> /root/.profile
+export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin"
 # Keep memory-heavy installs (gopls) alive on a small VM / ~7GB CI box: serialize
 # the build (-p=1, GOMAXPROCS=1) and cap the Go heap (GOMEMLIMIT) so the GC stays
 # under the ceiling instead of OOMing. Trades build speed for survival.
@@ -543,16 +596,17 @@ export GOMEMLIMIT=1GiB
 	if needUv {
 		b.WriteString("retry sh -c 'curl -fsSL https://astral.sh/uv/install.sh | sh'\n")
 	}
-	// Install declared agent harnesses (T8). claude-code's native installer needs
-	// no Node; it lands at ~/.local/bin, so put that on PATH for both login
-	// (.profile) and interactive (.bashrc) shells (ties to T4's PATH split).
+	// Install declared agent harnesses (T8). claude-code's native installer
+	// needs no Node; it lands at ~/.local/bin — persistent PATH for it comes
+	// from the generated ~/.bashrc.d/path.local.sh dotfile (T4), not from
+	// appends here.
 	for _, a := range agents {
 		b.WriteString(agentInstallCmd(a))
 	}
 
-	// Make bash load the materialized per-project prompt from ~/.bashrc.d.
-	b.WriteString("grep -q bashrc.d /root/.bashrc 2>/dev/null || " +
-		"echo 'for f in ~/.bashrc.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done' >> /root/.bashrc\n")
+	// Shell-init wiring (the ~/.bashrc.d loader) is NOT here: it is owned by
+	// ensureShellInit, which runs unconditionally on every Ensure — a toolless
+	// playbook gets its dotfiles sourced too (T4).
 	// Provision sentinel, written LAST: marks the container converged to this exact
 	// tool set so a re-build can tell "fully provisioned" from "interrupted"
 	// (ADR-0011). set -e above guarantees we never reach here on a failed install.
@@ -561,16 +615,14 @@ export GOMEMLIMIT=1GiB
 	return b.String()
 }
 
-// agentInstallCmd emits the provision step that installs one agent harness and
-// puts it on PATH. Unknown agents (no installer yet) emit nothing — they are
-// still recorded in the provision digest so the intent is tracked.
+// agentInstallCmd emits the provision step that installs one agent harness.
+// Unknown agents (no installer yet) emit nothing — they are still recorded in
+// the provision digest so the intent is tracked. PATH wiring is dotfile-owned
+// (~/.bashrc.d/path.local.sh, T4), never appended to shell-init files here.
 func agentInstallCmd(a AgentInstall) string {
 	switch a.Name {
 	case "claude-code":
-		const localBin = "$PATH:$HOME/.local/bin"
-		return "retry sh -c 'curl -fsSL https://claude.ai/install.sh | bash'\n" +
-			"grep -q '.local/bin' /root/.profile 2>/dev/null || echo 'export PATH=" + localBin + "' >> /root/.profile\n" +
-			"grep -q '.local/bin' /root/.bashrc 2>/dev/null || echo 'export PATH=" + localBin + "' >> /root/.bashrc\n"
+		return "retry sh -c 'curl -fsSL https://claude.ai/install.sh | bash'\n"
 	default:
 		return ""
 	}
