@@ -13,6 +13,7 @@ import (
 func harnessFixture() (fstest.MapFS, map[string]playbook.HarnessAgent) {
 	src := fstest.MapFS{
 		"dotfiles/claude/settings.json": {Data: []byte(`{"hooks":{"Stop":[]}}`)},
+		"dotfiles/claude/trust.json":    {Data: []byte(`{"projects":{"/workspace/x":{"hasTrustDialogAccepted":true}}}`)},
 		"hooks/guard-bash":              {Data: []byte("#!/bin/sh\nexit 0\n")},
 		"skills/replan/SKILL.md":        {Data: []byte("# replan\n")},
 		"skills/replan/gather.sh":       {Data: []byte("#!/bin/sh\necho hi\n")},
@@ -20,6 +21,7 @@ func harnessFixture() (fstest.MapFS, map[string]playbook.HarnessAgent) {
 	harness := map[string]playbook.HarnessAgent{
 		"claude": {
 			Settings: "claude/settings.json",
+			Trust:    "claude/trust.json",
 			Hooks:    []string{"guard-bash"},
 			Skills:   []string{"replan"},
 		},
@@ -38,8 +40,8 @@ func TestMaterializeHarnessArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("materialize harness: %v", err)
 	}
-	if len(mats) != 4 { // settings + 1 hook + 2 skill files
-		t.Fatalf("expected 4 materialized artifacts, got %d: %+v", len(mats), mats)
+	if len(mats) != 5 { // settings + trust + 1 hook + 2 skill files
+		t.Fatalf("expected 5 materialized artifacts, got %d: %+v", len(mats), mats)
 	}
 
 	settings, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
@@ -86,6 +88,39 @@ func TestMaterializeHarnessIdempotent(t *testing.T) {
 		if m.Changed {
 			t.Errorf("second run must be a no-op, %s reported changed", m.Display)
 		}
+	}
+}
+
+// TestMaterializeHarnessTrustFlags proves FR-BUILD-014's shape: the trust
+// reference lands WHOLE-FILE at <home>/.<agent>.json — a SIBLING of the agent
+// home, NOT inside it (the harness reads its trust/opt-in flags from the
+// top-level state file; 036 ruling, ADR-0018) — and a dangling trust ref is
+// a loud error naming agent+field+ref.
+func TestMaterializeHarnessTrustFlags(t *testing.T) {
+	src, harness := harnessFixture()
+	home := t.TempDir()
+
+	if _, err := materializeHarness(src, harness, home); err != nil {
+		t.Fatalf("materialize harness: %v", err)
+	}
+
+	trust, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil || string(trust) != `{"projects":{"/workspace/x":{"hasTrustDialogAccepted":true}}}` {
+		t.Fatalf("trust not materialized whole-file at ~/.claude.json: %q err=%v", trust, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "trust.json")); err == nil {
+		t.Error("trust must NOT land inside the agent home — the harness reads ~/.<agent>.json")
+	}
+
+	h := harness["claude"]
+	h.Trust = "claude/no-such-trust.json"
+	harness["claude"] = h
+	_, err = materializeHarness(src, harness, t.TempDir())
+	if err == nil {
+		t.Fatal("dangling trust reference must error")
+	}
+	if want := `harness.claude.trust "claude/no-such-trust.json"`; !strings.Contains(err.Error(), want) {
+		t.Errorf("error must name agent+field+ref: got %q, want substring %q", err, want)
 	}
 }
 

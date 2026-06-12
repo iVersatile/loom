@@ -53,11 +53,12 @@ func expectedDotfiles(src fs.FS, refs []string, homeDir string) ([]homeFile, err
 // Per agent namespace ("claude" -> <home>/.claude):
 //
 //	settings -> resolved from dotfiles/<ref>, whole-file to <agent home>/<base>
+//	trust    -> resolved from dotfiles/<ref>, whole-file to <home>/.<agent>.json
 //	hooks    -> resolved from hooks/<name>, to <agent home>/hooks/<name>, 0755
 //	skills   -> skills/<name>/ copied recursively to <agent home>/skills/<name>/
 //
-// Deterministic order (sorted agents, then settings, hooks, skills) so audit
-// entries and --json output are stable across runs.
+// Deterministic order (sorted agents, then settings, trust, hooks, skills) so
+// audit entries and --json output are stable across runs.
 func expectedHarness(src fs.FS, harness map[string]playbook.HarnessAgent, homeDir string) ([]homeFile, error) {
 	agents := make([]string, 0, len(harness))
 	for a := range harness {
@@ -79,6 +80,21 @@ func expectedHarness(src fs.FS, harness map[string]playbook.HarnessAgent, homeDi
 			base := path.Base(h.Settings)
 			out = append(out, homeFile{
 				Target: filepath.Join(agentHome, base), Display: display + base,
+				Data: data, Mode: 0o644,
+			})
+		}
+
+		// Trust/opt-in flags target <home>/.<agent>.json — a SIBLING of the
+		// agent home, on the container overlay rather than the agent-home
+		// volume, so it dies on recreate; the home re-sync (T7 digest) is
+		// what restores it (036 ruling, ADR-0018).
+		if h.Trust != "" {
+			data, err := fs.ReadFile(src, path.Join("dotfiles", h.Trust))
+			if err != nil {
+				return nil, fmt.Errorf("harness.%s.trust %q: %w", agent, h.Trust, err)
+			}
+			out = append(out, homeFile{
+				Target: filepath.Join(homeDir, "."+agent+".json"), Display: "~/." + agent + ".json",
 				Data: data, Mode: 0o644,
 			})
 		}

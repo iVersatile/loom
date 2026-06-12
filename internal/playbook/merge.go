@@ -55,9 +55,10 @@ func Merge(layers ...*Playbook) *Playbook {
 
 // mergeHarness merges per agent namespace (SPEC-playbook#harness): list fields
 // follow the dotfiles rule (concatenate + dedup in layer order; whole-file
-// later-wins applies at materialization), settings is a scalar — last
-// non-empty wins (Phase 1 keeps it base-tier-only via Validate, so in
-// practice the base value survives).
+// later-wins applies at materialization), settings and trust are scalars —
+// last non-empty wins (Phase 1 keeps settings base-tier-only via Load, so in
+// practice the base value survives; trust is project-tier by doctrine but
+// any layer may author it).
 func mergeHarness(dst, src map[string]HarnessAgent) map[string]HarnessAgent {
 	if len(src) == 0 {
 		return dst
@@ -69,6 +70,9 @@ func mergeHarness(dst, src map[string]HarnessAgent) map[string]HarnessAgent {
 		cur := dst[agent]
 		if in.Settings != "" {
 			cur.Settings = in.Settings
+		}
+		if in.Trust != "" {
+			cur.Trust = in.Trust
 		}
 		cur.Hooks = appendDedup(cur.Hooks, in.Hooks)
 		cur.Skills = appendDedup(cur.Skills, in.Skills)
