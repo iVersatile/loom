@@ -732,3 +732,36 @@ Pointers: TEAM.md "Cross-session transport" + "Context economy" ·
 `.claude/hooks/drain-inbox.sh` (kind guards) · `guard.TestDrainSkips*` ·
 `.claude/skills/coordinate/` · inbox item 012 · T21/T23 (the transport
 this governs).
+
+---
+
+## T26 — `rollback` verb: necessary or overkill?   🟢 recommendation drafted
+Origin: human question 2026-06-12, prompted by the live-build-under-session
+experiment ("if a build runs mid-session, how do we get back?").
+
+**Recommendation: NO `rollback` verb — overkill.** Loom is declarative-
+convergent (SPEC-verbs preamble: verbs reconcile reality to the playbook;
+`loom.lock` records resolved state, build.go:90–119). In that model rollback
+is not a primitive — it is re-converging to a prior *declared* state, which
+already decomposes into `git checkout <prior playbook + loom.lock>` →
+`update`/`build` (idempotent). An imperative `rollback` would be a second code
+path re-implementing the convergence engine — the "one engine path" anti-
+pattern T9 rejected for exec/shell, and trust in a second mechanism rather
+than new capability (the design test: would the guardrails hold? — a verb
+that re-implements an invariant fails it).
+
+**The instinct points at two REAL gaps, neither named "rollback":**
+1. *Observability, not undo.* "What changed under me" is review finding R1
+   (audit fail-open / best-effort / tamperable). Fix the build audit-delta
+   (complete, tamper-evident before/after) and "re-converge to undo" becomes
+   both safe and legible — that is the actual rollback story.
+2. *Snapshot/restore of MUTABLE container+session state* — creds volume,
+   in-flight agent task context, post-build writes — which convergence
+   deliberately does NOT cover (06-09 `docker stop` task-loss; 2026-06-12
+   worktree-metadata loss). This is `snapshot`/`checkpoint`, own ADR,
+   Phase 3+. Half-named already: BACKLOG C4 (session-snapshot) + the PLAN
+   "agent-initiated container lifecycle / task continuity" open item.
+
+Pointers: docs/reviews/phase-1-review.md (R1) · docs/BACKLOG.md (R1, C4) ·
+PLAN "Open items / task continuity" · .scratch/live-build-experiment.md
+(the experiment that raised it) · ADR-0006 (specs-as-product / convergence).
