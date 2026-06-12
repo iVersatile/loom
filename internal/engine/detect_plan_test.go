@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/iVersatile/loom/internal/lock"
 )
 
 // fakeProber reports presence/version from a fixed map (hermetic: no exec).
@@ -337,13 +339,21 @@ func TestPlanGradesLockfileAndHomeDimensions(t *testing.T) {
 	}
 
 	// A lock build would rewrite (stale base image pin) → lockfile drift.
+	// Stale the parsed field, never a substring of the default image: CI pins
+	// LOOM_BASE_IMAGE to the ghcr mirror, so the built lock carries whatever
+	// baseImage() resolved and a defaultBaseImage replace silently no-ops
+	// (PR #92 integration red, LL-013 — the test must exercise what it
+	// claims under every env pin).
 	lockPath := filepath.Join(root, "loom.lock")
-	stale, err := os.ReadFile(lockPath)
-	if err != nil {
-		t.Fatal(err)
+	lk, err := lock.Read(lockPath)
+	if err != nil || lk == nil {
+		t.Fatalf("read built lock: %v", err)
 	}
-	if err := os.WriteFile(lockPath,
-		[]byte(strings.Replace(string(stale), defaultBaseImage, "debian:ancient", 1)), 0o644); err != nil {
+	if lk.BaseImage == "debian:ancient" {
+		t.Fatal("fixture lock already stale — staling would be a no-op")
+	}
+	lk.BaseImage = "debian:ancient"
+	if err := lk.WriteFile(lockPath); err != nil {
 		t.Fatal(err)
 	}
 	res, err = planImpl(PlanOpts{PlaybookPath: pbPath}, converged)
