@@ -223,9 +223,11 @@ requirements:
     status: active
   - id: FR-EXEC-003
     kind: behavioral
-    statement: every exec appends an action-log entry carrying the command, its exit code, and the entry id — the verb's structured surface (no --json, spec exemption).
+    # Phase-1 review H2: the append was best-effort (silently skipped when
+    # the log could not open) — an unaudited agent-facing door.
+    statement: every exec appends an action-log entry carrying the command, its exit code, and the entry id — the verb's structured surface (no --json, spec exemption). Fail-closed — an exec whose action log cannot open refuses to run, and a post-run append failure is a loud error, never a silent gap.
     source: SPEC-verbs.md#exec
-    tests: [engine.TestExecAuditsCommandAndExit]
+    tests: [engine.TestExecAuditsCommandAndExit, engine.TestExecRefusesUnauditable]
     status: active
 
   # --- Behavioral: shell (SPEC-verbs#shell) ---
@@ -233,9 +235,9 @@ requirements:
     kind: behavioral
     # T1 doctrine: the interactive TTY experience is human feedback, never
     # coverage; the automatable proxy is the mechanism contract below.
-    statement: shell opens an interactive login shell through exec's engine path — ONE code path with a TTY option, same lifecycle (stopped starts; absent errors with the build hint; exit code verbatim; no command argument accepted) — and audits exactly one session-open entry that captures no command.
+    statement: shell opens an interactive login shell through exec's engine path — ONE code path with a TTY option, same lifecycle (stopped starts; absent errors with the build hint; exit code verbatim; no command argument accepted) — and audits exactly one session-open entry that captures no command. Fail-closed — no session-open record possible, no session.
     source: SPEC-verbs.md#shell
-    tests: [engine.TestShellUsesExecPathWithTTY, engine.TestShellAuditsSessionOpenNoCommands, engine.TestShellAbsentContainerErrors, cli.TestShellRejectsArgs]
+    tests: [engine.TestShellUsesExecPathWithTTY, engine.TestShellAuditsSessionOpenNoCommands, engine.TestShellAbsentContainerErrors, engine.TestShellRefusesUnauditable, cli.TestShellRejectsArgs]
     status: active
 
   # --- Behavioral: teardown (SPEC-verbs#teardown) ---
