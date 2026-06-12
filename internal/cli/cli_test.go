@@ -75,10 +75,51 @@ func TestTeardownValidLevels(t *testing.T) {
 	proj := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
 	for _, lvl := range []string{"stop", "volumes", "reset"} {
 		// docker is absent here, so a container-step error is expected; only an
-		// "invalid level" rejection would be a real bug.
-		_, _, err := runCmd(t, "teardown", lvl, "-f", proj, "--json")
+		// "invalid level" rejection would be a real bug. --yes: tests run
+		// without a TTY, and unattended teardown states intent explicitly.
+		_, _, err := runCmd(t, "teardown", lvl, "-f", proj, "--json", "--yes")
 		if err != nil && strings.Contains(err.Error(), "invalid level") {
 			t.Errorf("teardown %s wrongly rejected: %v", lvl, err)
+		}
+	}
+}
+
+// Consent gate (FR-TEARDOWN-003, guided-run finding ⑨): the most destructive
+// routine verb never acts on silence — operators answer the prompt, automation
+// says --yes, and an unanswerable prompt (EOF) removes nothing.
+func TestTeardownRequiresConsent(t *testing.T) {
+	proj := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
+	root := newRootCmd()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetIn(strings.NewReader("")) // unattended: nobody to answer
+	root.SetArgs([]string{"teardown", "stop", "-f", proj})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("unanswered teardown without --yes should refuse naming the remedy, got %v", err)
+	}
+}
+
+func TestTeardownPromptDecides(t *testing.T) {
+	proj := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
+
+	for _, tc := range []struct {
+		answer  string
+		aborted bool
+	}{{"n\n", true}, {"\n", true}, {"y\n", false}, {"YES\n", false}} {
+		root := newRootCmd()
+		var out, errb bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&errb)
+		root.SetIn(strings.NewReader(tc.answer))
+		root.SetArgs([]string{"teardown", "stop", "-f", proj, "--json"})
+		err := root.Execute()
+		gotAborted := err != nil && strings.Contains(err.Error(), "aborted")
+		if gotAborted != tc.aborted {
+			t.Errorf("answer %q: aborted = %v, want %v (err: %v)", tc.answer, gotAborted, tc.aborted, err)
+		}
+		if !strings.Contains(errb.String(), "[y/N]") {
+			t.Errorf("answer %q: expected a [y/N] prompt on stderr", tc.answer)
 		}
 	}
 }

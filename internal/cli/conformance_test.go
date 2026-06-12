@@ -45,7 +45,7 @@ func TestSpecConformance(t *testing.T) {
 		{"detect", []string{"detect", "--json", "-f", fixturePlaybook}},
 		{"plan", []string{"plan", "--json", "-f", fixturePlaybook}},
 		{"build", []string{"build", "--json", "-f", build}},
-		{"teardown", []string{"teardown", "stop", "--json", "-f", teardown}},
+		{"teardown", []string{"teardown", "stop", "--json", "--yes", "-f", teardown}},
 	}
 
 	for _, c := range cases {

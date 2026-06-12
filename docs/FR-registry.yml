@@ -215,6 +215,14 @@ requirements:
     source: SPEC-verbs.md#teardown
     tests: [engine.TestWipeProjectRequiresConfirmation, engine.TestWipeProjectWithConfirmation]
     status: active
+  - id: FR-TEARDOWN-003
+    kind: behavioral
+    # Guided-run finding ⑨: teardown ran unprompted on an interactive TTY —
+    # the most destructive routine verb must never act on silence.
+    statement: teardown acts only on explicit consent — an affirmative answer to its [y/N] prompt, or --yes for automation; on silence (EOF, empty, any other answer) it removes nothing. There is no --force, and --wipe-project's typed confirmation stays non-bypassable by --yes.
+    source: SPEC-verbs.md#teardown
+    tests: [cli.TestTeardownRequiresConsent, cli.TestTeardownPromptDecides]
+    status: active
 
   # --- Behavioral: doctor (SPEC-verbs#doctor) ---
   - id: FR-DOCTOR-001
