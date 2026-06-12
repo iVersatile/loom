@@ -21,6 +21,7 @@ func TestGateIsHermetic(t *testing.T) {
 	for _, want := range []string{
 		"env -u LOOM_BASE_IMAGE", // ambient base-image override scrubbed
 		"-u ALLOW_SPEC_CHANGE",   // audited overrides scrubbed
+		"-u ALLOW_TRUST_CHANGE",
 		"-u ALLOW_MAIN_COMMIT",
 		`"$$d/docker"`, // a failing docker shim is placed on PATH
 	} {

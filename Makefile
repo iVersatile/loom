@@ -49,7 +49,7 @@ spec-check:
 # tier deliberately keeps docker + LOOM_BASE_IMAGE.
 test:
 	@d=$$(mktemp -d); printf '#!/bin/sh\nexit 1\n' > "$$d/docker"; chmod +x "$$d/docker"; \
-	env -u LOOM_BASE_IMAGE -u ALLOW_SPEC_CHANGE -u ALLOW_MAIN_COMMIT \
+	env -u LOOM_BASE_IMAGE -u ALLOW_SPEC_CHANGE -u ALLOW_TRUST_CHANGE -u ALLOW_MAIN_COMMIT \
 	  -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
 	  PATH="$$d:$$PATH" \
 	  $(GO) test -timeout 120s ./...; \
