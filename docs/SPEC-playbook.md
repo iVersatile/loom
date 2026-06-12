@@ -154,7 +154,7 @@ rather than key-merge. For Phase 1 the statusline lives in the **base** tier onl
 no project overrides it; key-level JSON merge for `settings.json` is **deferred** (see
 Open questions and ADR-0004 "revisit if").
 
-## Shell-config model (T4, decided 2026-06-11)
+## Shell config model (T4, decided 2026-06-11)
 
 One dotfile directory — `~/.bashrc.d/` — owns shell configuration for **all**
 shell types: the engine wires both login (`.profile`) and interactive
