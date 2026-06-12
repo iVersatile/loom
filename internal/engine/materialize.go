@@ -178,15 +178,14 @@ func stagedHomeDrift(src fs.FS, pb *playbook.Playbook, homeDir string) ([]string
 	}
 	expected = append(expected, hfiles...)
 
+	// Content-only comparison, mirroring writeIfChanged exactly: drift here
+	// IS "build would write this file" — verdict and action share a domain
+	// (F2/LL-012 doctrine), so a difference build would not fix (e.g. a
+	// hand-chmod'd staged file) must not loop plan at exit 2 forever.
 	var drift []string
 	for _, f := range expected {
-		info, err := os.Stat(f.Target)
-		if err != nil {
-			drift = append(drift, f.Display)
-			continue
-		}
 		data, err := os.ReadFile(f.Target)
-		if err != nil || !bytes.Equal(data, f.Data) || info.Mode().Perm() != f.Mode {
+		if err != nil || !bytes.Equal(data, f.Data) {
 			drift = append(drift, f.Display)
 		}
 	}

@@ -92,9 +92,12 @@ requirements:
     kind: behavioral
     # LL-012 (guided-run finding ⑦): plan graded the host while build
     # converged the container — verdict and action must share a domain.
-    statement: plan grades the CONTAINER on the tools dimension — live probe when running, the lock's container-pinned resolved values when stopped (never starting it), and with no container every declared tool is an install; the build host's PATH is never consulted.
+    # Phase-1 review F2 widened the rule from "domain" to "dimensions":
+    # plan graded container+tools only while build also converged the
+    # lockfile, the staged $HOME, and the agent set.
+    statement: plan grades EVERY dimension build converges — container+tools and the agent set (live probe when running, the lock's container-pinned resolved values when stopped, never starting it; with no container every declared tool and agent is an install), the lockfile (the same resolve + carry-forward path build runs, compared content-equal), the staged $HOME (read-only dry run against the config source), and the running container's home-sync sentinel; the build host's PATH is never consulted.
     source: SPEC-verbs.md#plan
-    tests: [engine.TestPlanGradesContainerNotHost, engine.TestPlanStoppedContainerUsesLock, engine.TestPlanDriftAndConverged]
+    tests: [engine.TestPlanGradesContainerNotHost, engine.TestPlanStoppedContainerUsesLock, engine.TestPlanDriftAndConverged, engine.TestPlanGradesLockfileAndHomeDimensions, engine.TestPlanGradesAgentDimension, engine.TestPlanGradesHomeSyncDimension]
     status: active
 
   # --- Behavioral: build (SPEC-verbs#build) ---
