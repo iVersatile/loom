@@ -103,3 +103,27 @@ Scored result (advisor, 2026-06-11 ~20:10Z): **5.5 / 6 — artifacts won.**
 Verdict: the context-economy thesis held its first crash. Loss classes
 feed P2; the snapshot-staleness and worktree-stub catches feed the
 harness-health review checklist (P7).
+
+### Organic cold start — 2026-06-12 (subject: loom-advisor, post-reboot)
+
+Not a protocol run (no kill, no no-hint prompt) — an ordinary reboot
+cold start, scored honestly because it produced a NEW loss class.
+
+- **FAIL on landing**: the session oriented from PLAN.md + git log and
+  did not surface its own pickup list, last task, or the open human-todo
+  until the human steered it twice — even though all three were written
+  in the top STATE checkpoint of the advisor's workstream memory file.
+- **New loss class: "memory present but unread at orient."** Distinct
+  from every Run-1 class: the data survived (artifacts won) but the
+  orientation PROCEDURE never consulted the surface that held it.
+  Contributing cause: the memory index hook line advertised a day-old
+  state ("@2026-06-11 EOD"), under-selling the fresh checkpoint.
+- **Fixes applied same day** (advisor memory layer, off-tree): a
+  standing read-checkpoint-first orientation rule + an imperative,
+  date-current index hook ("READ TOP CHECKPOINT AT COLD START").
+- **Rubric impact**: add to the scoring table — recovery counts only if
+  the subject lands unprompted; "recoverable after human steering" is a
+  procedure failure even when no data was lost. Harness-health checklist
+  (P7) inherits: stale index/snapshot hooks are a named hazard
+  (Run 1 already flagged snapshot staleness; this is the same family on
+  the memory index).
