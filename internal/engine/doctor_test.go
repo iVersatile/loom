@@ -261,3 +261,37 @@ func TestDoctorContainerHomeWiring(t *testing.T) {
 		t.Error("stopped container must not get a container:home verdict")
 	}
 }
+
+// TestDoctorGradesGitconfigIdentity (T16 PR 3): a playbook shipping `gitconfig`
+// gets a host-tier identity check — complete [user] passes with the value
+// surfaced; an incomplete one fails (in-container commits would sign as the
+// image default, violating the TEAM commit-identity rule).
+func TestDoctorGradesGitconfigIdentity(t *testing.T) {
+	rt := fakeRuntime{exists: false}
+	res, err := doctorImpl(DoctorOpts{PlaybookPath: testFixture}, rt)
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	c, ok := checksByName(res)["host:gitconfig"]
+	if !ok || !c.OK {
+		t.Fatalf("host:gitconfig should pass for the fixture identity, got %+v", c)
+	}
+	if !strings.Contains(c.Detail, "0+fixture@users.noreply.github.com") {
+		t.Errorf("detail should surface the declared email, got %q", c.Detail)
+	}
+}
+
+// TestGitIdentityParsesUserSection pins the minimal gitconfig walk: [user]
+// keys win, other sections are ignored, missing keys come back empty.
+func TestGitIdentityParsesUserSection(t *testing.T) {
+	name, email := gitIdentity([]byte("[core]\n\teditor = vi\n[user]\n\tname = A B\n\temail = a@noreply\n"))
+	if name != "A B" || email != "a@noreply" {
+		t.Errorf("got (%q, %q), want (A B, a@noreply)", name, email)
+	}
+	if n, e := gitIdentity([]byte("[user]\n\tname = OnlyName\n")); n != "OnlyName" || e != "" {
+		t.Errorf("partial identity: got (%q, %q)", n, e)
+	}
+	if n, e := gitIdentity([]byte("[alias]\n\temail = not-an-identity\n")); n != "" || e != "" {
+		t.Errorf("keys outside [user] must be ignored: got (%q, %q)", n, e)
+	}
+}

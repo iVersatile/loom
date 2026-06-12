@@ -71,3 +71,15 @@ func TestPathDotfilesSingleOwner(t *testing.T) {
 		t.Errorf("apt-only tool set should generate nothing, got %v", f)
 	}
 }
+
+// TestGitconfigMapsToHomeDotfile (T16 PR 3): the `gitconfig` reference — named,
+// not hidden, in the config source — lands at ~/.gitconfig.
+func TestGitconfigMapsToHomeDotfile(t *testing.T) {
+	home := t.TempDir()
+	if got := dotfileTarget(home, "gitconfig"); got != filepath.Join(home, ".gitconfig") {
+		t.Errorf("dotfileTarget(gitconfig) = %q, want ~/.gitconfig", got)
+	}
+	if got := dotfileDisplay("gitconfig"); got != "~/.gitconfig" {
+		t.Errorf("dotfileDisplay(gitconfig) = %q", got)
+	}
+}

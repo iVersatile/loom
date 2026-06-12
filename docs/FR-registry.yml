@@ -201,6 +201,33 @@ requirements:
     source: SPEC-verbs.md#build
     tests: [engine.TestBuildWiresGithooks, engine.TestBuildSkipsGithooksWhenAbsent]
     status: active
+  - id: FR-BUILD-011
+    kind: behavioral
+    # T4 (decided 2026-06-11): one dotfile dir owns shell config. The loader
+    # is wired unconditionally (never gated on the tool set); known PATH
+    # entries are engine-generated dotfiles emitting $HOME, and the provision
+    # script never appends to shell-init files.
+    statement: shell config has one declarative owner — build wires both .profile and .bashrc to source ~/.bashrc.d/*.sh unconditionally; stack/agent PATH entries materialize as generated $HOME-based dotfiles in that dir (graded by plan/doctor like declared dotfiles); the provision script touches no shell-init file.
+    source: SPEC-playbook.md#shell-config-model
+    tests: [engine.TestShellInitWiresBothShells, engine.TestPathDotfilesSingleOwner, engine.TestProvisionScriptCoversSources, engine.TestPlanGradesGeneratedPathDotfile]
+    status: active
+  - id: FR-BUILD-012
+    kind: behavioral
+    # Live-build e2e R1 family (F-a/F-b/F-c): a third party must be able to
+    # reconstruct what a build changed AFTER the fact — summary counts writes,
+    # the bulk home sync is one named audit entry, diag logs accumulate runs.
+    statement: build observability is reconstruction-grade — the human summary splits ensured/written; a home sync into the container appends one home.sync audit entry naming the shipped file set (no-op runs append nothing); per-verb diagnostic logs append run-demarcated, never truncate.
+    source: SPEC-verbs.md#build
+    tests: [engine.TestBuildSummaryCountsWrites, engine.TestBuildAuditsHomeSync, engine.TestDiagLogAppendsAcrossRuns]
+    status: active
+  - id: FR-BUILD-013
+    kind: behavioral
+    # T16 PR 3: git identity is declared config (ADR-0015), shipped as a plain
+    # dotfiles: reference — no new schema field (SPEC-playbook#harness).
+    statement: the `gitconfig` dotfile reference (named, not hidden, in the config source) materializes to ~/.gitconfig through the standard staging pipeline, re-converged every build like any declared dotfile.
+    source: SPEC-playbook.md#harness
+    tests: [engine.TestGitconfigMapsToHomeDotfile]
+    status: active
   - id: FR-SCHEMA-008
     kind: schema
     # T16 PR 2: the base-authored rule is enforced at Load per non-base LAYER
@@ -298,6 +325,15 @@ requirements:
     statement: doctor verifies guardrails are WIRED, not just present — declared harness settings carry a non-empty permissions.deny floor and a registration for every declared harness hook; the staged $HOME matches the config source; a running container's home sentinel matches the staged digest (stopped is graded at the staging tier, never started); and a project shipping .githooks fails the check until core.hooksPath points at it.
     source: SPEC-verbs.md#doctor
     tests: [engine.TestDoctorFailsCosmeticsOnlySettings, engine.TestDoctorPassesGuardedSettings, engine.TestDoctorStagedHomeDrift, engine.TestDoctorContainerHomeWiring, engine.TestDoctorGradesGithooksWiring]
+    status: active
+  - id: FR-DOCTOR-004
+    kind: behavioral
+    # T16 PR 3: the materialized ~/.gitconfig is what every in-container
+    # commit signs as (TEAM commit-identity rule) — completeness is mechanism;
+    # WHICH identity stays repo policy, reviewed at the config-source PR.
+    statement: when the playbook ships a gitconfig, doctor's host:gitconfig check fails on a missing or [user]-incomplete declaration and surfaces the declared identity when complete.
+    source: SPEC-verbs.md#doctor
+    tests: [engine.TestDoctorGradesGitconfigIdentity, engine.TestGitIdentityParsesUserSection]
     status: active
 
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
