@@ -121,6 +121,78 @@ func TestDrainHaltKillSwitchGatesOwnerRole(t *testing.T) {
 	}
 }
 
+// Non-work kinds (T25): fyi and draft are never ridden and never
+// orphan-flagged — the drain skips them BEFORE the orphan check. With a fyi
+// (QUEUED, no serves), a draft, and a legal task in the inbox, the drain
+// must pick the task and the continuation report must NOT flag the others.
+func TestDrainSkipsFyiAndDraftKinds(t *testing.T) {
+	root := drainFixture(t)
+	inboxPath := filepath.Join(root, ".scratch", "inbox", "loom-author.md")
+	extra := `
+--- id: 002
+from: loom-advisor
+kind: fyi
+status: QUEUED
+
+Trial flip scheduled tomorrow first thing.
+
+--- id: 003
+from: loom-advisor
+kind: draft
+status: QUEUED
+
+Half-formed proposal awaiting /coordinate triage.
+`
+	f, err := os.OpenFile(inboxPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(extra); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	out, err := runDrain(t, root, "loom-author")
+	if err != nil {
+		t.Fatalf("drain with mixed kinds must succeed: %v", err)
+	}
+	if !strings.Contains(out, "inbox item 001") {
+		t.Fatalf("drain must ride the task item, got: %q", out)
+	}
+	if strings.Contains(out, "skipped") || strings.Contains(out, "002") || strings.Contains(out, "003") {
+		t.Fatalf("fyi/draft must be neither ridden nor orphan-flagged, got: %q", out)
+	}
+	if got := readInbox(t, root); !strings.Contains(got, "kind: fyi\nstatus: QUEUED") {
+		t.Fatalf("fyi item must be untouched by the drain, inbox:\n%s", got)
+	}
+}
+
+// A fyi-only inbox (AUTOPILOT on): normal stop — no decision, no flags.
+func TestDrainFyiOnlyInboxStopsNormally(t *testing.T) {
+	root := drainFixture(t)
+	inboxPath := filepath.Join(root, ".scratch", "inbox", "loom-author.md")
+	fyiOnly := `AUTOPILOT: on
+
+--- id: 001
+from: loom-advisor
+kind: fyi
+status: UNREAD
+
+Heads-up only; nothing to ride.
+`
+	if err := os.WriteFile(inboxPath, []byte(fyiOnly), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runDrain(t, root, "loom-author")
+	if err != nil {
+		t.Fatalf("fyi-only stop must exit 0, got: %v", err)
+	}
+	if out != "" {
+		t.Fatalf("fyi-only inbox must produce no drain decision, got: %q", out)
+	}
+}
+
 // The owning role drains: decision block emitted, item flipped to TAKEN.
 func TestDrainRoleGuardOwnerRoleDrains(t *testing.T) {
 	root := drainFixture(t)

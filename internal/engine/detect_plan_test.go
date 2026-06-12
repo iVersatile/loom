@@ -2,6 +2,8 @@ package engine
 
 import (
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 )
@@ -24,10 +26,12 @@ type fakeRuntime struct {
 	teardownRemoved Removed
 	teardownErr     error
 	probeVersions   map[string]string // canned in-container versions (T5)
-	execExit        int               // canned command exit code for Exec
-	execErr         error             // canned transport error for Exec
-	startErr        error             // canned error for Start
-	execRecord      *execCall         // when set, Start/Exec record into it
+	running         bool              // canned container state (LL-012)
+	runningErr      error
+	execExit        int       // canned command exit code for Exec
+	execErr         error     // canned transport error for Exec
+	startErr        error     // canned error for Start
+	execRecord      *execCall // when set, Start/Exec record into it
 }
 
 // execCall captures what the exec verb asked of the runtime, for contract
@@ -58,6 +62,10 @@ func (r fakeRuntime) Probe(_, binary string) (bool, string) {
 	v, ok := r.probeVersions[binary]
 	return ok, v
 }
+
+// Running reports the canned container state (LL-012: plan picks live probe
+// vs lock fallback on this).
+func (r fakeRuntime) Running(string) (bool, error) { return r.running, r.runningErr }
 
 func (r fakeRuntime) Start(name string) error {
 	if r.execRecord != nil {
@@ -97,47 +105,109 @@ func TestDetectComputesDrift(t *testing.T) {
 }
 
 func TestPlanDriftAndConverged(t *testing.T) {
-	// Nothing built, gopls missing → container create + gopls install, drift.
-	p := fakeProber{
-		"git": "git version 2.43",
-		"jq":  "jq-1.7",
-		"go":  "go version go1.26.4",
-	}
-	res, err := planImpl(PlanOpts{PlaybookPath: testFixture}, p, fakeRuntime{exists: false})
+	// Nothing built → container create + EVERY declared tool is an install:
+	// with no container there is no environment to grade (LL-012 — the host
+	// PATH must not be consulted).
+	res, err := planImpl(PlanOpts{PlaybookPath: testFixture}, fakeRuntime{exists: false})
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
 	if !res.Changed() {
-		t.Fatal("plan should report changes (container + gopls)")
+		t.Fatal("plan should report changes (container + installs)")
 	}
 	if len(res.Create) != 1 || res.Create[0].Name != "loom-dev" {
 		t.Errorf("create = %+v, want container loom-dev", res.Create)
 	}
-	if !hasInstall(res.Install, "gopls") {
-		t.Errorf("install = %+v, want gopls", res.Install)
-	}
-	if !slices.Contains(res.Noop, "go@1.26") {
-		t.Errorf("noop = %v, want go@1.26 converged", res.Noop)
+	for _, tool := range []string{"git", "jq", "go", "gopls"} {
+		if !hasInstall(res.Install, tool) {
+			t.Errorf("install = %+v, want %s (no environment exists to grade)", res.Install, tool)
+		}
 	}
 
-	// Everything present + container exists → fully converged.
-	pAll := fakeProber{
-		"git":   "2.43",
-		"jq":    "1.7",
-		"go":    "go1.26.4",
-		"gopls": "v0.16",
-	}
-	res2, err := planImpl(PlanOpts{PlaybookPath: testFixture}, pAll, fakeRuntime{exists: true})
+	// Everything present in the RUNNING container → fully converged.
+	res2, err := planImpl(PlanOpts{PlaybookPath: testFixture}, fakeRuntime{
+		exists: true, running: true,
+		probeVersions: map[string]string{
+			"git":   "2.43",
+			"jq":    "1.7",
+			"go":    "go1.26.4",
+			"gopls": "v0.16",
+		},
+	})
 	if err != nil {
 		t.Fatalf("plan converged: %v", err)
 	}
 	if res2.Changed() {
 		t.Errorf("plan should be converged, got create=%v install=%v", res2.Create, res2.Install)
 	}
+	if !slices.Contains(res2.Noop, "go@1.26") {
+		t.Errorf("noop = %v, want go@1.26 converged", res2.Noop)
+	}
+}
+
+// TestPlanGradesContainerNotHost pins LL-012 / FR-PLAN-003 directly: the
+// running container has every declared tool; whatever the HOST has is
+// irrelevant (there is no host prober left to consult). Before the fix, a
+// host missing ripgrep-class tools made plan report installs while build
+// said converged — verdict and action must agree on the tools dimension.
+func TestPlanGradesContainerNotHost(t *testing.T) {
+	res, err := planImpl(PlanOpts{PlaybookPath: testFixture}, fakeRuntime{
+		exists: true, running: true,
+		probeVersions: map[string]string{
+			"git": "2.43", "jq": "1.7", "go": "go1.26.4", "gopls": "v0.16",
+		},
+	})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if len(res.Install) != 0 || len(res.Create) != 0 {
+		t.Errorf("converged container must yield zero work: install=%+v create=%+v", res.Install, res.Create)
+	}
+
+	// And a running container genuinely MISSING a tool is reported — live
+	// drift detection stays (ADR-0011).
+	res2, err := planImpl(PlanOpts{PlaybookPath: testFixture}, fakeRuntime{
+		exists: true, running: true,
+		probeVersions: map[string]string{"git": "2.43", "jq": "1.7", "go": "go1.26.4"},
+	})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if !hasInstall(res2.Install, "gopls") {
+		t.Errorf("install = %+v, want gopls (genuinely absent in container)", res2.Install)
+	}
+}
+
+// TestPlanStoppedContainerUsesLock: plan never mutates, so it must not Start
+// a stopped container to probe it — the lock's container-pinned `resolved`
+// values (T5) are the fallback truth.
+func TestPlanStoppedContainerUsesLock(t *testing.T) {
+	dir := tempProject(t)
+	lockBody := `{"loom_lock":1,"resolved_at":"2026-06-11T00:00:00Z","base_image":"debian@sha256:x",
+"tools":{"git":{"intent":"latest","resolved":"2.43","source":"apt"},
+"jq":{"intent":"latest","resolved":"1.7","source":"apt"},
+"go":{"intent":"1.26","resolved":"go1.26.4","source":"image"},
+"gopls":{"intent":"latest","resolved":"","source":"go"}},"agents":{}}`
+	if err := os.WriteFile(filepath.Join(dir, "loom.lock"), []byte(lockBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := planImpl(PlanOpts{PlaybookPath: filepath.Join(dir, "loom.yml")},
+		fakeRuntime{exists: true, running: false})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	// git/jq/go pinned in the lock → noop; gopls empty in the lock → install.
+	if !hasInstall(res.Install, "gopls") || len(res.Install) != 1 {
+		t.Errorf("install = %+v, want exactly gopls (empty lock pin)", res.Install)
+	}
+	if !slices.Contains(res.Noop, "go@1.26") {
+		t.Errorf("noop = %v, want go@1.26 (lock-pinned)", res.Noop)
+	}
 }
 
 func TestPlanNoPlaybookErrors(t *testing.T) {
-	_, err := planImpl(PlanOpts{PlaybookPath: "testdata/nope.yml"}, fakeProber{}, fakeRuntime{})
+	_, err := planImpl(PlanOpts{PlaybookPath: "testdata/nope.yml"}, fakeRuntime{})
 	if err == nil {
 		t.Error("plan without a playbook should error")
 	}
