@@ -44,7 +44,17 @@
       "Bash(git push -f :*)",
       "Bash(git commit --no-verify:*)",
       "Bash(loom teardown:*)",
-      "Bash(loom build --force:*)"
+      "Bash(loom build --force:*)",
+      "Edit(.claude/settings.json)",
+      "Write(.claude/settings.json)",
+      "Edit(.claude/settings.local.json)",
+      "Write(.claude/settings.local.json)",
+      "Edit(.claude/hooks/**)",
+      "Write(.claude/hooks/**)",
+      "Edit(//root/.claude/settings.json)",
+      "Write(//root/.claude/settings.json)",
+      "Edit(//root/.claude/hooks/**)",
+      "Write(//root/.claude/hooks/**)"
     ]
   },
   "hooks": {
