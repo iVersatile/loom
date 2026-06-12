@@ -119,3 +119,11 @@ scratch.
 3. Mechanization note (gate contract): what this review hand-checked once,
    doctor inherits — candidate checks: guardrails *wired* not just present
    (C1), TAKEN-claim liveness (MED-5), snapshot freshness (MED-4).
+
+## Rulings (human, 2026-06-12)
+
+1. **C1: FIX NOW** — no re-scope. Phase-1 close waits on the fix landing.
+   Work envelope: inbox item 024 (fix batch).
+2. **Highs**: no written acceptances issued ⇒ all default to FIX — H2/H3/H4,
+   F1, F2 stay in the 024 fix batch. HIGH-1 fixed same morning by the human
+   directly (settings.local.json blanket allows removed; verified clean).
