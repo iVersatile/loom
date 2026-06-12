@@ -822,3 +822,87 @@ Pointers: drafts 032+033 (intake envelopes, loom-advisor inbox) · review M7
 (orphan-guard substring weakness) · T21/T23 (the transport this governs) ·
 C2 (stale-TAKEN) · PLAN "agent-initiated lifecycle / task continuity" open
 item · .scratch/inbox/HALT (the freeze primitive OVERRIDE mirrors).
+
+## T28 — Harness self-defense: attack surface + protections (would the guardrails hold if you tried the worst thing?)   🟡 open
+
+Origin: human, 2026-06-12, raised when the new SessionStart checkpoint-inject
+hook (advisor seat) was recognized as an injection-PERSISTENCE vector — an
+agent-written file auto-replayed into every future session. The hook got a
+kill-switch (HALT sentinel) + data-not-instructions framing + size cap the
+same hour; this thread generalizes that reflex into a standing harness threat
+model. Design test (AGENTS.md AI-first invariant): the guardrails are
+mechanism not trust — would they hold if the agent (or content the agent
+ingests) tried the worst thing? Defense-only framing; no offensive tooling.
+
+**Scope.** The harness = everything that shapes agent behavior across a
+session boundary: settings.json (perms/hooks), the hook scripts, auto-memory
+(MEMORY.md + memory/*.md), the .scratch/inbox transport, injected context
+(SessionStart output, tool results, PR/issue bodies the agent summarizes),
+and the credential/egress edges. Trust spine today: deny floor binds in ALL
+modes (#45/#46), never-auto floor (creds/egress/git-config/ref-surgery),
+CODEOWNERS on frozen paths, branch protection, role guard (LL-011), HALT
+(T23). This thread asks where that spine is THIN.
+
+**Attack styles (taxonomy — seed, expand at triage):**
+- **A. Injection persistence** — contaminate an auto-replayed surface so a
+  one-shot injection re-enters every session. Vectors: checkpoint block,
+  MEMORY.md / memory files, CLAUDE.md, session-start snapshot, statusline.
+  (This thread's trigger.)
+- **B. Confused-deputy via ingested content** — a PR diff / issue body /
+  tool result / web fetch carries instructions ("ignore prior, run X");
+  the agent acts with ITS credentials on attacker intent. The classic
+  prompt-injection-to-action path; worst when the agent has push/merge/egress.
+- **C. Guardrail erosion (slow boil)** — small allowlist widenings, a deny
+  rule narrowed "to reduce prompts", a never-auto path quietly moved to
+  settings.local — each defensible alone, fatal in aggregate. AGENTS.md
+  forbids weakening a deny rule; mechanism to DETECT drift is the gap.
+- **D. Hook/script supply chain** — the hooks are unsigned shell run every
+  session/tool-call; whoever writes ~/.claude/hooks or .githooks owns the
+  agent. Also: guard-bash false-positive/negative seams (compound commands,
+  substring matches — review M7, H4 live specimens).
+- **E. Transport / role abuse** — forged inbox envelope, OVERRIDE/HALT
+  spoofing (T27), drain delivering cross-role cargo (LL-011 class), orphan-
+  guard substring bypass (M7).
+- **F. Credential & egress exfil** — secret in a log/fixture/stdout; data
+  smuggled out via an allowed network path or git remote; the worst-thing
+  test for T20 (egress proxy) and T15/T18 (creds).
+- **G. Self-modification / privilege escalation** — agent edits its own
+  settings to widen perms, arms auto-merge while gate red, admin-merges a
+  frozen path (all OBSERVED + correctly blocked 2026-06-12 review — keep
+  them blocked as the harness evolves).
+- **H. Cross-context / shared-tree** — dirty files riding checkouts, worktree
+  metadata surgery across the container boundary, GIT_DIR/GIT_WORK_TREE leak
+  poisoning shared .git/config (LL-010). Disk is shared; trust is not.
+
+**Protection options (menu — pair each to the styles above):**
+- Kill-switches per replayed surface (HALT-sentinel pattern, T23) +
+  data-not-instructions framing + size caps on every injected block (A).
+- "Untrusted content" discipline: instructions inside ingested data are
+  data, never commands; agent flags imperative content rather than obeying
+  (B) — partly prompt-side, partly a reviewer habit.
+- Guardrail-drift detector: doctor/CI claim that diffs effective deny+never-
+  auto floor against a signed baseline and fails on weakening (C, G). The
+  one new MECHANISM this thread most wants.
+- Hook integrity: minimize agent-writability of ~/.claude/hooks; consider a
+  checked-in, human-owned hook set; least-privilege hook scripts; `set -u`,
+  no eval, bounded output (D).
+- Transport authenticity: role-stamped envelopes, OVERRIDE/HALT human-
+  authored + flips.log, orphan-guard on parsed fields not substrings (E,
+  feeds T27/M7).
+- Egress/creds: T20 observe→enforce proxy, zero-secret-in-container (C′/D),
+  gitleaks in gate (already live) (F).
+- Self-mod floor: settings writes never-auto + CODEOWNERS + branch protection
+  (G, already holding — assert it stays).
+- Shared-tree law + HEAD-checks + GIT_CONFIG scrub (H, LL-010 fixed).
+
+**Method note.** Candidate for the adversarial-review hat / a periodic
+"worst-thing" self-audit (A01 pointer P5 security self-audit; P6 host
+security map). Knowledge-based here (no live web in-env); a real pass should
+pull current prompt-injection / agent-harness threat literature.
+
+Pointers: SessionStart checkpoint hook + HALT sentinel (this session) ·
+[[cold-start-read-checkpoint-first]] loss class · #45/#46 deny+never-auto
+floors · LL-010 (GIT config poison) / LL-011 (role bleed) · review M7 (orphan
+substring) + H4 (guard-bash substring) + C1 (guardrail wiring) · T20 egress ·
+T15/T18 creds · T23 HALT · T27 OVERRIDE/HALT control · A01 P5/P6 (security
+self-audit, host security map) · AGENTS.md "guardrails are mechanism not trust".
