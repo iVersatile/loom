@@ -187,11 +187,14 @@ requirements:
     kind: behavioral
     statement: build materializes declared harness artifacts into the agent home via write-if-changed — settings whole-file, hooks executable under hooks/, skills recursive under skills/ — idempotent, and a dangling reference is a loud error naming agent+field+ref.
     source: [SPEC-playbook.md#harness, SPEC-verbs.md#build]
-    tests: [engine.TestMaterializeHarnessArtifacts, engine.TestMaterializeHarnessIdempotent, engine.TestMaterializeHarnessMissingRefErrors]
+    tests: [engine.TestMaterializeHarnessArtifacts, engine.TestMaterializeHarnessIdempotent, engine.TestMaterializeHarnessMissingRefErrors, engine.TestDogfoodBasePlaybookHarnessMaterializes]
     status: active
   - id: FR-SCHEMA-008
     kind: schema
-    statement: harness merges per agent namespace — hooks/skills concatenate + dedup in layer order, settings last-non-empty wins; Phase 1 validation rejects project-tier settings (base-authored whole-file only).
+    # T16 PR 2: the base-authored rule is enforced at Load per non-base LAYER
+    # (authorship), not by tier-checking the merged playbook — the merge
+    # legitimately carries the base's settings under the project's tier.
+    statement: harness merges per agent namespace — hooks/skills concatenate + dedup in layer order, settings last-non-empty wins; Phase 1 rejects a settings declaration on any non-base layer at Load, naming the layer (base-authored whole-file only).
     source: SPEC-playbook.md#harness
     tests: [playbook.TestHarnessMergeRules, playbook.TestValidateHarnessSettingsBaseOnly]
     status: active

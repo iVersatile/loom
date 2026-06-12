@@ -1,6 +1,8 @@
 package playbook
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -54,22 +56,40 @@ func TestHarnessMergeRules(t *testing.T) {
 }
 
 // TestValidateHarnessSettingsBaseOnly proves the Phase-1 constraint in
-// FR-SCHEMA-008: harness.<agent>.settings on a project-tier playbook is a
-// validation error (whole-file, base-authored — no key-merge yet).
+// FR-SCHEMA-008: harness.<agent>.settings is base-authored — a non-base
+// layer declaring one fails Load naming the offending layer (whole-file, no
+// key-merge yet). Enforced per layer at Load, NOT on the merged playbook:
+// the merge legitimately carries the base's settings under the project's
+// tier (the T16 PR 2 dogfood test caught a merged-tier check rejecting
+// every real wire-up).
 func TestValidateHarnessSettingsBaseOnly(t *testing.T) {
-	pb := &Playbook{
-		Loom: 1, Tier: TierProject, Name: "demo",
-		Harness: map[string]HarnessAgent{
-			"claude": {Settings: "claude/settings.json"},
-		},
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS("testdata/proj")); err != nil {
+		t.Fatalf("copy fixture: %v", err)
 	}
-	err := pb.Validate()
-	if err == nil || !strings.Contains(err.Error(), "base-tier only") {
-		t.Fatalf("project-tier harness settings must fail validation, got: %v", err)
+	pbPath := filepath.Join(dir, "loom.yml")
+
+	declare := func(block string) {
+		orig, err := os.ReadFile(filepath.Join("testdata", "proj", "loom.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(pbPath, append(orig, []byte(block)...), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	pb.Harness["claude"] = HarnessAgent{Hooks: []string{"guard-bash"}}
-	if err := pb.Validate(); err != nil {
-		t.Fatalf("project-tier harness hooks (no settings) must validate, got: %v", err)
+	// A project-layer settings declaration must fail, naming the layer.
+	declare("\nharness:\n  claude:\n    settings: claude/settings.json\n")
+	_, err := Load(pbPath)
+	if err == nil || !strings.Contains(err.Error(), "base-tier only") ||
+		!strings.Contains(err.Error(), "project playbook") {
+		t.Fatalf("project-layer harness settings must fail Load naming the layer, got: %v", err)
+	}
+
+	// Project-layer hooks (no settings) are fine.
+	declare("\nharness:\n  claude:\n    hooks:\n      - guard-bash\n")
+	if _, err := Load(pbPath); err != nil {
+		t.Fatalf("project-layer harness hooks (no settings) must load, got: %v", err)
 	}
 }
