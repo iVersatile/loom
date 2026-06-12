@@ -25,6 +25,9 @@
 | Docker present + running | `docker info >/dev/null && echo ok` | ok |
 | Engine path decided | Go ≥ 1.26 (`go version`) **or** a prebuilt `bin/loom` (Mac topology: cross-compiled in loom-dev/CI — the Mac host has no Go) | one of the two; record which |
 | Repo | fresh `git clone https://github.com/iVersatile/loom && cd loom` | clean checkout of main |
+| No instance collision (finding ①) | the host runs no container for this playbook's `name:` (covered by the fresh-state grep above) | absent — two checkouts of one project collide by design; rename `name:` to coexist |
+| Plan-first on a non-fresh machine (finding ②) | anything loom-ish already present ⇒ `bin/loom plan` before any `build` | read-only verdict naming the target container and outstanding work; only `build` mutates |
+| Timing honesty (finding ⑥) | `docker images \| grep bookworm` — is the base image already cached? | record cold-pull vs cached; a warm host (e.g. it runs another loom container) flatters build time |
 
 ## The run
 

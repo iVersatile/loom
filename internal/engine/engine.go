@@ -50,4 +50,12 @@ type DoctorOpts struct {
 type ExecOpts struct {
 	PlaybookPath string   // --playbook/-f; falls back to defaultPlaybookPath
 	Command      []string // argv to run inside the container; required (SPEC-verbs exec)
+	// TTY allocates a terminal and marks the run interactive (SPEC-verbs
+	// shell — set only by the shell verb today). It flips the audit shape:
+	// one session-open entry, no command capture.
+	TTY bool
+}
+
+type ShellOpts struct {
+	PlaybookPath string // --playbook/-f; falls back to defaultPlaybookPath
 }

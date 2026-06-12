@@ -94,9 +94,11 @@ type ContainerRuntime interface {
 	Start(name string) error
 	// Exec runs argv inside the container with login-shell env, cwd workdir,
 	// stdio attached to the calling process (transparent passthrough,
-	// SPEC-verbs exec). Returns the command's exit code verbatim; a non-nil
-	// error means the transport failed and no exit code exists.
-	Exec(name string, argv []string, workdir string) (int, error)
+	// SPEC-verbs exec). tty allocates a terminal (SPEC-verbs shell — the one
+	// engine path with a TTY option; no second code path). Returns the
+	// command's exit code verbatim; a non-nil error means the transport
+	// failed and no exit code exists.
+	Exec(name string, argv []string, workdir string, tty bool) (int, error)
 }
 
 type dockerRuntime struct{}
@@ -398,17 +400,23 @@ func (dockerRuntime) Start(name string) error {
 // Exec runs argv inside the container per the SPEC-verbs exec contract:
 // login-shell env (`sh -lc`, the Probe lesson — provisioned PATH applies),
 // cwd = workdir, the container's configured user (docker exec's default; root
-// today, T10 changes the config not this code), TTY off, stdio passed through
-// untouched. The argv is shell-quoted and exec'd so the command — not a
-// wrapper shell — receives signals and owns the exit code.
+// today, T10 changes the config not this code), stdio passed through
+// untouched. tty adds `-t` (SPEC-verbs shell: a TTY plus a login shell —
+// same path, one option). The argv is shell-quoted and exec'd so the command
+// — not a wrapper shell — receives signals and owns the exit code.
 // NOTE: integration-validated, not the local gate.
-func (dockerRuntime) Exec(name string, argv []string, workdir string) (int, error) {
+func (dockerRuntime) Exec(name string, argv []string, workdir string, tty bool) (int, error) {
 	quoted := make([]string, len(argv))
 	for i, a := range argv {
 		quoted[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
 	}
-	c := exec.Command("docker", "exec", "-i", "-w", workdir, name,
+	dockerArgs := []string{"exec", "-i"}
+	if tty {
+		dockerArgs = append(dockerArgs, "-t")
+	}
+	dockerArgs = append(dockerArgs, "-w", workdir, name,
 		"sh", "-lc", "exec "+strings.Join(quoted, " "))
+	c := exec.Command("docker", dockerArgs...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := c.Run(); err != nil {
 		var ee *exec.ExitError
