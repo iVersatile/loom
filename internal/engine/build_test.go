@@ -2,6 +2,7 @@ package engine
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -521,4 +522,98 @@ func countLogLines(t *testing.T, root string) int {
 		}
 	}
 	return n
+}
+
+// gitProject upgrades a tempProject into a real git repo with a .githooks dir,
+// using a hermetic env (GIT_* stripped, config scopes pinned to /dev/null —
+// LL-006/LL-010: fixtures must never act on the real repo).
+func gitProject(t *testing.T) string {
+	t.Helper()
+	root := tempProject(t)
+	env := []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}
+	for _, args := range [][]string{{"init", "-b", "main"}} {
+		c := exec.Command("git", append([]string{"-C", root}, args...)...)
+		c.Env = env
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".githooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func localHooksPath(t *testing.T, root string) string {
+	t.Helper()
+	c := exec.Command("git", "-C", root, "config", "--local", "--get", "core.hooksPath")
+	c.Env = []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "PATH=" + os.Getenv("PATH")}
+	out, _ := c.Output()
+	return strings.TrimSpace(string(out))
+}
+
+// TestBuildWiresGithooks (C1): a project shipping .githooks gets
+// core.hooksPath converged by build — commit-time guards run by mechanism,
+// not by remembering `make hooks`. Idempotent: a wired repo re-audits nothing.
+func TestBuildWiresGithooks(t *testing.T) {
+	root := gitProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "created"}}
+
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if got := localHooksPath(t, root); got != ".githooks" {
+		t.Fatalf("core.hooksPath = %q, want .githooks", got)
+	}
+
+	// Second build: already wired → no further githooks.wire write.
+	wired, err := ensureGithooksPath(root)
+	if err != nil {
+		t.Fatalf("ensureGithooksPath: %v", err)
+	}
+	if wired {
+		t.Error("already-wired repo should be a no-op")
+	}
+}
+
+// TestBuildSkipsGithooksWhenAbsent: no .githooks dir or not a git repo →
+// silent skip, never an error (most projects in the wild).
+func TestBuildSkipsGithooksWhenAbsent(t *testing.T) {
+	root := tempProject(t) // not a git repo
+	wired, err := ensureGithooksPath(root)
+	if err != nil || wired {
+		t.Errorf("non-repo should skip: wired=%t err=%v", wired, err)
+	}
+}
+
+// TestDoctorGradesGithooksWiring (C1): doctor reports the git-side guardrail
+// wiring — .githooks present but core.hooksPath unset is a red check, and a
+// project without .githooks gets no verdict at all.
+func TestDoctorGradesGithooksWiring(t *testing.T) {
+	root := gitProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{exists: true, running: true}
+
+	res, err := doctorImpl(DoctorOpts{PlaybookPath: pbPath}, rt)
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	if c, ok := checksByName(res)["host:githooks"]; !ok || c.OK {
+		t.Errorf("unwired .githooks should fail, got %+v", c)
+	}
+
+	if _, err := ensureGithooksPath(root); err != nil {
+		t.Fatal(err)
+	}
+	res, _ = doctorImpl(DoctorOpts{PlaybookPath: pbPath}, rt)
+	if c, ok := checksByName(res)["host:githooks"]; !ok || !c.OK {
+		t.Errorf("wired .githooks should pass, got %+v", c)
+	}
+
+	plain := tempProject(t)
+	res, _ = doctorImpl(DoctorOpts{PlaybookPath: filepath.Join(plain, "loom.yml")}, rt)
+	if _, ok := checksByName(res)["host:githooks"]; ok {
+		t.Error("project without .githooks must get no githooks verdict")
+	}
 }

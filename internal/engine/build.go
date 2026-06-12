@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/iVersatile/loom/internal/audit"
@@ -149,6 +151,22 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		}
 	}
 
+	// Git-side guardrail wiring (C1, phase-1 review): a project that ships
+	// .githooks gets core.hooksPath converged so the commit-time guards
+	// (branch-guard/protect-paths class) actually run — a declared guard no
+	// commit path invokes is fiction. Idempotent; audited like every mutation.
+	if wired, werr := ensureGithooksPath(root); werr != nil {
+		return res, fmt.Errorf("wire githooks: %w", werr)
+	} else if wired {
+		changed = true
+		if id, aerr := log.Append(audit.Entry{
+			TS: ts, Verb: "build", Action: "githooks.wire", Target: root,
+			After: map[string]any{"core.hooksPath": ".githooks"}, Result: "written", Actor: "cli",
+		}); aerr == nil {
+			res.Actions = append(res.Actions, id)
+		}
+	}
+
 	// Diagnostic log for troubleshooting (ADR-0010): raw docker + provision output,
 	// written always, separate from the structured action log.
 	var logw io.Writer
@@ -233,6 +251,27 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		res.Result = "converged"
 	}
 	return res, nil
+}
+
+// ensureGithooksPath sets repo-local core.hooksPath=.githooks when the project
+// ships a .githooks dir and the config does not already point there. Returns
+// true only when it wrote the config (idempotent: a wired repo is a no-op).
+// Not applicable (no .githooks, not a git repo) is a silent skip, not an error.
+func ensureGithooksPath(root string) (bool, error) {
+	if _, err := os.Stat(filepath.Join(root, ".githooks")); err != nil {
+		return false, nil
+	}
+	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+		return false, nil
+	}
+	out, _ := exec.Command("git", "-C", root, "config", "--local", "--get", "core.hooksPath").Output()
+	if strings.TrimSpace(string(out)) == ".githooks" {
+		return false, nil
+	}
+	if err := exec.Command("git", "-C", root, "config", "--local", "core.hooksPath", ".githooks").Run(); err != nil {
+		return false, fmt.Errorf("git config core.hooksPath: %w", err)
+	}
+	return true, nil
 }
 
 // carryForwardResolved seeds a fresh resolution's `resolved` fields from the

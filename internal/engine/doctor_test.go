@@ -129,3 +129,135 @@ func TestDoctorRuntimeUnavailable(t *testing.T) {
 		}
 	}
 }
+
+// harnessProject builds a tempProject whose base playbook declares a harness
+// block (settings + guard-bash hook) — the C1 wiring surface.
+func harnessProject(t *testing.T) string {
+	t.Helper()
+	root := tempProject(t)
+	base := filepath.Join(root, "config", "playbook.yml")
+	data, err := os.ReadFile(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness := "\nharness:\n  claude:\n    settings: claude/settings.json\n    hooks:\n      - guard-bash\n"
+	if err := os.WriteFile(base, append(data, harness...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// guardedSettings is a settings file carrying a real guard envelope: a deny
+// floor and a registration for the declared guard-bash hook.
+const guardedSettings = `{
+  "permissions": {"deny": ["Bash(sudo:*)"]},
+  "hooks": {"PreToolUse": [{"matcher": "Bash",
+    "hooks": [{"type": "command", "command": "sh ~/.claude/hooks/guard-bash"}]}]}
+}`
+
+// TestDoctorFailsCosmeticsOnlySettings is the C1 regression test: a harness
+// settings file that materializes fine but carries only cosmetics (statusLine,
+// no deny floor, no hook registrations) must turn doctor red — presence checks
+// all pass while the built container's agent runs with zero guardrails.
+func TestDoctorFailsCosmeticsOnlySettings(t *testing.T) {
+	root := harnessProject(t) // fixture settings.json is statusLine-only
+	res, err := doctorImpl(DoctorOpts{PlaybookPath: filepath.Join(root, "loom.yml")},
+		fakeRuntime{exists: true, running: true})
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	c, ok := checksByName(res)["host:harness:claude:settings"]
+	if !ok || c.OK {
+		t.Errorf("cosmetics-only settings must fail the wiring check, got %+v", c)
+	}
+}
+
+func TestDoctorPassesGuardedSettings(t *testing.T) {
+	root := harnessProject(t)
+	settings := filepath.Join(root, "config", "dotfiles", "claude", "settings.json")
+	if err := os.WriteFile(settings, []byte(guardedSettings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := doctorImpl(DoctorOpts{PlaybookPath: filepath.Join(root, "loom.yml")},
+		fakeRuntime{exists: true, running: true})
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	c, ok := checksByName(res)["host:harness:claude:settings"]
+	if !ok || !c.OK {
+		t.Errorf("deny floor + hook registration should pass, got %+v", c)
+	}
+}
+
+// TestDoctorStagedHomeDrift: the staging dir is graded against the config
+// source — stale or missing staged guardrails turn doctor red instead of
+// waiting for a build to notice (C1: wiring must be verifiable read-only).
+func TestDoctorStagedHomeDrift(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	rt := fakeRuntime{exists: true, running: true,
+		ensureInfo: ContainerInfo{Name: "loom-dev", Status: "created"}}
+
+	// Nothing staged yet → drift.
+	res, err := doctorImpl(DoctorOpts{PlaybookPath: pbPath}, rt)
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	if c, ok := checksByName(res)["host:staged-home"]; !ok || c.OK {
+		t.Errorf("unstaged home should fail, got %+v", c)
+	}
+
+	// Build stages it → in sync.
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	res, _ = doctorImpl(DoctorOpts{PlaybookPath: pbPath}, rt)
+	if c, ok := checksByName(res)["host:staged-home"]; !ok || !c.OK {
+		t.Errorf("freshly staged home should pass, got %+v", c)
+	}
+
+	// Config source moves on → drift again.
+	prompt := filepath.Join(root, "config", "dotfiles", "bash", "prompt.go.sh")
+	if err := os.WriteFile(prompt, []byte("# changed\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res, _ = doctorImpl(DoctorOpts{PlaybookPath: pbPath}, rt)
+	if c, ok := checksByName(res)["host:staged-home"]; !ok || c.OK {
+		t.Errorf("source ahead of staging should fail, got %+v", c)
+	}
+}
+
+// TestDoctorContainerHomeWiring: a running container is graded on its home
+// sentinel vs the staged digest — the staged guardrails count only once the
+// sync put them IN the container (C1).
+func TestDoctorContainerHomeWiring(t *testing.T) {
+	root := tempProject(t)
+	pbPath := filepath.Join(root, "loom.yml")
+	build := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Status: "created"}}
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, build, fixedClock); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	want := homeDigest(filepath.Join(root, ".loom", "home"))
+	if want == "" {
+		t.Fatal("fixture should stage home content")
+	}
+
+	synced := fakeRuntime{exists: true, running: true, homeSentinel: want}
+	res, _ := doctorImpl(DoctorOpts{PlaybookPath: pbPath}, synced)
+	if c, ok := checksByName(res)["container:home"]; !ok || !c.OK {
+		t.Errorf("matching sentinel should pass, got %+v", c)
+	}
+
+	stale := fakeRuntime{exists: true, running: true, homeSentinel: "deadbeef"}
+	res, _ = doctorImpl(DoctorOpts{PlaybookPath: pbPath}, stale)
+	if c, ok := checksByName(res)["container:home"]; !ok || c.OK {
+		t.Errorf("stale sentinel should fail, got %+v", c)
+	}
+
+	// Stopped: never started to ask — graded at the staging tier only.
+	stopped := fakeRuntime{exists: true, running: false}
+	res, _ = doctorImpl(DoctorOpts{PlaybookPath: pbPath}, stopped)
+	if _, ok := checksByName(res)["container:home"]; ok {
+		t.Error("stopped container must not get a container:home verdict")
+	}
+}

@@ -65,6 +65,16 @@ func execImpl(opts ExecOpts, rt ContainerRuntime, now func() time.Time) (ExecRes
 	pb := resolved.Playbook
 	cname := containerName(pb.Name)
 
+	// Fail-closed audit (H2, phase-1 review): the audit entry is exec's whole
+	// structured surface (FR-EXEC-003 — "every exec appends an entry"), and
+	// exec is the agent-facing door into the container. A door that can't
+	// record its own use stays shut: open the log BEFORE touching the
+	// container, never silently degrade to an unaudited run.
+	log, lerr := audit.Open(resolved.Root)
+	if lerr != nil {
+		return ExecResult{ExitCode: 1}, fmt.Errorf("exec: action log unavailable, refusing to run unaudited: %w", lerr)
+	}
+
 	exists, err := rt.Exists(cname)
 	if err != nil {
 		return ExecResult{ExitCode: 1}, fmt.Errorf("exec: cannot reach the container runtime: %w", err)
@@ -82,14 +92,15 @@ func execImpl(opts ExecOpts, rt ContainerRuntime, now func() time.Time) (ExecRes
 	// TTY = shell mode (SPEC-verbs shell): the audit entry is session-open,
 	// appended BEFORE entering — a crash mid-session still leaves the open on
 	// record — and it captures NO command: what is typed inside belongs to
-	// the session, not the log.
+	// the session, not the log. Fail-closed too: no record, no session.
 	var openID string
 	if opts.TTY {
-		if log, lerr := audit.Open(resolved.Root); lerr == nil {
-			openID, _ = log.Append(audit.Entry{
-				TS: now().UTC().Format(time.RFC3339), Verb: "shell", Action: "container.shell",
-				Target: cname, Result: "opened", Actor: "cli",
-			})
+		openID, lerr = log.Append(audit.Entry{
+			TS: now().UTC().Format(time.RFC3339), Verb: "shell", Action: "container.shell",
+			Target: cname, Result: "opened", Actor: "cli",
+		})
+		if lerr != nil {
+			return ExecResult{ExitCode: 1}, fmt.Errorf("shell: session-open audit failed, refusing to open unaudited: %w", lerr)
 		}
 	}
 
@@ -104,16 +115,18 @@ func execImpl(opts ExecOpts, rt ContainerRuntime, now func() time.Time) (ExecRes
 	if !opts.TTY {
 		// The structured surface (SPEC-verbs exec): one audit entry per exec,
 		// carrying the command and its exit code; the entry id is the Append id.
-		if log, lerr := audit.Open(resolved.Root); lerr == nil {
-			if id, aerr := log.Append(audit.Entry{
-				TS: now().UTC().Format(time.RFC3339), Verb: "exec", Action: "container.exec",
-				Target: cname,
-				After:  map[string]any{"command": strings.Join(opts.Command, " "), "exit": exit},
-				Result: "exited", Actor: "cli",
-			}); aerr == nil {
-				res.Action = id
-			}
+		// The command already ran, so its exit code survives — but a failed
+		// append is a loud error, never a silent gap in the record.
+		id, aerr := log.Append(audit.Entry{
+			TS: now().UTC().Format(time.RFC3339), Verb: "exec", Action: "container.exec",
+			Target: cname,
+			After:  map[string]any{"command": strings.Join(opts.Command, " "), "exit": exit},
+			Result: "exited", Actor: "cli",
+		})
+		if aerr != nil {
+			return res, fmt.Errorf("exec: command exited %d but the audit append failed: %w", exit, aerr)
 		}
+		res.Action = id
 	}
 	return res, nil
 }

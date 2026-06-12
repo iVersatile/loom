@@ -60,8 +60,11 @@ func teardownImpl(opts TeardownOpts, rt ContainerRuntime, now func() time.Time, 
 		_, _ = fmt.Fprintf(lf, "loom teardown %s level=%s\n", ts, opts.Level)
 	}
 
+	// --clean-state rides through to the runtime: it is the ONLY path that
+	// removes the agent-home volume (auth/memory/logs). Declared-but-unread
+	// flags are fiction (phase-1 review F1) — this one acts or it errors.
 	cname := containerName(pb.Name)
-	removed, err := rt.Teardown(cname, opts.Level, logw)
+	removed, err := rt.Teardown(cname, opts.Level, opts.CleanState, logw)
 	if err != nil {
 		return res, fmt.Errorf("container teardown: %w", err)
 	}
