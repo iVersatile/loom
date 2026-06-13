@@ -147,6 +147,13 @@ func doctorImpl(opts DoctorOpts, rt ContainerRuntime) (DoctorResult, error) {
 		res.Checks = append(res.Checks, Check{Name: "host:lockfile", OK: len(missing) == 0, Detail: detail})
 	}
 
+	// AUTOPILOT drain liveness (T27 facet B; human drafts 032/033). Mechanizes
+	// the hand-check the 2026-06-12 silent-idle incident needed: autopilot on
+	// with eligible QUEUED work but no drain evidence = anomaly.
+	if c, ok := autopilotDrainLiveness(resolved.Root); ok {
+		res.Checks = append(res.Checks, c)
+	}
+
 	// Container tier: state first; tools are graded only against a real
 	// container, never the host PATH.
 	cname := containerName(pb.Name)
