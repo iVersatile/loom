@@ -249,6 +249,18 @@ requirements:
     source: SPEC-playbook.md#harness
     tests: [playbook.TestHarnessMergeRules, playbook.TestValidateHarnessSettingsBaseOnly]
     status: active
+  - id: FR-SCHEMA-009
+    kind: schema
+    # T10 PR 2 (ADR-0019): user: is the configured container runtime user. A
+    # last-non-empty-wins scalar authored at ANY tier (NOT base-only like
+    # settings); unset means root, so every pre-T10 playbook is unchanged. The
+    # engine BEHAVIOR (docker run --user, useradd, chown) is PR 3 — this FR
+    # covers only the schema/merge/validate + the $HOME resolution (homeForUser)
+    # that ContainerSpec.User/Home are plumbed from.
+    statement: the optional `user:` scalar merges last-non-empty-wins across any tier (never base-restricted); a set value must be a single token (no whitespace, no / or :), `user: root` permitted; the resolved container $HOME is /root when user is unset or root, else /home/<user>; build populates ContainerSpec.User/Home from the merged value.
+    source: SPEC-playbook.md#user
+    tests: [playbook.TestUserMergeLastWins, playbook.TestValidateUserFormat, engine.TestHomeForUserResolution, engine.TestBuildPopulatesUserAndHome]
+    status: active
 
   # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---
   - id: FR-EXEC-001

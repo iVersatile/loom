@@ -26,6 +26,16 @@ type Playbook struct {
 	Stack   string `json:"stack,omitempty"`   // project tier: selects stacks/<lang>
 	Overlay string `json:"overlay,omitempty"` // project tier: most-specific layer
 
+	// User is the container's runtime user (T10, ADR-0019). Optional scalar,
+	// last-non-empty-wins, authored at ANY tier (env-wide base default with a
+	// project override is the expected shape). Unset means root (Phase-1
+	// compatibility — every existing playbook keeps meaning what it meant). A
+	// non-root value resolves $HOME to /home/<user> (homeForUser) and is created
+	// at provision. PR 2 (this) carries schema/merge/validate + the resolved
+	// ContainerSpec.User/Home plumbing; the engine BEHAVIOR that consumes it
+	// (docker run --user, useradd, ownership chown) is T10 PR 3.
+	User string `json:"user,omitempty"`
+
 	Agents   []string `json:"agents,omitempty"`   // agent harnesses
 	Tools    []string `json:"tools,omitempty"`    // name@version intent
 	Rules    []string `json:"rules,omitempty"`    // references, not bodies

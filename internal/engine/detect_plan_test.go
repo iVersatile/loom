@@ -26,6 +26,7 @@ type fakeRuntime struct {
 	resolveErr      error
 	ensureInfo      ContainerInfo
 	ensureErr       error
+	ensureRecord    *ContainerSpec // when set, Ensure records the spec it was asked to converge
 	teardownRemoved Removed
 	teardownErr     error
 	teardownRecord  *teardownArgs     // when set, Teardown records what was asked
@@ -64,7 +65,10 @@ func (r fakeRuntime) ResolveBaseDigest(string) (string, error) {
 	return r.resolveDigest, r.resolveErr
 }
 
-func (r fakeRuntime) Ensure(ContainerSpec) (ContainerInfo, error) {
+func (r fakeRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
+	if r.ensureRecord != nil {
+		*r.ensureRecord = spec
+	}
 	return r.ensureInfo, r.ensureErr
 }
 

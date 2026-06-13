@@ -5,7 +5,7 @@ import "slices"
 // Merge combines layers in build-time order — base → stack/<lang> →
 // overlay/<project> → user-local — into the effective desired-state playbook
 // (ADR-0004). Rules:
-//   - Scalars (name, stack, overlay, config_source, ...): last non-empty wins.
+//   - Scalars (name, stack, overlay, user, config_source, ...): last non-empty wins.
 //   - Lists (tools, rules, dotfiles, hooks, ...): concatenate, then dedup keeping
 //     first occurrence. This realizes the frozen rules: resolution — a union of
 //     explicit references, with the stack contributing defaults earlier in order.
@@ -33,6 +33,9 @@ func Merge(layers ...*Playbook) *Playbook {
 		}
 		if l.Overlay != "" {
 			out.Overlay = l.Overlay
+		}
+		if l.User != "" {
+			out.User = l.User
 		}
 		if l.Extends != "" {
 			out.Extends = l.Extends

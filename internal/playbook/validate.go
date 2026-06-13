@@ -40,6 +40,17 @@ func (pb *Playbook) Validate() error {
 		}
 	}
 
+	// user: (T10, ADR-0019) is an optional, any-tier scalar — no tier ban (the
+	// expected shape is an env-wide base default with a project override). When
+	// set it must be a single shell/username token: no whitespace and no path or
+	// docker-mount separators (it lands in `docker run --user` and /home/<user>
+	// in PR 3). `user: root` is allowed — it means the default, not a special
+	// case (the "later layer re-grants root" edge is gated at the full-auto
+	// review, not the scalar merge — ADR-0019).
+	if pb.User != "" && (strings.TrimSpace(pb.User) != pb.User || strings.ContainsAny(pb.User, " \t\r\n/:")) {
+		errs = append(errs, fmt.Sprintf("invalid user %q (must be a single token: no whitespace, no / or :)", pb.User))
+	}
+
 	for agent, h := range pb.Harness {
 		if agent == "" {
 			errs = append(errs, "harness: agent namespace key must be non-empty")

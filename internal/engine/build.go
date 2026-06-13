@@ -199,6 +199,8 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		Agents:     agentInstalls(resolution),
 		Env:        pb.Env,
 		ProjectDir: projDir,
+		User:       pb.User,              // T10/ADR-0019: configured runtime user ("" = root)
+		Home:       homeForUser(pb.User), // resolved $HOME; consumed by the engine in PR 3
 		Force:      opts.Force, LogW: logw,
 	})
 	if err != nil {

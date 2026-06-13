@@ -31,6 +31,30 @@ func TestMergeEmptyScalarDoesNotClobber(t *testing.T) {
 	}
 }
 
+// TestUserMergeLastWins covers FR-SCHEMA-009: user: is a last-non-empty-wins
+// scalar authored at any tier (a base default, a project override), and an
+// empty later layer must not clobber an earlier value.
+func TestUserMergeLastWins(t *testing.T) {
+	base := &Playbook{Loom: 1, Tier: TierBase, User: "dev"}
+	stack := &Playbook{} // no user — must not blank the base default
+	proj := &Playbook{Tier: TierProject, Name: "loom", User: "agent"}
+	if got := Merge(base, stack, proj).User; got != "agent" {
+		t.Errorf("user = %q, want agent (project overrides base, empty layer ignored)", got)
+	}
+
+	// Base-only default survives when no later layer authors user.
+	baseOnly := &Playbook{Loom: 1, Tier: TierBase, User: "dev"}
+	projNoUser := &Playbook{Tier: TierProject, Name: "loom"}
+	if got := Merge(baseOnly, projNoUser).User; got != "dev" {
+		t.Errorf("user = %q, want dev (base default, no override)", got)
+	}
+
+	// Unset everywhere stays unset (= root, the Phase-1 default).
+	if got := Merge(&Playbook{Loom: 1, Tier: TierBase}, projNoUser).User; got != "" {
+		t.Errorf("user = %q, want \"\" (unset = root)", got)
+	}
+}
+
 func TestMergeListsConcatAndDedup(t *testing.T) {
 	a := &Playbook{Tools: []string{"git", "jq"}, Ports: []int{8080}}
 	b := &Playbook{Tools: []string{"jq", "go@1.26"}, Ports: []int{8080, 9090}}

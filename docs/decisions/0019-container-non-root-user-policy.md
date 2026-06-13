@@ -1,0 +1,80 @@
+# ADR-0019 — Container runs as a configurable, default-root non-root user
+**Date:** 2026-06-13   **Status:** Proposed (authorship chain: **human-decided** — the `user:` clause was drafted by the agent, red-teamed by the advisor [PASS-with-amendments, 2026-06-13, envelope 047], the one amendment [dropping the hard `uid 1000` from the frozen text] routed back and **re-authorized by the human in-session** — → **agent-transcribed** — this ADR + the PR-2 schema/merge/validate + plumbing — → **human-accepted**; acceptance = PR merge, per RULES §5 / C3)
+
+## Context
+`loom-loom-dev` runs as `root@/root` (`docker exec … whoami` → root). That is
+why every dotfile materializes to `/root`, and it is one of the three gates the
+full-auto re-evaluation lists (TEAM.md, HARNESS.md): root in the container kills
+the in-container-iptables egress option (T20) and widens the blast radius of any
+prompt-injected agent. A non-root `dev` user (conventional for dev containers,
+aligned with the retired `devenv`) reduces that radius and makes the home target
+explicit.
+
+The engine hardcodes the home (`containerHome = "/root"`, `internal/engine/
+container.go`), runs `docker run` with no `--user`, syncs `$HOME` via `docker cp
+…:/root/`, and provisions as root. The drain-inbox role guard
+(`.claude/hooks/drain-inbox.sh`, LL-011) falls back to `id -un == root ⇒
+loom-author` — a guess that breaks the moment the container is non-root.
+
+T10 PR 1 (#122) already forced every in-container home path through the single
+`containerHome` owner (grep-guarded) so this change retargets one value, per
+ADR-0016's consequence ("T10 retargets entry by changing one configured-user
+value").
+
+## Decision
+1. **`user:` is declared playbook config — an optional, last-non-empty-wins
+   scalar, authored at ANY tier.** Unset means root, so every pre-T10 playbook
+   is unchanged. `$HOME` derives: `root → /root`, any other `<user> →
+   /home/<user>`. *Not* base-only like `harness.settings:` — an env-wide base
+   default with a per-project override is the legitimate shape. The frozen
+   clause text lives in SPEC-playbook (`#user`), human-reauthorized 2026-06-13.
+2. **Provision-as-root / run-as-user split.** `docker run --user <user>` makes
+   the configured user the exec default, so entry verbs (exec/shell) need no
+   `-u` flag — exactly ADR-0016's "changes the config, not this code".
+   Provisioning (apt-get, `/usr/local/go`, `/var/lib/loom` sentinels) stays root
+   via explicit `docker exec -u root` on those paths only.
+3. **Ownership chown after home-sync, scoped — `docker cp -a` is NOT a
+   substitute.** `docker cp` writes root-owned files; the run-as-user agent
+   cannot read its own home without an ownership fix. `cp -a` preserves the
+   *host* numeric uid (the wrong owner). The chown is scoped to the materialized
+   file set (`res.Materialized`), never a blanket `chown -R $HOME` — a blanket
+   `-R` walks into the read-only `.credentials.json` bind and errors.
+4. **uid 1000 preferred, not hard-pinned.** The contract is "a non-root user
+   named `<user>`," uid 1000 when free, next-free + log on collision (some base
+   images — node — already ship uid 1000). The `container:user` doctor claim
+   keys on **name** (`id -un`), not uid, so name-based verification supports
+   this with no change.
+5. **A root-owned role marker replaces the uid guess.** Provision writes
+   `/var/lib/loom/role` (`0644`, root-owned) from a new `ContainerSpec.Role`
+   (set by the loom-dev overlay / engine wiring — **never** a playbook `role:`
+   key; role is a TEAM concept). The drain guard resolves `LOOM_SESSION_ROLE`
+   env → the marker → UNRESOLVED = no-op (fail-closed). Security gain, not
+   parity: a non-root agent cannot forge its own role, and a host-side advisor
+   session has no marker, so the LL-011 fail-closed floor holds.
+
+## Consequences
+- **Default-root compatibility:** unset `user:` is byte-identical to today; the
+  change is inert until a playbook opts in.
+- **One known edge (for this ADR, deliberately un-special-cased):** since
+  unset = root, a later layer setting `user: root` silently re-grants root.
+  Root-drop is enforced at the full-auto re-evaluation gate, not in the scalar
+  merge — Phase 1 does not special-case the merge.
+- **Migration:** the `user:` value rides the provision sentinel digest, so a
+  change re-provisions an existing container; the agent-home volume carries
+  root-owned files from the root era — the provision chown covers them. One
+  recreate validates both this migration and 039's trust-flag durability.
+- **Slicing (T10 thread):** PR 1 (#122, landed) = single-owner home fix.
+  **PR 2 (this ADR) = the `user:` clause + schema/merge/validate +
+  `ContainerSpec.User/Home` plumbing** (resolved value populated, engine not yet
+  consuming it). PR 3 = engine behavior (decisions 2–4: `docker run --user`,
+  collision-tolerant `useradd`, scoped chown, `-u root` provision paths,
+  integration-test re-derivation). PR 4 = the role marker (decision 5, a
+  trust-path human-applied diff) + the `container:user` doctor claim.
+
+## Links
+- T10 thread (docs/OPEN-THREADS.md) — full design + advisor red-team verdict.
+- ADR-0015 (harness home / `$HOME` materialization rule), ADR-0016 (entry verbs
+  decision 7: entry runs as the configured user), ADR-0018 (declared-config
+  doctrine the `user:` scalar follows).
+- SPEC-playbook.md `#user` — the frozen clause. FR-SCHEMA-009 — schema/merge/
+  validate + `$HOME` resolution coverage.

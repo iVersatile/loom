@@ -45,6 +45,10 @@
 loom: 1                      # schema version
 tier: base
 
+# user: dev                  # optional: env-wide non-root runtime user (T10).
+                             # Unset = root (compatibility). A project overlay
+                             # may override. See "user: field" below.
+
 # Agent harnesses available in every project's container
 agents:
   - claude-code
@@ -173,6 +177,25 @@ more PATH ships its own `bash/path.*.sh` dotfile.
 **There is deliberately NO `path:` field** in the schema. Rejected for
 Phase 1; reopen only if a second stack needs PATH-ordering semantics
 (ADR-0004 "revisit if" class).
+
+## `user:` field (added 2026-06-13, T10 / ADR-0019)
+
+**`user:` (optional, scalar, later-wins): the container's runtime user. Unset
+means root (compatibility). A non-root user is created at provision (non-root;
+uid 1000 by default, system-assigned on collision; doctor verifies by name),
+home `/home/<user>`; every materialization targets the resolved `$HOME`
+(ADR-0015 T10 rule); entry verbs run as this user (ADR-0016 decision 7).**
+
+Authored at any tier (last-non-empty-wins, like other scalars — *not* base-only
+like `harness.settings:`); the expected shape is an env-wide base default with a
+per-project override. `$HOME` derives from the value: `root → /root`, any other
+`<user> → /home/<user>`. `user: root` is permitted and means the default — the
+"a later layer re-grants root" edge is enforced at the full-auto re-evaluation
+gate, not special-cased in the scalar merge (ADR-0019). The engine behavior this
+clause authorizes (provision-as-root / run-as-user split, `useradd`, ownership
+`chown`, doctor `container:user`, the role marker that replaces the uid guess)
+is sliced across T10 PR 3–4; this clause + the schema/merge/validate +
+`ContainerSpec.User/Home` plumbing is PR 2.
 
 ## `harness:` section (added 2026-06-11, ADR-0015)
 

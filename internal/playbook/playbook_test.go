@@ -57,6 +57,37 @@ func TestValidateErrors(t *testing.T) {
 	}
 }
 
+// TestValidateUserFormat covers FR-SCHEMA-009: user: is optional and accepted
+// at ANY tier (not base-restricted like name/stack), `user: root` is permitted
+// (means the default), and a set value must be a single token — no whitespace,
+// no path / docker-mount separators.
+func TestValidateUserFormat(t *testing.T) {
+	valid := []*Playbook{
+		{Loom: 1, Tier: TierBase},              // unset = root
+		{Loom: 1, Tier: TierBase, User: "dev"}, // base-authored (NOT banned)
+		{Loom: 1, Tier: TierProject, Name: "x", User: "agent"},
+		{Loom: 1, Tier: TierProject, Name: "x", User: "root"}, // explicit root allowed
+	}
+	for i, pb := range valid {
+		if err := pb.Validate(); err != nil {
+			t.Errorf("valid case %d (user=%q): %v", i, pb.User, err)
+		}
+	}
+
+	invalid := map[string]*Playbook{
+		"user with space":   {Loom: 1, Tier: TierBase, User: "dev user"},
+		"user with slash":   {Loom: 1, Tier: TierBase, User: "home/dev"},
+		"user with colon":   {Loom: 1, Tier: TierBase, User: "uid:1000"},
+		"user padded space": {Loom: 1, Tier: TierProject, Name: "x", User: " dev"},
+		"user with tab":     {Loom: 1, Tier: TierBase, User: "de\tv"},
+	}
+	for name, pb := range invalid {
+		if err := pb.Validate(); err == nil {
+			t.Errorf("%s: expected validation error, got nil", name)
+		}
+	}
+}
+
 func TestLoadMergesLayers(t *testing.T) {
 	res, err := Load("testdata/proj/loom.yml")
 	if err != nil {
