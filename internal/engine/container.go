@@ -112,7 +112,7 @@ type ContainerRuntime interface {
 	// engine path with a TTY option; no second code path). Returns the
 	// command's exit code verbatim; a non-nil error means the transport
 	// failed and no exit code exists.
-	Exec(name string, argv []string, workdir string, tty bool) (int, error)
+	Exec(name string, argv []string, workdir, user string, tty bool) (int, error)
 }
 
 type dockerRuntime struct{}
@@ -168,18 +168,28 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		if !reprovision && !homeSync {
 			return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "exists"}, nil
 		}
+		// The non-root user must exist before shell-init targets its home and
+		// before the post-sync chown (T10 PR 3); idempotent, no-op for root.
+		if err := ensureUser(spec.Name, spec.User, spec.LogW); err != nil {
+			return ContainerInfo{}, err
+		}
 		// Shell-init is wired on every converge, UNCONDITIONALLY — not gated
 		// on the tool set (T4): a toolless playbook's ~/.bashrc.d dotfiles
 		// must be sourced too, in login and interactive shells alike.
-		if err := ensureShellInit(spec.Name, spec.LogW); err != nil {
+		if err := ensureShellInit(spec.Name, spec.home(), spec.LogW); err != nil {
 			return ContainerInfo{}, err
 		}
 		synced := false
 		if spec.HomeDir != "" {
-			if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", homeCpTarget(spec.Name)); err != nil {
+			if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", homeCpTarget(spec.Name, spec.home())); err != nil {
 				return ContainerInfo{}, fmt.Errorf("docker cp home (reconcile): %v: %s", err, out)
 			}
 			writeHomeSentinel(spec.Name, homeWant, spec.LogW)
+			// docker cp writes root-owned files — restore ownership to the user
+			// (T10 PR 3, red-team finding 3). No-op for root.
+			if err := chownHome(spec.Name, spec.User, spec.home(), spec.LogW); err != nil {
+				return ContainerInfo{}, err
+			}
 			synced = true
 		}
 		// Provision (tool/agent install) stays gated on its own digest: a
@@ -198,17 +208,28 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	if out, err := dockerLogged(spec.LogW, runArgs...); err != nil {
 		return ContainerInfo{}, fmt.Errorf("docker run: %v: %s", err, out)
 	}
+	// Create the non-root user (T10 PR 3, Model A) before shell-init targets its
+	// home and before the home sync's chown; the container itself runs as root,
+	// so this and every provision step need no `-u`. No-op for root/unset.
+	if err := ensureUser(spec.Name, spec.User, spec.LogW); err != nil {
+		return ContainerInfo{}, err
+	}
 	// Unconditional shell-init (T4): wired on create regardless of the tool
 	// set, so the loader exists before any home sync or provision step.
-	if err := ensureShellInit(spec.Name, spec.LogW); err != nil {
+	if err := ensureShellInit(spec.Name, spec.home(), spec.LogW); err != nil {
 		return ContainerInfo{}, err
 	}
 	synced := false
 	if spec.HomeDir != "" {
-		if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", homeCpTarget(spec.Name)); err != nil {
+		if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", homeCpTarget(spec.Name, spec.home())); err != nil {
 			return ContainerInfo{}, fmt.Errorf("docker cp home: %v: %s", err, out)
 		}
 		writeHomeSentinel(spec.Name, homeDigest(spec.HomeDir), spec.LogW)
+		// Restore ownership of the just-synced root-owned files to the user
+		// (T10 PR 3, red-team finding 3). No-op for root.
+		if err := chownHome(spec.Name, spec.User, spec.home(), spec.LogW); err != nil {
+			return ContainerInfo{}, err
+		}
 		synced = true
 	}
 	if len(spec.Tools) > 0 || len(spec.Agents) > 0 {
@@ -266,9 +287,41 @@ done`
 // EVERY Ensure path (create and converge), never gated on tools — the T4 fix
 // for "a toolless playbook copies bash/* dotfiles but never sources them".
 // NOTE: integration-validated (docker host), not the local gate.
-func ensureShellInit(name string, logw io.Writer) error {
-	if out, err := dockerLogged(logw, "exec", name, "sh", "-c", shellInitScript); err != nil {
+func ensureShellInit(name, home string, logw io.Writer) error {
+	// HOME is pinned explicitly so the loader lands in the RESOLVED home — for a
+	// non-root user the shell-init runs as root (provisioning stays root, Model
+	// A) but must target /home/<user>, not /root. The post-sync chown gives the
+	// user ownership of what this writes.
+	if out, err := dockerLogged(logw, "exec", "-e", "HOME="+home, name, "sh", "-c", shellInitScript); err != nil {
 		return fmt.Errorf("shell-init: %v: %s", err, out)
+	}
+	return nil
+}
+
+// ensureUser creates the configured non-root user inside the container (T10 PR
+// 3). No-op for root/unset. Runs as root (the container default under Model A),
+// so it must precede any step that needs the user to exist (shell-init targeting
+// the user's home, the ownership chown, and every later `exec -u <user>`).
+func ensureUser(name, user string, logw io.Writer) error {
+	script := provisionUserScript(user)
+	if script == "" {
+		return nil
+	}
+	if out, err := dockerLogged(logw, "exec", name, "sh", "-c", script); err != nil {
+		return fmt.Errorf("useradd %s: %v: %s", user, err, out)
+	}
+	return nil
+}
+
+// chownHome restores ownership of the synced home tree to the configured user
+// (T10 PR 3, red-team finding 3). No-op for root/unset. Runs as root.
+func chownHome(name, user, home string, logw io.Writer) error {
+	script := chownHomeScript(user, home)
+	if script == "" {
+		return nil
+	}
+	if out, err := dockerLogged(logw, "exec", name, "sh", "-c", script); err != nil {
+		return fmt.Errorf("chown home %s: %v: %s", home, err, out)
 	}
 	return nil
 }
@@ -461,13 +514,14 @@ func (dockerRuntime) Start(name string) error {
 
 // Exec runs argv inside the container per the SPEC-verbs exec contract:
 // login-shell env (`sh -lc`, the Probe lesson — provisioned PATH applies),
-// cwd = workdir, the container's configured user (docker exec's default; root
-// today, T10 changes the config not this code), stdio passed through
-// untouched. tty adds `-t` (SPEC-verbs shell: a TTY plus a login shell —
-// same path, one option). The argv is shell-quoted and exec'd so the command
-// — not a wrapper shell — receives signals and owns the exit code.
-// NOTE: integration-validated, not the local gate.
-func (dockerRuntime) Exec(name string, argv []string, workdir string, tty bool) (int, error) {
+// cwd = workdir, AS the configured user (Model A, ADR-0019 amended: the
+// container runs as root but entry verbs run as `user` via `docker exec -u
+// <user>` BY NAME — collision-proof; root/unset = the container default, no
+// flag), stdio passed through untouched. tty adds `-t` (SPEC-verbs shell: a TTY
+// plus a login shell — same path, one option). The argv is shell-quoted and
+// exec'd so the command — not a wrapper shell — receives signals and owns the
+// exit code. NOTE: integration-validated, not the local gate.
+func (dockerRuntime) Exec(name string, argv []string, workdir, user string, tty bool) (int, error) {
 	quoted := make([]string, len(argv))
 	for i, a := range argv {
 		quoted[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
@@ -476,6 +530,7 @@ func (dockerRuntime) Exec(name string, argv []string, workdir string, tty bool) 
 	if tty {
 		dockerArgs = append(dockerArgs, "-t")
 	}
+	dockerArgs = append(dockerArgs, execUserArgs(user)...)
 	dockerArgs = append(dockerArgs, "-w", workdir, name,
 		"sh", "-lc", "exec "+strings.Join(quoted, " "))
 	c := exec.Command("docker", dockerArgs...)
@@ -534,12 +589,15 @@ func createRunArgs(spec ContainerSpec, hostCredsPath string, credsPresent bool) 
 		"--label", "loom.managed=true", "--label", "loom.project=" + spec.Project}
 	args = append(args, envArgs(spec.Env)...)
 	if hasAgent(spec.Agents, "claude-code") {
-		args = append(args, "-v", agentHomeVolume(spec.Name)+":"+containerHome+"/.claude")
+		args = append(args, "-v", agentHomeVolume(spec.Name)+":"+spec.home()+"/.claude")
 	}
 	if spec.ProjectDir != "" {
 		args = append(args, "-v", spec.ProjectDir+":"+containerWorkspace(spec.Project))
 	}
-	args = append(args, credsMount(hostCredsPath, credsPresent, spec.Agents)...)
+	// Model A (ADR-0019 amended): the container runs as root — NO `--user` on
+	// `docker run`. The configured user is created at provision and entry verbs
+	// run as it (execUserArgs). This keeps provisioning root with no `-u` juggle.
+	args = append(args, credsMount(hostCredsPath, credsPresent, spec.Agents, spec.home())...)
 	return append(args, spec.BaseImage, "sleep", "infinity")
 }
 
@@ -672,12 +730,73 @@ func homeForUser(user string) string {
 	return "/home/" + user
 }
 
+// home is the resolved in-container $HOME for this spec; the single owner every
+// home-path helper routes through (T10). Empty Home (a spec built before T10, or
+// the default-root case) falls back to containerHome, so existing callers are
+// byte-identical.
+func (s ContainerSpec) home() string {
+	if s.Home != "" {
+		return s.Home
+	}
+	return containerHome
+}
+
+// execUserArgs returns the `docker exec` user flag for entry verbs under Model A
+// (ADR-0019, amended): the container runs as root (PID 1) but exec/shell run AS
+// the configured user, BY NAME — collision-proof (the name resolves to whatever
+// uid useradd assigned). Root/unset => no flag (unchanged).
+func execUserArgs(user string) []string {
+	if user == "" || user == "root" {
+		return nil
+	}
+	return []string{"-u", user}
+}
+
+// provisionUserScript emits the provision step that creates the non-root user
+// (T10 PR 3, ADR-0019 decision 3). Empty for root/unset. IDEMPOTENT and
+// COLLISION-TOLERANT (red-team finding 4): the name already existing is a reuse
+// (re-provision is a no-op); uid 1000 held by a DIFFERENT account means we take
+// the next free uid and LOG it — never hard-fail, never adopt a foreign account.
+// uid 1000 is preferred-when-free, never a hard pin; doctor verifies by NAME.
+// Runs as root (the container default under Model A), before any entry verb
+// needs the name.
+func provisionUserScript(user string) string {
+	if user == "" || user == "root" {
+		return ""
+	}
+	// id -u <name> succeeds iff the named account exists (reuse path).
+	// id -u 1000 succeeds iff SOME account already holds uid 1000 (collision).
+	return fmt.Sprintf(`if id -u %[1]s >/dev/null 2>&1; then :
+elif id -u 1000 >/dev/null 2>&1; then useradd -m %[1]s && echo "loom: uid 1000 taken; created %[1]s with an auto-assigned uid" >&2
+else useradd -m -u 1000 %[1]s
+fi
+`, user)
+}
+
+// chownHomeScript emits the post-home-sync ownership fix (T10 PR 3, red-team
+// finding 3): `docker cp` writes root-owned files, unreadable/unwritable by the
+// non-root user. Empty for root/unset. It chowns the resolved home tree to the
+// user but PRUNES the read-only `.credentials.json` bind — a blanket `chown -R`
+// walks into that ro mount and ERRORS (the finding's core safety requirement).
+// Broader than the materialized FILE set on purpose: the agent-home volume dir
+// and `.claude/` must be user-owned for the agent to write session state, and a
+// fresh `useradd -m` skeleton is already user-owned, so the recursive chown
+// (minus the ro bind) is the correct, idempotent scope. `docker cp -a` is NOT a
+// substitute — it preserves the host numeric uid, the wrong owner.
+func chownHomeScript(user, home string) string {
+	if user == "" || user == "root" {
+		return ""
+	}
+	creds := home + "/.claude/.credentials.json"
+	return fmt.Sprintf("find %s -path %s -prune -o -exec chown %s:%s {} +\n", home, creds, user, user)
+}
+
 // homeCpTarget is the docker-cp destination for the staged $HOME tree. Routed
 // through containerHome so T10's parameterisation changes exactly one value
 // (ADR-0016 consequence: "T10 retargets entry by changing one configured-user
 // value" — that only holds if nothing bypasses the constant).
-func homeCpTarget(name string) string {
-	return name + ":" + containerHome + "/"
+func homeCpTarget(name, home string) string {
+	return name + ":" + home + "/"
 }
 
 // credsMount returns a read-only single-file bind of the host's EXISTING Claude
@@ -686,11 +805,11 @@ func homeCpTarget(name string) string {
 // Gated on claude-code being installed and the host creds file being present —
 // mounting a missing path would make docker create a directory. Single-file so it
 // does not shadow the materialised settings.json/statusline.sh.
-func credsMount(hostCredsPath string, present bool, agents []AgentInstall) []string {
+func credsMount(hostCredsPath string, present bool, agents []AgentInstall, home string) []string {
 	if !present || !hasAgent(agents, "claude-code") {
 		return nil
 	}
-	return []string{"-v", hostCredsPath + ":" + containerHome + "/.claude/.credentials.json:ro"}
+	return []string{"-v", hostCredsPath + ":" + home + "/.claude/.credentials.json:ro"}
 }
 
 func hasAgent(agents []AgentInstall, name string) bool {

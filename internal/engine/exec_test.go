@@ -70,6 +70,42 @@ func TestExecTargetsWorkspaceAndStarts(t *testing.T) {
 	}
 }
 
+// TestExecRunsAsConfiguredUser pins T10 PR 3 (Model A): the exec verb passes the
+// playbook's resolved user to the runtime so the command runs AS that user
+// (`docker exec -u <user>`); an unset user is the container default (root), no
+// flag. The runtime half (the -u arg) is covered by TestExecUserArgs.
+func TestExecRunsAsConfiguredUser(t *testing.T) {
+	// Default fixture: no user: → the verb passes "" (container default).
+	root := tempProject(t)
+	rec := &execCall{}
+	rt := fakeRuntime{exists: true, execRecord: rec}
+	if _, err := execImpl(ExecOpts{PlaybookPath: filepath.Join(root, "loom.yml"), Command: []string{"true"}}, rt, fixedClock); err != nil {
+		t.Fatalf("exec (default): %v", err)
+	}
+	if rec.user != "" {
+		t.Errorf("default user = %q, want \"\" (container default = root)", rec.user)
+	}
+
+	// user: dev on the playbook → the verb runs as dev.
+	root2 := tempProject(t)
+	pbPath := filepath.Join(root2, "loom.yml")
+	data, err := os.ReadFile(pbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pbPath, append(data, []byte("\nuser: dev\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec2 := &execCall{}
+	rt2 := fakeRuntime{exists: true, execRecord: rec2}
+	if _, err := execImpl(ExecOpts{PlaybookPath: pbPath, Command: []string{"true"}}, rt2, fixedClock); err != nil {
+		t.Fatalf("exec (user set): %v", err)
+	}
+	if rec2.user != "dev" {
+		t.Errorf("configured user = %q, want dev (docker exec -u dev)", rec2.user)
+	}
+}
+
 // TestExecAuditsCommandAndExit pins FR-EXEC-003: every exec appends an audit
 // entry carrying the command and its exit code, and ExecResult carries the
 // entry id — the verb's structured surface (no --json, SPEC-verbs exemption).

@@ -104,7 +104,9 @@ func execImpl(opts ExecOpts, rt ContainerRuntime, now func() time.Time) (ExecRes
 		}
 	}
 
-	exit, runErr := rt.Exec(cname, opts.Command, containerWorkspace(pb.Name), opts.TTY)
+	// Model A (T10/ADR-0019 amended): entry verbs run AS the configured user
+	// (`docker exec -u <user>`); unset/root = the container default (root).
+	exit, runErr := rt.Exec(cname, opts.Command, containerWorkspace(pb.Name), pb.User, opts.TTY)
 	if runErr != nil {
 		// Transport-level failure (docker itself, not the command): no exit
 		// code to propagate.

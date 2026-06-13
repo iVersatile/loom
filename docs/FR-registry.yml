@@ -238,6 +238,18 @@ requirements:
     source: SPEC-playbook.md#harness
     tests: [engine.TestMaterializeHarnessTrustFlags, engine.TestDogfoodProjectPlaybookTrustMaterializes]
     status: active
+  - id: FR-BUILD-015
+    kind: behavioral
+    # T10 PR 3 (Model A, ADR-0019): make the resolved user real at runtime. The
+    # container runs as root (no `docker run --user`); the user is created at
+    # provision and entry verbs run as it (FR-EXEC-004). Docker-side behavior is
+    # integration-validated (T1: the real container path is CI-only); the unit
+    # tests pin the automatable proxies — the run-args, the provision/chown
+    # scripts, the home resolution.
+    statement: for a non-root `user:`, build creates the user at provision (idempotent; uid 1000 preferred-when-free, next-free + logged on collision, never a hard pin or a foreign-account adoption), targets every home materialization at the resolved $HOME (/home/<user>), and chowns the synced tree to the user while pruning the read-only credentials bind (no blanket chown -R); the container runs as root with no `--user`. Unset/root is byte-identical to pre-T10 builds.
+    source: [SPEC-playbook.md#user, SPEC-verbs.md#build]
+    tests: [engine.TestProvisionUserScript, engine.TestChownHomeScript, engine.TestCreateRunArgs, engine.TestHomeForUserResolution, engine.TestHomeCpTargetSingleOwner]
+    status: active
   - id: FR-SCHEMA-008
     kind: schema
     # T16 PR 2: the base-authored rule is enforced at Load per non-base LAYER
@@ -282,6 +294,15 @@ requirements:
     statement: every exec appends an action-log entry carrying the command, its exit code, and the entry id — the verb's structured surface (no --json, spec exemption). Fail-closed — an exec whose action log cannot open refuses to run, and a post-run append failure is a loud error, never a silent gap.
     source: SPEC-verbs.md#exec
     tests: [engine.TestExecAuditsCommandAndExit, engine.TestExecRefusesUnauditable]
+    status: active
+  - id: FR-EXEC-004
+    kind: behavioral
+    # T10 PR 3 (Model A, ADR-0019 amended): the container runs as root but entry
+    # verbs run AS the configured user via `docker exec -u <user>` BY NAME
+    # (collision-proof — the name resolves to whatever uid useradd assigned).
+    statement: exec and shell run their command as the playbook's resolved `user:` via `docker exec -u <user>` (by name); an unset or `root` user adds no `-u` flag (the container default), so every pre-T10 entry is unchanged.
+    source: [SPEC-playbook.md#user, SPEC-verbs.md#exec]
+    tests: [engine.TestExecRunsAsConfiguredUser, engine.TestExecUserArgs]
     status: active
 
   # --- Behavioral: shell (SPEC-verbs#shell) ---

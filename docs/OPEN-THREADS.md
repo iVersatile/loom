@@ -249,7 +249,7 @@ Promote to: a SPEC-verbs addition (human-authored) + ADR + engine impl + FR.
 
 ---
 
-## T10 — container runs as root; should be a non-root `dev` user   🟢 design + red-team done; PR 2 built 2026-06-13 (clause + schema/merge/validate + plumbing + ADR-0019, awaiting human merge); PR 3–4 next
+## T10 — container runs as root; should be a non-root `dev` user   🟢 PR 1+2 merged (#122/#130); PR 3 built 2026-06-13 (Model A run-as-user: useradd, home retarget, scoped chown, entry-verb -u — awaiting human merge); PR 4 (role marker) next
 Origin: `loom-loom-dev` is `root@/root` (confirmed `docker exec … whoami` → root),
 which is why dotfiles materialize to `/root` and the home-target confusion arose.
 Option 1 (non-root `dev`) was the standing lean; this drafts the full design.
