@@ -28,11 +28,28 @@ value").
    /home/<user>`. *Not* base-only like `harness.settings:` — an env-wide base
    default with a per-project override is the legitimate shape. The frozen
    clause text lives in SPEC-playbook (`#user`), human-reauthorized 2026-06-13.
-2. **Provision-as-root / run-as-user split.** `docker run --user <user>` makes
-   the configured user the exec default, so entry verbs (exec/shell) need no
-   `-u` flag — exactly ADR-0016's "changes the config, not this code".
-   Provisioning (apt-get, `/usr/local/go`, `/var/lib/loom` sentinels) stays root
-   via explicit `docker exec -u root` on those paths only.
+2. **Provision-as-root / run-as-user split — entry verbs pass `-u <name>` BY
+   NAME.** *(Amended 2026-06-13 — advisor red-team ruling Model A on loom-author
+   draft 050; human re-accepted in-session. Supersedes the original
+   "`docker run --user`, no `-u` flag" form, which was causally impossible: see
+   below.)* The container **runs as root** (no `docker run --user`); the
+   configured non-root user is created at provision (decision 4), and **entry
+   verbs (exec/shell) run as it via `docker exec -u <user>`, keyed on the
+   NAME**. Provisioning (apt-get, `/usr/local/go`, `/var/lib/loom` sentinels)
+   runs as the container's root default.
+   - **Why not `docker run --user`** (the original form): `docker run --user` is
+     fixed at container *create* and requires the user to *already exist* — but
+     the collision-tolerant `useradd` (decision 4) runs at *provision*, AFTER
+     create. You cannot pin the uid at create and pick a free one at provision;
+     on a base shipping uid 1000 (node images — decision 4's own case),
+     `--user 1000` runs as the WRONG existing user and `useradd -u 1000` then
+     fails. Keying entry verbs on the NAME (which exists post-provision)
+     resolves the ordering and keeps decision 4's next-free uid intact.
+   - **Hardening scope:** T10's target is the **agent's** blast radius — entry
+     verbs (the agent session) run non-root. The idle PID 1 (`sleep infinity`)
+     running as root is an accepted Phase-1 surface; full PID-1 non-root is a
+     later hardening if a threat requires it (would revisit toward Model B,
+     `docker run --user 1000` + collision=error).
 3. **Ownership chown after home-sync, scoped — `docker cp -a` is NOT a
    substitute.** `docker cp` writes root-owned files; the run-as-user agent
    cannot read its own home without an ownership fix. `cp -a` preserves the
@@ -61,13 +78,17 @@ value").
   merge — Phase 1 does not special-case the merge.
 - **Migration:** the `user:` value rides the provision sentinel digest, so a
   change re-provisions an existing container; the agent-home volume carries
-  root-owned files from the root era — the provision chown covers them. One
-  recreate validates both this migration and 039's trust-flag durability.
+  root-owned files from the root era. Two distinct chowns (do not conflate):
+  decision 3's *per-sync* chown covers the materialized set (`res.Materialized`);
+  a *one-time provision* `chown` migrates the carried volume's root-era files to
+  the user — both **excluding the read-only `.credentials.json` bind** (a blanket
+  `-R` errors on it). One recreate validates this migration and 039's trust-flag
+  durability.
 - **Slicing (T10 thread):** PR 1 (#122, landed) = single-owner home fix.
   **PR 2 (this ADR) = the `user:` clause + schema/merge/validate +
   `ContainerSpec.User/Home` plumbing** (resolved value populated, engine not yet
-  consuming it). PR 3 = engine behavior (decisions 2–4: `docker run --user`,
-  collision-tolerant `useradd`, scoped chown, `-u root` provision paths,
+  consuming it). PR 3 = engine behavior (decisions 2–4: container runs as root +
+  entry-verb `-u <user>` by name, collision-tolerant `useradd`, scoped chown,
   integration-test re-derivation). PR 4 = the role marker (decision 5, a
   trust-path human-applied diff) + the `container:user` doctor claim.
 
