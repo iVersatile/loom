@@ -249,7 +249,7 @@ Promote to: a SPEC-verbs addition (human-authored) + ADR + engine impl + FR.
 
 ---
 
-## T10 — container runs as root; should be a non-root `dev` user   🟢 design drafted 2026-06-12 (envelope 045) — advisor red-team before PR 2+
+## T10 — container runs as root; should be a non-root `dev` user   🟢 design + advisor red-team done 2026-06-13 — PR 2 unblocked (clause amended + human-reauthorized)
 Origin: `loom-loom-dev` is `root@/root` (confirmed `docker exec … whoami` → root),
 which is why dotfiles materialize to `/root` and the home-target confusion arose.
 Option 1 (non-root `dev`) was the standing lean; this drafts the full design.
@@ -327,6 +327,53 @@ default-root compatibility, role-marker doctrine) + FRs per slice.
 Red-team asks (advisor): the role-value source (3a/3b/3c above); whether
 `user:` is base-only by authorship like `settings:`; chown-after-sync vs
 `docker cp -a`; uid collision policy on images that already ship uid 1000.
+
+**Advisor red-team verdict (2026-06-13, envelope 047) — PASS WITH AMENDMENTS.**
+Design is sound and the four-PR slice stands. Findings, grounded in
+`internal/engine/container.go` (`containerHome="/root"`, root `docker run` with
+no `--user`, `docker cp …:/root/` home-sync, ro `.credentials.json` bind,
+provision-as-root exec) and `.claude/hooks/drain-inbox.sh` (the `id -un==root`
+fallback):
+
+1. **Role-value source → 3a, refined.** Materialize a root-owned marker
+   `/var/lib/loom/role` at provision from a new `ContainerSpec.Role`; keep
+   `LOOM_SESSION_ROLE` env as the override/test-seam (guard already prioritises
+   it). 3b's env *value* must come from `ContainerSpec.Role` anyway (not simpler,
+   less durable across `loom exec`); 3c silently no-ops the Writer drain if env
+   is absent. **Security gain, not parity:** a root-owned `0644` marker means the
+   non-root agent cannot forge its own role (prompt-injected Writer can't
+   escalate; host advisor has no marker — LL-011 fail-closed floor holds).
+   **Boundary:** `Role` is set by the loom-dev overlay / engine wiring, NEVER a
+   playbook `role:` key — role stays a TEAM concept, not a playbook one.
+2. **`user:` is NOT base-only** (unlike `settings:`, which is whole-file /
+   no-key-merge, `load.go:76`). It is a **last-wins scalar like `trust:`**
+   (`merge.go:58`); env-base-default + project-override is the legitimate shape.
+   Known edge for the ADR: since unset=root, a later `user: root` silently
+   re-grants root — root-drop is enforced at the full-auto gate, not the scalar
+   merge; do not special-case the merge in Phase 1.
+3. **`chown` after home-sync is REQUIRED; `docker cp -a` is NOT a substitute** —
+   `-a` preserves the *host* numeric uid, the wrong owner for a uid-1000 user.
+   **Amendment to design item 2:** scope the chown to the **materialized file
+   set** (`res.Materialized`), NOT a blanket `chown -R $HOME` — a blanket `-R`
+   walks into the read-only `.credentials.json` bind and errors.
+4. **uid-1000 collision → do not hard-pin.** `bookworm-slim` ships no uid 1000,
+   but `base_image:` is configurable (node images ship 1000). Contract becomes
+   "a non-root user named `<user>`," uid 1000 preferred-when-free, next-free +
+   log on collision. The doctor `container:user` claim already keys on **name**
+   (`id -un`), not uid, so name-based verification supports this with no change.
+
+**Clause text — amended + human-reauthorized 2026-06-13** (the hard `uid 1000`
+in the frozen clause was the one amendment routed back; approved):
+> *"`user:` (optional, scalar, later-wins): the container's runtime user. Unset
+> means root (compatibility). A non-root user is created at provision (non-root;
+> uid 1000 by default, system-assigned on collision; doctor verifies by name),
+> home `/home/<user>`; every materialization targets the resolved `$HOME`
+> (ADR-0015 T10 rule); entry verbs run as this user (ADR-0016 decision 7)."*
+
+PR 2 (Writer, ALLOW_SPEC_CHANGE pre-authorized) is unblocked: transcribe this
+amended clause into SPEC-playbook + schema/merge/validate + ContainerSpec.User/
+Home plumbing. PR 3 folds in findings 3–4 (scoped chown; collision-tolerant
+useradd); PR 4 (role marker, trust path — human-applied diff) folds in finding 1.
 
 ---
 
