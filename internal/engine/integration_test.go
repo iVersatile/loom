@@ -72,8 +72,8 @@ func TestE2EBuildAndSurviveRebuild(t *testing.T) {
 	if ok, _ := (dockerRuntime{}).Exists(name); !ok {
 		t.Fatal("container should exist after build")
 	}
-	assertInContainer("/root/.claude/settings.json")
-	assertInContainer("/root/.claude/statusline.sh")
+	assertInContainer(containerHome + "/.claude/settings.json")
+	assertInContainer(containerHome + "/.claude/statusline.sh")
 
 	// The lock pins the base image by manifest digest.
 	if l, err := lock.Read(filepath.Join(root, "loom.lock")); err != nil || l == nil {
@@ -92,7 +92,7 @@ func TestE2EBuildAndSurviveRebuild(t *testing.T) {
 			t.Logf("=== build.log ===\n%s", data)
 		}
 	}
-	assertInContainer("/root/go/bin/gopls")
+	assertInContainer(containerHome + "/go/bin/gopls")
 
 	// Tear the container down, rebuild, and confirm $HOME config returns.
 	if _, err := Teardown(TeardownOpts{PlaybookPath: pb, Level: "stop"}); err != nil {
@@ -101,7 +101,7 @@ func TestE2EBuildAndSurviveRebuild(t *testing.T) {
 	if _, err := Build(BuildOpts{PlaybookPath: pb}); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
-	assertInContainer("/root/.claude/settings.json")
+	assertInContainer(containerHome + "/.claude/settings.json")
 }
 
 // TestE2EDotfileChangeConverges is the T7 regression test: a dotfile-only
@@ -135,7 +135,7 @@ func TestE2EDotfileChangeConverges(t *testing.T) {
 	if res.Container.Status != "converged" {
 		t.Errorf("container status = %q, want converged (home drift must reconcile)", res.Container.Status)
 	}
-	out, err := exec.Command("docker", "exec", name, "cat", "/root/.claude/statusline.sh").CombinedOutput()
+	out, err := exec.Command("docker", "exec", name, "cat", containerHome+"/.claude/statusline.sh").CombinedOutput()
 	if err != nil {
 		t.Fatalf("read statusline in container: %v: %s", err, out)
 	}

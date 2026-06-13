@@ -420,7 +420,7 @@ func TestEnvArgs(t *testing.T) {
 func TestCredsMount(t *testing.T) {
 	claude := []AgentInstall{{Name: "claude-code", Source: "native-installer"}}
 
-	got := credsMount("/host/.claude/.credentials.json", true, claude)
+	got := credsMount("/host/.claude/.credentials.json", true, claude, containerHome)
 	want := []string{"-v", "/host/.claude/.credentials.json:" + containerHome + "/.claude/.credentials.json:ro"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("credsMount = %v, want %v", got, want)
@@ -429,12 +429,17 @@ func TestCredsMount(t *testing.T) {
 	if !strings.HasSuffix(got[1], ":ro") {
 		t.Errorf("creds mount must be read-only: %q", got[1])
 	}
+	// T10: the mount targets the RESOLVED home — a non-root user's creds land in
+	// /home/<user>/.claude, not /root.
+	if got := credsMount("/host/.claude/.credentials.json", true, claude, "/home/dev"); got[1] != "/host/.claude/.credentials.json:/home/dev/.claude/.credentials.json:ro" {
+		t.Errorf("creds mount must follow the resolved home: %q", got[1])
+	}
 	// No mount when the file is absent (would make docker create a dir).
-	if credsMount("/host/.claude/.credentials.json", false, claude) != nil {
+	if credsMount("/host/.claude/.credentials.json", false, claude, containerHome) != nil {
 		t.Error("absent creds file must not be mounted")
 	}
 	// No mount when claude-code is not among the agents.
-	if credsMount("/host/.claude/.credentials.json", true, []AgentInstall{{Name: "codex"}}) != nil {
+	if credsMount("/host/.claude/.credentials.json", true, []AgentInstall{{Name: "codex"}}, containerHome) != nil {
 		t.Error("creds mount only applies when claude-code is installed")
 	}
 }
@@ -537,6 +542,25 @@ func TestCreateRunArgs(t *testing.T) {
 	if strings.Contains(g, "-claude:") || strings.Contains(g, "/workspace/") {
 		t.Errorf("bare spec must not mount volume or workspace: %s", g)
 	}
+
+	// T10 PR 3 (Model A): a non-root user retargets the home mounts to
+	// /home/<user>, and the container itself still runs as root — NO `--user`
+	// on `docker run` (entry verbs carry `-u`, not the daemon).
+	nonRoot := ContainerSpec{
+		Name: "loom-dev", Project: "loom", BaseImage: "debian:bookworm-slim",
+		Agents: []AgentInstall{{Name: "claude-code", Source: "native-installer"}},
+		User:   "dev", Home: "/home/dev",
+	}
+	gr := strings.Join(createRunArgs(nonRoot, "/host/.claude/.credentials.json", true), " ")
+	if !strings.Contains(gr, "-v loom-dev-claude:/home/dev/.claude") {
+		t.Errorf("non-root agent-home volume must target /home/dev: %s", gr)
+	}
+	if !strings.Contains(gr, "/home/dev/.claude/.credentials.json:ro") {
+		t.Errorf("non-root creds mount must target /home/dev: %s", gr)
+	}
+	if strings.Contains(gr, "--user") {
+		t.Errorf("Model A: docker run must NOT set --user (entry verbs do): %s", gr)
+	}
 }
 
 // TestHomeCpTargetSingleOwner (T10 PR 1): every in-container home path must
@@ -545,8 +569,12 @@ func TestCreateRunArgs(t *testing.T) {
 // literal ":/root/" cp targets were found doing exactly that at T10 design
 // time; this pins the helper AND greps the source so a third can't return.
 func TestHomeCpTargetSingleOwner(t *testing.T) {
-	if got, want := homeCpTarget("loom-dev"), "loom-dev:"+containerHome+"/"; got != want {
+	if got, want := homeCpTarget("loom-dev", containerHome), "loom-dev:"+containerHome+"/"; got != want {
 		t.Errorf("homeCpTarget = %q, want %q", got, want)
+	}
+	// T10 PR 3: a non-root home retargets the cp destination.
+	if got, want := homeCpTarget("loom-dev", "/home/dev"), "loom-dev:/home/dev/"; got != want {
+		t.Errorf("homeCpTarget(non-root) = %q, want %q", got, want)
 	}
 	src, err := os.ReadFile("container.go")
 	if err != nil {
@@ -613,6 +641,68 @@ func TestBuildPopulatesUserAndHome(t *testing.T) {
 	}
 	if spec2.User != "agent" || spec2.Home != "/home/agent" {
 		t.Errorf("user set: User=%q Home=%q, want agent//home/agent", spec2.User, spec2.Home)
+	}
+}
+
+// TestExecUserArgs (T10 PR 3, Model A): entry verbs run AS the configured user
+// by name; root/unset adds no flag.
+func TestExecUserArgs(t *testing.T) {
+	if got := execUserArgs(""); got != nil {
+		t.Errorf("execUserArgs(\"\") = %v, want nil (container default)", got)
+	}
+	if got := execUserArgs("root"); got != nil {
+		t.Errorf("execUserArgs(root) = %v, want nil (root is the default)", got)
+	}
+	if got := strings.Join(execUserArgs("dev"), " "); got != "-u dev" {
+		t.Errorf("execUserArgs(dev) = %q, want \"-u dev\"", got)
+	}
+}
+
+// TestProvisionUserScript (T10 PR 3, red-team finding 4): empty for root;
+// idempotent + collision-tolerant for a real user — reuse on name-exists, next
+// free uid (no -u) on a uid-1000 collision, uid 1000 only when free.
+func TestProvisionUserScript(t *testing.T) {
+	if s := provisionUserScript(""); s != "" {
+		t.Errorf("root/unset must emit no useradd, got %q", s)
+	}
+	if s := provisionUserScript("root"); s != "" {
+		t.Errorf("explicit root must emit no useradd, got %q", s)
+	}
+	s := provisionUserScript("dev")
+	for _, want := range []string{
+		"id -u dev",              // reuse guard (idempotent)
+		"id -u 1000",             // collision probe
+		"useradd -m dev",         // next-free path (NO -u) on collision
+		"useradd -m -u 1000 dev", // preferred uid when free
+		"auto-assigned uid",      // the collision is logged, not silent
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("provisionUserScript(dev) missing %q\n---\n%s", want, s)
+		}
+	}
+	// Never a hard uid baked where it can't move: useradd pins 1000 ONLY on the
+	// preferred-when-free branch (the other 1000 is the `id -u 1000` probe).
+	if strings.Count(s, "useradd -m -u 1000") != 1 {
+		t.Errorf("uid 1000 must be the preferred-when-free useradd only, not a hard pin:\n%s", s)
+	}
+}
+
+// TestChownHomeScript (T10 PR 3, red-team finding 3): empty for root; for a user
+// it chowns the resolved home but PRUNES the read-only creds bind (a blanket
+// chown -R errors on that ro mount).
+func TestChownHomeScript(t *testing.T) {
+	if s := chownHomeScript("", containerHome); s != "" {
+		t.Errorf("root/unset must emit no chown, got %q", s)
+	}
+	s := chownHomeScript("dev", "/home/dev")
+	if !strings.Contains(s, "chown dev:dev") {
+		t.Errorf("chown must target the user: %q", s)
+	}
+	if !strings.Contains(s, "-path /home/dev/.claude/.credentials.json -prune") {
+		t.Errorf("chown must prune the ro creds bind (finding 3): %q", s)
+	}
+	if strings.Contains(s, "chown -R") {
+		t.Errorf("must NOT use chown -R (walks the ro creds bind): %q", s)
 	}
 }
 
