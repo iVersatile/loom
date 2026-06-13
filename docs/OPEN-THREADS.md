@@ -249,7 +249,7 @@ Promote to: a SPEC-verbs addition (human-authored) + ADR + engine impl + FR.
 
 ---
 
-## T10 — container runs as root; should be a non-root `dev` user   🟢 design + advisor red-team done 2026-06-13 — PR 2 unblocked (clause amended + human-reauthorized)
+## T10 — container runs as root; should be a non-root `dev` user   🟢 design + red-team done; PR 2 built 2026-06-13 (clause + schema/merge/validate + plumbing + ADR-0019, awaiting human merge); PR 3–4 next
 Origin: `loom-loom-dev` is `root@/root` (confirmed `docker exec … whoami` → root),
 which is why dotfiles materialize to `/root` and the home-target confusion arose.
 Option 1 (non-root `dev`) was the standing lean; this drafts the full design.
@@ -885,7 +885,7 @@ PLAN "Open items / task continuity" · .scratch/live-build-experiment.md
 
 ---
 
-## T27 — AUTOPILOT control + observability: human override channel + drain verification/notification   🟡 open
+## T27 — AUTOPILOT control + observability: human override channel + drain verification/notification   🟡 open (facet B slice 1 landed #127; facet A wake-primitive design drafted 2026-06-13 — needs human decision + ADR)
 Origin: human proposals 2026-06-12, raised when a live-but-idle Writer could
 not be handed an urgent correctly-queued item by the autopilot drain. Two
 coupled facets — a control channel IN, observability OUT.
@@ -901,6 +901,63 @@ needs an OUT-OF-BAND poke (host-side send-keys into the loom-dev pane = the
 missing "wake" primitive). Shape: OVERRIDE as HALT's symmetric counterpart
 (HALT freezes, OVERRIDE directs/wakes), human-authored, flips.log-logged,
 BOUNDED by the never-auto floor (reprioritize/wake, never escalate perms).
+
+**Facet A — WAKE-PRIMITIVE DESIGN (advisor, 2026-06-13).** Specimen that forced
+it: 2026-06-13, adv-048 queued at ~11:30Z but `.drain-count` mtime stuck at
+06-12T20:19Z — the drain is Stop-triggered, the Writer was already stopped, and
+nothing re-stops an idle session, so the work stranded until a human typed
+"continue". The wake primitive is the ACTUATOR that produces that turn.
+
+THE INVARIANT (non-negotiable, the whole security of the channel): the injected
+keystroke is a HARDCODED CONSTANT ("continue" / "drain"), NEVER content derived
+from the request file. A wake request selects WHICH session + soft/hard priority
+ONLY; if the payload could carry text into the keystroke, the channel becomes
+arbitrary-command-injection into a trusted auto-mode Writer. Waking only causes
+a TURN; the turn runs the EXISTING drain, still bounded by the never-auto floor
++ orphan-guard + budget. Wake escalates NOTHING — it lets bounded machinery run.
+That is what keeps it "mechanism, not trust".
+
+SHAPE (symmetric to HALT): a request file `.scratch/inbox/WAKE` (counterpart to
+`.scratch/inbox/HALT`); HALT WINS — if HALT present, no wake (a frozen system
+stays frozen, checked first, fail-safe). Every wake appends to flips.log
+(`ts | actor(human|watchdog) | wake:<role> | reason`), idempotent + rate-limited
+(one request = one wake; bounded backoff so a stuck request can't spin the
+session — cf. drain 3-per-cycle, provision attempt cap).
+
+MECHANISMS (the actuator is HOST/orchestration layer — you cannot send-keys to
+your own pane; the layer that owns the Writer's session does it; loom's runtime
+is the container, the session lives above it):
+- **A. host-side send-keys (draft 032 lean; MVP):** `tmux send-keys -t <writer
+  pane> "continue" Enter` (or the multiplexer equivalent). Preserves the live
+  interactive session + conversation continuity; minimal. Cons: needs a stable
+  pane handle + multiplexer; host-specific (mac tmux vs windows).
+- **B. event-driven headless drain (loom-ownable; robust path):** the
+  orchestrator spawns one `claude -p "drain"` turn (cwd=repo root) when work is
+  queued; the Stop hook fires at its end and the drain delivers. No TTY/pane
+  fragility, deterministic, loom can own the trigger; the checkpoint-inject hook
+  restores durable context (a headless turn is a fresh session — that is exactly
+  what the continuity hooks exist for). Cons: spins a session per wake. LEAN for
+  windows-/ai-user-topology where there is no stable interactive pane.
+- **C. in-band /loop self-poll:** Writer runs under Claude Code `/loop`, waking
+  itself every N min. No host mechanism, but polling cost + up-to-N-min latency
+  + NOT the "dependable immediate intervention" draft 032 wanted. Fallback only.
+
+TRIGGERS (facet A's two needs): (i) HUMAN OVERRIDE — human writes WAKE / runs a
+`wake-writer` command / keybinding → immediate, dependable poke (replaces the
+manual "continue"). (ii) AUTOMATED WATCHDOG — the heartbeat/idle SENSOR (the
+T27-B remainder) detects "AUTOPILOT on + eligible QUEUED + idle N min" → writes
+WAKE → actuator pokes. Wake (actuator) + heartbeat (sensor) COMPOSE; the #127
+doctor claim is the on-demand sensor, the watchdog its always-on form.
+
+SLICING + LEAN: MVP = mechanism A, human-triggered (smallest dependable win,
+retires the manual poke). Phase 2 = couple to the watchdog sensor for
+autonomous bounded wake. Record B as the topology-robust path; reject C as
+primary. GATE: this is a CONTROL channel on the AUTOPILOT trust model (T23
+family) — needs a HUMAN decision + ADR before code (the constant-keystroke
+invariant + HALT-precedence are ADR-level), and the actuator is host-side +
+topology-specific (human owns the orchestration choice). Trust-path: actuator
+script + request handling are security-sensitive (they drive a trusted session)
+→ guard/trust class, human-applied.
 
 **Facet B — close the mental-model↔reality gap (intake: draft 033).** The
 drain is silent today — you cannot tell "working" from "silently idle"
