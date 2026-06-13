@@ -1,9 +1,9 @@
 agents:
   claude-code:
-    resolved: 2.1.170 (Claude Code)
-base_image: debian:bookworm-slim@sha256:0104b334637a5f19aa9c983a91b54c89887c0984081f2068983107a6f6c21eeb
+    resolved: 2.1.176 (Claude Code)
+base_image: debian:bookworm-slim@sha256:96e378d7e6531ac9a15ad505478fcc2e69f371b10f5cdf87857c4b8188404716
 loom_lock: 1
-resolved_at: "2026-06-10T14:28:44Z"
+resolved_at: "2026-06-12T22:21:52Z"
 tools:
   git:
     intent: latest
