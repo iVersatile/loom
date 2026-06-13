@@ -987,6 +987,23 @@ human-applied diff; (ii) a TRUE live-idle watchdog (hook loaded once then
 stopped) — needs a session heartbeat primitive, not yet designed. Facet A
 (control channel / OVERRIDE + wake) untouched.
 
+**Facet B / T21 — drain SUPERSEDE-revalidation (filed 2026-06-13, specimen).**
+The drain has no staleness awareness: a QUEUED envelope can be superseded by
+newer inbox state and still be delivered. SPECIMEN: adv-049 (T10 PR-3) was
+minted/flipped QUEUED at 12:20Z; the Writer then filed draft 050 (~12:35Z)
+escalating a causal contradiction in the very work adv-049 encoded; a bare
+re-poke would still have handed the Writer the stale, superseded envelope. The
+Writer's judgment layer caught it (declined, marked adv-049 BLOCKED) — but that
+is the LAST line, not the mechanism. FIX (drain decision-time check, pairs with
+the decision-trace): before firing a QUEUED item, re-validate it against newer
+inbox state — a later BLOCKED/superseding draft that names it, or a fresher
+human ruling, demotes it to a skip-with-reason (TICKET tier) rather than a
+silent delivery. This is the correctness prerequisite for any DIRECT,
+auto-woken Writer<->advisor channel (a direct channel that auto-delivers stale
+work is worse than a human relay). Couples to T21 (transport correctness) and
+the wake primitive (facet A): trustworthy auto-delivery = supersede-aware drain
++ wake, not one without the other.
+
 Pointers: drafts 032+033 (intake envelopes, loom-advisor inbox) · review M7
 (orphan-guard substring weakness) · T21/T23 (the transport this governs) ·
 C2 (stale-TAKEN) · PLAN "agent-initiated lifecycle / task continuity" open
