@@ -918,6 +918,18 @@ Live specimens feeding this (2026-06-12): item 031 silently orphan-skipped
 Stop-triggered, not inbox-watching). Doctrine: what the reviewer hand-checks
 once, doctor mechanizes (P7 gate).
 
+**Facet B — first slice LANDED 2026-06-13 (advisor, the loom way).** The
+PAGE-tier anomaly is now a doctor claim: `host:autopilot` fails when AUTOPILOT
+is on for the loom-author inbox with ≥1 eligible QUEUED item but no drain
+evidence (`.drain-count` absent) — the exact signature of the 2026-06-12
+never-loaded-Stop-hook incident, caught on demand instead of by hand 6h in
+(FR-DOCTOR-005). It is point-in-time + side-effect based BY DESIGN and says so.
+REMAINING in facet B: (i) the LOG-tier decision-trace inside drain-inbox.sh
+(fired-at / picked-X / skipped-Y-why) — a trust-path edit (.claude/hooks/**),
+human-applied diff; (ii) a TRUE live-idle watchdog (hook loaded once then
+stopped) — needs a session heartbeat primitive, not yet designed. Facet A
+(control channel / OVERRIDE + wake) untouched.
+
 Pointers: drafts 032+033 (intake envelopes, loom-advisor inbox) · review M7
 (orphan-guard substring weakness) · T21/T23 (the transport this governs) ·
 C2 (stale-TAKEN) · PLAN "agent-initiated lifecycle / task continuity" open

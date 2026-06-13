@@ -347,6 +347,19 @@ requirements:
     source: SPEC-verbs.md#doctor
     tests: [engine.TestDoctorGradesGitconfigIdentity, engine.TestGitIdentityParsesUserSection]
     status: active
+  - id: FR-DOCTOR-005
+    kind: behavioral
+    # T27 facet B (human drafts 032/033): the AUTOPILOT drain is a Stop hook;
+    # a session launched outside the repo root never loads it, so eligible
+    # queued work sits undrained and silent (2026-06-12 incident — no
+    # .drain-count ever written). Doctor mechanizes the hand-check: what the
+    # reviewer caught by hand 6h in, the doctor catches on demand. Side-effect
+    # based by design; live-idle detection beyond the first drain needs a
+    # heartbeat (T27-B remainder) and is deliberately not faked.
+    statement: doctor's host:autopilot check flags the silent-idle anomaly — AUTOPILOT on for the loom-author inbox with one or more eligible QUEUED items but no drain evidence (.drain-count absent) fails, naming the likely never-loaded Stop hook; autopilot off, no queued work, or a drain that has fired pass; a tree with no loom-author inbox is not graded.
+    source: SPEC-verbs.md#doctor
+    tests: [engine.TestAutopilotDrainLiveness]
+    status: active
 
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
   - id: FR-INV-001
