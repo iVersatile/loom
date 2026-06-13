@@ -49,6 +49,14 @@ type ContainerSpec struct {
 	ProjectDir string         // absolute host path of the project root (dir holding loom.yml), bind-mounted RW (T13); empty = no mount
 	Force      bool           // rebuild from scratch even if the container exists
 	LogW       io.Writer      // diagnostic log sink for raw docker/provision output
+
+	// User is the configured container runtime user (T10/ADR-0019, from playbook
+	// user:); "" or "root" means root. Home is the resolved in-container $HOME
+	// for User (homeForUser); "" defaults to containerHome. PR 2 populates both
+	// from the merged playbook; the engine CONSUMES them (docker run --user,
+	// home-sync/creds retarget, ownership chown) in T10 PR 3.
+	User string
+	Home string
 }
 
 // dockerLogged runs a docker command, tees its combined output to logw (when
@@ -650,6 +658,19 @@ func envArgs(env []string) []string {
 // mounts, creds mounts — derives from this constant; a literal "/root"
 // anywhere else is a bug (two were found bypassing it, the cp targets).
 const containerHome = "/root"
+
+// homeForUser resolves the in-container $HOME for a configured user: value
+// (T10, ADR-0019). Unset or "root" → containerHome ("/root"), so every existing
+// playbook (no user:) keeps its exact Phase-1 home; any other user → /home/<user>.
+// This is the single point ContainerSpec.Home is populated from (build.go). The
+// engine consumes Home — retargeting the home-sync cp and creds mount, plus the
+// post-sync ownership chown — in T10 PR 3; PR 2 only lays the resolved value.
+func homeForUser(user string) string {
+	if user == "" || user == "root" {
+		return containerHome
+	}
+	return "/home/" + user
+}
 
 // homeCpTarget is the docker-cp destination for the staged $HOME tree. Routed
 // through containerHome so T10's parameterisation changes exactly one value

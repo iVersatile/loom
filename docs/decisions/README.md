@@ -22,6 +22,9 @@ choices.
 - ADR-0014 — Agent provisioning + in-container credential login
 - ADR-0015 — Harness home: config materializes into the agent volume; state accretes in it
 - ADR-0016 — Entry verbs: exec-first passthrough; the audit log is the structured surface
+- ADR-0017 — Writer remote-trust split
+- ADR-0018 — Harness trust/opt-in flags are declared playbook config, materialized at build
+- ADR-0019 — Container runs as a configurable, default-root non-root user
 
 ## Template
 

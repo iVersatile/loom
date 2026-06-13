@@ -557,6 +557,65 @@ func TestHomeCpTargetSingleOwner(t *testing.T) {
 	}
 }
 
+// TestHomeForUserResolution (T10 PR 2, FR-SCHEMA-009): the resolved container
+// $HOME is /root for the default (unset or explicit root) — so every pre-T10
+// playbook keeps its exact home — and /home/<user> for any non-root user.
+func TestHomeForUserResolution(t *testing.T) {
+	cases := map[string]string{
+		"":      containerHome, // unset = root (Phase-1 default)
+		"root":  containerHome, // explicit root = the default, not /home/root
+		"dev":   "/home/dev",
+		"agent": "/home/agent",
+	}
+	for user, want := range cases {
+		if got := homeForUser(user); got != want {
+			t.Errorf("homeForUser(%q) = %q, want %q", user, got, want)
+		}
+	}
+}
+
+// TestBuildPopulatesUserAndHome (T10 PR 2, FR-SCHEMA-009): build plumbs the
+// merged user: value and its resolved $HOME onto the ContainerSpec it converges.
+// PR 2 only LAYS this value; the engine consumes it (docker run --user, home
+// retarget, chown) in PR 3 — so this asserts the plumbing, not the behavior.
+func TestBuildPopulatesUserAndHome(t *testing.T) {
+	// Default: the fixture sets no user:, so the spec stays root-homed.
+	root := tempProject(t)
+	var spec ContainerSpec
+	rt := fakeRuntime{
+		ensureInfo:   ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"},
+		ensureRecord: &spec,
+	}
+	if _, err := buildImpl(BuildOpts{PlaybookPath: filepath.Join(root, "loom.yml")}, rt, fixedClock); err != nil {
+		t.Fatalf("build (default): %v", err)
+	}
+	if spec.User != "" || spec.Home != containerHome {
+		t.Errorf("default: User=%q Home=%q, want \"\"/%q", spec.User, spec.Home, containerHome)
+	}
+
+	// user: set on the project overlay flows through merge → spec, $HOME resolved.
+	root2 := tempProject(t)
+	pbPath := filepath.Join(root2, "loom.yml")
+	data, err := os.ReadFile(pbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pbPath, append(data, []byte("\nuser: agent\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var spec2 ContainerSpec
+	rt2 := fakeRuntime{
+		ensureInfo:   ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"},
+		ensureRecord: &spec2,
+	}
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt2, fixedClock); err != nil {
+		t.Fatalf("build (user set): %v", err)
+	}
+	if spec2.User != "agent" || spec2.Home != "/home/agent" {
+		t.Errorf("user set: User=%q Home=%q, want agent//home/agent", spec2.User, spec2.Home)
+	}
+}
+
 func countLogLines(t *testing.T, root string) int {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, ".loom", "actions.log"))
