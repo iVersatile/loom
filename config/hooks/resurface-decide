@@ -1,0 +1,74 @@
+#!/bin/sh
+# resurface-decide — THE shared drain decision for the autonomy closed-loop
+# (ADR-0020: PARK → pull-next → re-surface). Sourced/called by the Stop-hook
+# drain (.claude/hooks/drain-inbox.sh, a trust-config path applied by a human
+# diff, PR #137). Not an executable hook by itself — the executable bit only
+# satisfies the doctor present+executable claim.
+#
+# Per inbox item, prints "<id>: <DECISION>". Decisions:
+#   DELIVER          status: QUEUED, ready to hand to the agent.
+#   SKIP-PARKED      status: PARKED, dependency predicate not yet cleared.
+#   RESURFACE        status: PARKED, predicate cleared -> flip to QUEUED.
+#   ESCALATE         status: PARKED, predicate uncleared AND parked too long
+#                    (now - parked-at > MAX) -> surface to a human. NEVER auto-
+#                    drop: losing work is worse than a stale park (ADR-0020/R4).
+#   SKIP-SUPERSEDED  superseded-by: present.
+#   no-op            any other status.
+#
+# SECURITY (ADR-0020/R2, the same doctrine as the wake-keystroke constant): the
+# predicate value is AGENT-WRITTEN and is NEVER passed to a shell. Fixed
+# vocabulary only — exists: | pr-merged: | item-status: — each dispatched to a
+# handler that opens a file (awk getline, no /bin/sh) or compares validated
+# strings. Unknown kind or malformed value = FAIL-CLOSED (stay PARKED). Ranked
+# external-truth-first (pr-merged: > item-status:; R7): item-status: reads the
+# agent-writable inbox, acceptable only because RESURFACE causes a bounded turn,
+# never an action.
+#
+# PARSER CONTRACT (ADR-0020): parked-on / parked-at / superseded-by are HEADER
+# fields and are honored ONLY when they precede `status:` (a field after status
+# is ignored — matches the drain parser; smoke-tested).
+#
+# Args: $1 = inbox file, $2 = merged-refs file (one PR number per line).
+# Env:  LOOM_NOW (epoch; default `date +%s`), LOOM_MAX_PARK_AGE (seconds;
+#       default 604800 = 7d). Passed in by tests for determinism.
+NOW="${LOOM_NOW:-$(date +%s)}"
+MAXAGE="${LOOM_MAX_PARK_AGE:-604800}"
+
+awk -v merged="$2" -v now="$NOW" -v maxage="$MAXAGE" '
+function exists(path,  r){ r = (getline _ < path); close(path); return (r >= 0) }
+function pr_merged(n,  line,hit){ if (n !~ /^[0-9]+$/) return 0; hit=0;
+  while ((getline line < merged) > 0) if (line == n) hit=1; close(merged); return hit }
+function item_status(spec,  k,want_id,want_st,line,cur,curid,a){ k=index(spec,"=");
+  if (k==0) return 0; want_id=substr(spec,1,k-1); want_st=substr(spec,k+1);
+  if (want_id !~ /^[A-Za-z0-9-]+$/ || want_st !~ /^[A-Z-]+$/) return 0;
+  cur=""; curid="";
+  while ((getline line < INBOX) > 0) {
+    if (line ~ /^--- id:/) { split(line,a," "); curid=a[3] }
+    else if (line ~ /^status:/ && curid==want_id) { split(line,a," "); cur=a[2] } }
+  close(INBOX); return (cur==want_st) }
+function cleared(pred,  k,kind,val){ if (pred=="") return 1;
+  k=index(pred,":"); if (k==0) return 0;
+  kind=substr(pred,1,k-1); val=substr(pred,k+1);
+  if (kind=="exists")      return exists(val);
+  if (kind=="pr-merged")   return pr_merged(val);
+  if (kind=="item-status") return item_status(val);
+  return 0 }   # unknown predicate kind -> fail-closed
+function overage(){ return (parkedat ~ /^[0-9]+$/ && (now - parkedat) > maxage) }
+function decide(){ if (id=="") return;
+  if (sup!="")               { print id": SKIP-SUPERSEDED (by "sup")"; return }
+  if (status=="PARKED") {
+    if (parked=="")          print id": ESCALATE (PARKED without a parked-on predicate — malformed, surface; never silently resurface)";
+    else if (cleared(parked)) print id": RESURFACE (dep "parked" cleared)";
+    else if (overage())      print id": ESCALATE (parked "(now-parkedat)"s > "maxage"s, dep "parked" — surface, never drop)";
+    else                     print id": SKIP-PARKED (waiting "parked")";
+    return }
+  if (status=="QUEUED")        print id": DELIVER";
+  else                         print id": no-op ("status")" }
+BEGIN{ INBOX = ARGV[1] }
+/^--- id:/        { decide(); id=$3; status=parked=parkedat=sup=""; header=1; next }
+/^status:/        { status=$2; header=0; next }
+header && /^parked-on:/    { parked=$2 }
+header && /^parked-at:/    { parkedat=$2 }
+header && /^superseded-by:/{ sup=$2 }
+END{ decide() }
+' "$1"

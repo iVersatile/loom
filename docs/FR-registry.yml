@@ -461,6 +461,30 @@ requirements:
     source: [RULES.md#§5, config/hooks/protect-paths]
     tests: { suite: guard.TestProtectPathsBlocksTrustConfig, patterns: all }
     status: active
+  - id: FR-GUARD-RESURFACE
+    kind: guardrail
+    # ADR-0020 / R2 (same doctrine as the wake-keystroke constant): parked-on is
+    # an AGENT-WRITTEN field; the drain re-surface decision must NEVER pass it to
+    # a shell. config/hooks/resurface-decide uses a fixed predicate vocabulary
+    # dispatched to handlers that open files (awk getline) or compare validated
+    # strings — never eval. The author slice; the trust-path drain diff that
+    # sources it is human-applied (PR #137).
+    statement: resurface-decide never passes a parked-on predicate value to a shell — fixed vocabulary only (exists:/pr-merged:/item-status:), unknown kind / malformed value / a field after status: all fail-closed (stay PARKED or ESCALATE, never RESURFACE), and a ${IFS} shell-injection payload in parked-on creates no file.
+    source: [docs/decisions/0020-autonomy-closed-loop.md, config/hooks/resurface-decide]
+    tests: { suite: guard.TestResurfaceDecide, patterns: all }
+    status: active
+
+  # --- Behavioral: autonomy closed-loop (ADR-0020) ---
+  - id: FR-LOOP-001
+    kind: behavioral
+    # ADR-0020: a block never halts-and-drops. The drain decides each item's
+    # disposition; pull-next keeps the Writer moving without priority inversion.
+    # The trust-path drain-hook wiring is human-applied (PR #137); these scripts
+    # + tests are the author slice that GATES that application.
+    statement: the closed-loop disposes each inbox item — DELIVER (QUEUED) / SKIP-PARKED (dep uncleared) / RESURFACE (dep cleared) / ESCALATE (parked past LOOM_MAX_PARK_AGE, never auto-dropped) / SKIP-SUPERSEDED — and pull-next selects the first QUEUED item whose depends-on is empty or DONE, skipping any depending on a PARKED/QUEUED item (no priority inversion); an all-blocked inbox yields no pick.
+    source: docs/decisions/0020-autonomy-closed-loop.md
+    tests: [guard.TestResurfaceDecide, guard.TestPullNextNoPriorityInversion]
+    status: active
 
   # --- Schema / resolution (SPEC-playbook; one per merge/resolution rule) ---
   - id: FR-SCHEMA-001

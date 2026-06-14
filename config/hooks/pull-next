@@ -1,0 +1,31 @@
+#!/bin/sh
+# pull-next — the work-selection picker for the autonomy closed-loop (ADR-0020,
+# R5). When a delivered task is PARKED on a blocker, the Writer must keep going:
+# pull the next INDEPENDENT eligible item, never halt. This prints that item.
+#
+# Eligible = the FIRST `status: QUEUED` item whose `depends-on:` is empty OR
+# points to an item that is DONE. A QUEUED item depending on a PARKED/QUEUED
+# item is SKIPPED — picking it would be a priority inversion (work that cannot
+# progress, starving the truly-next item). If nothing is eligible, the Writer
+# stays idle / escalates (the poll re-surfaces a parked item when its dep clears;
+# the over-age tier in resurface-decide escalates a forever-parked one).
+#
+# Pure function of inbox state; deterministic; inbox order is the tie-break (the
+# work-selection cascade already ordered it). `depends-on:` is a header field.
+# Arg: $1 = inbox file.
+awk '
+function pass1(  line,curid,a){ while ((getline line < INBOX) > 0) {
+    if (line ~ /^--- id:/) { split(line,a," "); curid=a[3] }
+    else if (line ~ /^status:/) { split(line,a," "); st[curid]=a[2] } }
+  close(INBOX) }
+function decide(){ if (id=="" || picked) return;
+  if (status!="QUEUED") return;
+  if (dep=="")         { print "PICK "id" (no deps)"; picked=1; return }
+  if (st[dep]=="DONE") { print "PICK "id" (dep "dep" DONE)"; picked=1; return }
+  print "  skip "id" (depends-on "dep", status "st[dep]" — priority inversion avoided)" }
+BEGIN{ INBOX = ARGV[1]; pass1() }
+/^--- id:/         { decide(); id=$3; status=dep=""; header=1; next }
+/^status:/         { status=$2; header=0; next }
+header && /^depends-on:/ { dep=$2 }
+END{ decide(); if (!picked) print "PICK (none — every QUEUED item is blocked; stay idle / escalate)" }
+' "$1"
