@@ -5,7 +5,7 @@
 # with its own explicit, audited override:
 #   FROZEN CONTRACTS (specs + ADRs) — change via PR + ADR (RULES §2/§3),
 #     never silently, including by an agent. Override: ALLOW_SPEC_CHANGE=1.
-#   TRUST CONFIG (.claude/settings*.json, .claude/hooks/**) — the harness's
+#   TRUST CONFIG (.claude/settings*.json, .claude/hooks/**, config/hooks/**) — the harness's
 #     permission stack and hook set (T28/C1-family, envelope 040): trust-config
 #     edits are human-only; agents propose diffs, never apply (029.C
 #     convention). Override: ALLOW_TRUST_CHANGE=1.
@@ -37,6 +37,7 @@ is_trust() {
 	case "$1" in
 	.claude/settings*.json) return 0 ;;
 	.claude/hooks/*) return 0 ;;
+	config/hooks/*) return 0 ;;
 	*) return 1 ;;
 	esac
 }
