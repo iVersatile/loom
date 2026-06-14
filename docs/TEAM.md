@@ -187,6 +187,42 @@ never only in an envelope).
   `.scratch/inbox/flips.log` (untracked like the mail, but a trace): trust
   changes must not exist only in a chat transcript.
 
+## Autonomy closed-loop: PARK → pull-next → re-surface (ADR-0020)
+
+A block must never halt-and-drop. When a delivered task can't proceed, the
+Writer parks it (nothing lost), keeps working the next independent item, and the
+drain re-surfaces the parked one when its blocker clears — closing the circle
+without a human relay. The decision logic is two shared, non-trust-path scripts
+(`config/hooks/resurface-decide`, `config/hooks/pull-next`) the trust-path drain
+sources (the drain diff itself is human-applied). Guard-tested:
+`internal/guard/resurface_test.go`.
+
+- **PARK fields (HEADER — MUST precede `status:`).** The drain parser reads
+  header fields only before `status:`; a field after it is silently missed, so a
+  malformed park fails closed (see below). Fields:
+  - `parked-on: <predicate>` — the blocker. **Fixed vocabulary, never eval'd**
+    (ADR-0020/R2, same doctrine as the wake-keystroke constant): `exists:<path>`
+    | `pr-merged:<n>` | `item-status:<id>=<STATUS>`. Anything else = fail-closed
+    (stay parked). **Ranked external-truth first** (R7): prefer `pr-merged:`
+    (human-merged git truth) over `item-status:` (agent-writable inbox);
+    `item-status:` is acceptable only because re-surface causes a bounded *turn*,
+    never an action.
+  - `parked-at: <epoch>` — when parked; drives the over-age tier.
+  - `superseded-by: <id>` — supersede-skip.
+- **Drain decisions** (`resurface-decide`): DELIVER (QUEUED) · SKIP-PARKED (dep
+  uncleared) · RESURFACE→QUEUED (dep cleared) · SKIP-SUPERSEDED · **ESCALATE**
+  (dep uncleared AND `now − parked-at > LOOM_MAX_PARK_AGE`, default 7d — surface
+  to a human; **never auto-drop**, losing work is worse than a stale park; R4) ·
+  ESCALATE (malformed: PARKED with no parseable `parked-on`).
+- **Park-on-block behavior (operating instruction).** A blocked delivered task:
+  (1) commit WIP to the task branch (nothing lost); (2) set `status: PARKED` +
+  `parked-on:` + `parked-at:` (header order); (3) escalate the blocker to the
+  advisor inbox; (4) **pull the next independent eligible item** and keep
+  building — DO NOT HALT. The picker (`pull-next`) takes the first QUEUED item
+  whose `depends-on:` is empty or DONE, SKIPPING any that depend on a
+  PARKED/QUEUED item (no priority inversion, R5); all-blocked ⇒ stay idle (the
+  poll re-surfaces / the over-age tier escalates).
+
 ## Context economy (T25, human-blessed 2026-06-11)
 
 - **State lives in artifacts; channels carry intent + work only.** Never
