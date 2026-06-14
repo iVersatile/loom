@@ -1,0 +1,118 @@
+# ADR-0021 — Role resolution under multi-role-per-container
+**Date:** 2026-06-14   **Status:** Proposed (decision deferred to the human — this ADR lays out the fork; acceptance = the chosen option's PR merge, per RULES §5 / C3. Authorship: advisor-drafted from an in-session human reversal of the 2026-06-14 checkpoint; not yet red-teamed.)
+
+## Context
+ADR-0019 decision 5 and ADR-0020's drain-guard fixed role resolution as a
+layered lookup: **`LOOM_SESSION_ROLE` env → `/var/lib/loom/role` marker →
+UNRESOLVED = fail-closed no-op** (LL-011 floor). The marker is *per-container*
+(root-owned, `0644`, one scalar) — it answers "what is this container's role,"
+and that shape silently assumes **one role per container**.
+
+The 2026-06-14 ~22:00Z workstream checkpoint recorded exactly that as the target
+("ONE-ROLE-PER-CONTAINER is the target; multi-role NOT needed; human-confirmed")
+and reframed the marker as *the* loom-native role mechanism, with
+`LOOM_SESSION_ROLE` a temporary bridge.
+
+**This ADR records a reversal of that checkpoint.** Driver: *harness-container
+reality* (human-selected, 2026-06-14). The agent sessions run inside a harness
+container that is **distinct from `loom-dev`**, and in that container **more than
+one role co-resides** (e.g. an advisor session and an author session in one
+container). A per-container marker holds exactly one value, so it **physically
+cannot distinguish two sessions' roles** in the same container. Multi-role-per-
+container is therefore a real requirement, not optional polish — and the current
+primary signal, launch-bound `LOOM_SESSION_ROLE`, is a stopgap: it cannot be
+injected into a live session and defaults wrong (✍️/loom-author) when unset.
+
+This forces a question ADR-0019 decision 5 did not have to answer: **when role
+must be per-session, which layer is primary, and is the per-session signal a
+*trust* signal or only a *routing* signal?**
+
+## The load-bearing distinction
+Role is used for two unrelated jobs, and conflating them is the trap:
+
+| Job | Granularity it wants | Forgeability tolerance |
+|---|---|---|
+| **Routing/UX** — statusline glyph, which inbox a session drains, who relays git-tasks | per-**session** | advisory; a wrong value is a cosmetic/workflow bug |
+| **Trust** — whether the drain-guard fires, what privileged action a container may take (LL-011 fail-closed floor, ADR-0017 writer-trust) | per-**container** | must be **unforgeable** — a non-root agent forging its role defeats the floor |
+
+A single mechanism cannot be both *per-session live-settable* and *root-owned
+unforgeable*. So the resolution stays layered; the design choice is **which
+job each layer serves**, not "pick one mechanism."
+
+## Decision (deferred — choose one)
+The recommendation is **Option A**; the human decides by accepting one option's PR.
+
+### Option A — Split the concept: per-session *routing-role*, per-container *trust-role* (recommended)
+- **`session-role`** (routing/UX): a per-session signal the harness reads each
+  turn — a session file (e.g. `$CLAUDE_SESSION_DIR/role`) or `LOOM_SESSION_ROLE`
+  as its seed. Drives the statusline glyph and inbox routing. **Agent-settable,
+  advisory, live-changeable** (fixes the launch-bound footgun).
+- **`trust-role`** (security): the existing root-owned `/var/lib/loom/role`
+  marker, now explicitly the *container* trust anchor. Multi-role container ⇒ the
+  marker carries the **union** of roles the container is provisioned to act as.
+- **Rule:** security-sensitive guards (drain-inbox, any privileged verb) key on
+  **`trust-role` only**; `session-role` may **narrow within** the container's
+  trust set but **never widen** it. A session can *say* it is the advisor for
+  routing, but cannot *act* beyond what the marker grants.
+- *Resolution (routing):* session-file → `LOOM_SESSION_ROLE` → marker → default.
+  *Resolution (trust):* marker → fail-closed (unchanged from ADR-0019/0020).
+- **Pro:** multi-role works; live role-switch with no relaunch; the LL-011 floor
+  is untouched (trust never rides an agent-writable signal); loom-native, non-
+  root-safe. **Con:** introduces an explicit two-name model and a new per-session
+  file the harness must write.
+
+### Option B — Env primary, accept relaunch-to-change
+- Keep `LOOM_SESSION_ROLE` as the single primary; marker = fallback/default.
+  Changing role = relaunch the session.
+- **Pro:** simplest, half-built already, no new mechanism. **Con:** the launch-
+  bound weakness that drove this ADR survives; unset still defaults to author;
+  and a single agent-settable env as the *trust* signal weakens LL-011 unless
+  the drain-guard still defers to the marker — in which case this is Option A
+  without the clean split.
+
+### Option C — Per-session root-owned sub-marker (`/var/lib/loom/role.<session>`)
+- Keep the marker primary but make it per-session: provision/a root hook writes
+  `role.<session-id>` at session start, unforgeable like the container marker.
+- **Pro:** keeps an unforgeable floor *and* per-session granularity. **Con:**
+  who writes it? Inside a non-root container the session is not root, so this
+  needs a root-side trigger at every session start — the same create-time vs
+  provision-time ordering hazard ADR-0019 decision 2 hit with `docker run
+  --user`. Likely causally hard in today's topology; revisit if a root-side
+  per-session hook becomes cheap.
+
+## Alternatives considered
+- **Drop the marker, env-only** — rejected: removes the unforgeable floor;
+  ADR-0019 decision 5 added the marker precisely so a non-root agent cannot
+  forge its role.
+- **One container per role (hold the checkpoint)** — this is the status quo the
+  reversal overrides; recorded as rejected *for the harness-container topology*
+  because that topology co-resides roles by construction. It remains correct for
+  `mac-dev-topology` (one role in `loom-dev`), so Option A must keep the single-
+  role container byte-identical when only the marker is present.
+
+## Consequences (positive / trade-offs / revisit-if)
+- **Positive (Option A):** the statusline role glyph resolves without ad-hoc env;
+  live role-switch; the trust floor is *strengthened* by being named separately
+  from routing.
+- **Trade-off:** a second role concept to document (SPEC + HARNESS.md) and a
+  harness contract to write the session-role file. Two-name models invite
+  conflation — the "narrow-not-widen" rule is the guardrail and must be tested.
+- **Compatibility:** single-role containers (`loom-dev`) must stay inert — with
+  no session-role set, resolution falls through to the marker exactly as today.
+- **Revisit-if:** a root-side per-session hook becomes available (reopens Option
+  C); or PID-1 goes non-root (ADR-0019 decision 2 hardening), changing who can
+  write markers.
+- **Supersedes:** the role-mechanism framing in the 2026-06-14 checkpoint and
+  narrows ADR-0019 decision 5 / ADR-0020's drain-guard from "the marker is *the*
+  role mechanism" to "the marker is the *trust* role; routing-role is separate."
+  The existing PR4 role-marker work (`docs/patches/0022`) stays valid — it builds
+  the `trust-role` layer either way.
+
+## Links
+- ADR-0019 (decision 5: root-owned role marker), ADR-0020 (drain-guard role
+  resolution), ADR-0017 (writer remote-trust split).
+- docs/TOPOLOGY.md — `ai-user-topology` (roles co-resident is the north-star
+  shape this generalizes toward); the harness-container topology should be named
+  here once this ADR is accepted.
+- LL-011 (drain role-guard fail-closed). T10 PR 4 / docs/patches/0022 (the
+  trust-role marker build slice).

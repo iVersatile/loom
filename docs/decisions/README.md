@@ -25,6 +25,8 @@ choices.
 - ADR-0017 — Writer remote-trust split
 - ADR-0018 — Harness trust/opt-in flags are declared playbook config, materialized at build
 - ADR-0019 — Container runs as a configurable, default-root non-root user
+- ADR-0020 — Autonomy closed-loop (PARK / pull-next / re-surface drain)
+- ADR-0021 — Role resolution under multi-role-per-container (Proposed)
 
 ## Template
 
