@@ -1154,3 +1154,64 @@ for — design first, adversarial review, then code.
 Pointers: queue row (guard-bash segment-aware) · phase-1 review H4 (guard-bash
 substring classes) · item 028 specimens · #45 evidence-based allowlist ·
 docs/auto-trial.md (S3 class).
+
+---
+
+## T30 — autonomy: auto-pull the next ready FR (backlog→inbox refill)   🟢 decided in principle (human 2026-06-14: yes, auto-pull) — readiness predicate + ADR pending
+Origin: 2026-06-14 advisor session, tracing the *writer-idle* meta-cause (Writer
+idles → human pours focus into advisor design-thinking → new tasks spawn →
+priority entanglement). The finding that forced this thread: **the autonomy loop
+closes over the INBOX, not the PLAN/FR backlog.**
+
+**The gap.** The Stop-hook drain (`.claude/hooks/drain-inbox.sh`, ADR-0020) picks
+items from `.scratch/inbox/loom-author.md`; it reads `docs/PLAN.md` ONLY to
+validate (`serves:` must match a row = orphan-guard). It NEVER promotes a PLAN/FR
+row INTO the inbox. `pull-next` (ADR-0020 R5) picks the next *inbox* item, not the
+next *backlog* row. So when the inbox drains dry, **nothing refills it** — the
+refill is a deliberate human/coordinator triage gate. Consequence: **the wake
+primitive (T27) is necessary but NOT sufficient** — woken on a dry inbox, the
+drain finds nothing deliverable and sleeps again; the Writer still idles. "Why
+doesn't it self-redirect to the next FR?" — because no link reaches the backlog.
+
+**Decision (human-authorized 2026-06-14).** Automate the refill: the Writer
+auto-pulls its **next *ready* FR/PLAN row** when other channels (inbox) are clear.
+This is an **autonomy escalation** (the agent picks its own next work, not just
+executes a human-triaged queue) — recorded as such, gated by an ADR before code
+(extends ADR-0020 from inbox-scoped to backlog-scoped autonomy).
+
+**The real work is the READINESS PREDICATE** (a row is auto-pullable iff):
+1. **Deps cleared** — every dependency the row names is merged/closed (reuse the
+   drain's local merged-PR cache, R8).
+2. **Execution-ready, not design-first** — not a design-stub / thread-incubator
+   row (PLAN order ≠ execution order; design rows need a human/advisor, not a
+   builder). Mirrors the drain's existing design-stub guard.
+3. **No priority inversion** — pick the highest-priority *ready* row, never jump a
+   blocked higher one (reuse `pull-next` R5 no-inversion).
+4. **Not superseded / in-flight** — couples to T27 facet-B supersede-revalidation
+   (a backlog auto-pull that grabs stale/blocked work is worse than a human relay).
+5. **Within the never-auto floor** — the agent picks WORK, NEVER escalates
+   PERMISSION. Reprioritize/select only; the trust floor is untouched.
+
+**Guardrails (carry over from the drain, non-negotiable):** HALT precedence;
+budget cap (reuse drain 3/cycle so a misfire can't grind the backlog); a
+DECISION-TRACE (T27 facet B) so the auto-pick is observable ("pulled row X because
+deps {…} cleared; skipped Y because design-first") — an auto-picker that's silent
+is the facet-B anti-pattern; human OVERRIDE/RECOMMEND (T27 facet A) still wins.
+
+**Open (needs design + ADR):** (a) exact readiness-predicate spec + its FR; (b)
+WHERE promotion runs — a new step in the drain decision, or a separate `promote-
+next` that writes an inbox item (lean: separate promoter → keeps the drain's
+inbox-delivery contract intact and the trace clean) vs deliver-direct; (c) does it
+mint a real inbox envelope (audit trail, supersede-aware) or a synthetic one; (d)
+the ADR (this is a trust/autonomy escalation — ADR-level, like T23/ADR-0020).
+
+**Couples to:** T27 (wake = the *trigger* that runs this; T30 = the *fuel* it
+burns — both needed, neither alone fixes idle) · T21 (transport correctness) ·
+T23 (AUTOPILOT scoping) · the harness-agnostic wake-transport question (still open
+in T27 — the autonomy LOOP here is harness-neutral by construction; only the
+actuator is per-harness).
+
+Pointers: ADR-0020 (the loop this extends) · T27 (wake + observability) · T21
+(transport) · `.claude/hooks/drain-inbox.sh` + `config/hooks/{pull-next,resurface-
+decide}` · docs/PLAN.md "agent-initiated lifecycle / task continuity" row · memory
+drain-loop-closes-over-inbox (advisor session record).
