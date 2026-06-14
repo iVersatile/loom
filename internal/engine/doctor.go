@@ -154,6 +154,13 @@ func doctorImpl(opts DoctorOpts, rt ContainerRuntime) (DoctorResult, error) {
 		res.Checks = append(res.Checks, c)
 	}
 
+	// Role-marker reminder (T10 PR 4): fires the moment a non-root user: is
+	// configured but the drain-guard still uses the id -un==root fallback —
+	// which would fail-close and silence the drain on a non-root container.
+	if c, ok := roleMarkerWired(*pb, resolved.Root); ok {
+		res.Checks = append(res.Checks, c)
+	}
+
 	// Container tier: state first; tools are graded only against a real
 	// container, never the host PATH.
 	cname := containerName(pb.Name)

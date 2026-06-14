@@ -393,6 +393,17 @@ requirements:
     source: SPEC-verbs.md#doctor
     tests: [engine.TestAutopilotDrainLiveness]
     status: active
+  - id: FR-DOCTOR-006
+    kind: behavioral
+    # T10 PR 4 reminder, mechanized: a non-root user: silently breaks the drain
+    # role-guard (the id -un==root fallback fail-closes) until PR 4 wires the
+    # root-owned /var/lib/loom/role marker. Doctor fires the reminder at exactly
+    # the non-root moment, so the deferred patch (docs/patches/0022) can't be
+    # forgotten into a silent drain stall.
+    statement: doctor's host:role-marker check fails when a non-root user: is configured but the drain-guard still uses the id -un==root fallback (no /var/lib/loom/role wiring) — naming T10 PR 4; passes when the guard reads the marker; not graded for a root/unset user or a tree without the drain hook.
+    source: SPEC-verbs.md#doctor
+    tests: [engine.TestRoleMarkerReminder]
+    status: active
 
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
   - id: FR-INV-001
