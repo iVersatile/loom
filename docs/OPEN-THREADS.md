@@ -885,7 +885,7 @@ PLAN "Open items / task continuity" · .scratch/live-build-experiment.md
 
 ---
 
-## T27 — AUTOPILOT control + observability: human override channel + drain verification/notification   🟡 open (facet B slice 1 landed #127; facet A wake-primitive design drafted 2026-06-13 — needs human decision + ADR)
+## T27 — AUTOPILOT control + observability: human override channel + drain verification/notification   🟡 open (facet B slice 1 landed #127; facet A — RESOLVING DIRECTION set 2026-06-14: ephemeral-worker substrate, human-confirmed; ADR pending)
 Origin: human proposals 2026-06-12, raised when a live-but-idle Writer could
 not be handed an urgent correctly-queued item by the autopilot drain. Two
 coupled facets — a control channel IN, observability OUT.
@@ -958,6 +958,44 @@ invariant + HALT-precedence are ADR-level), and the actuator is host-side +
 topology-specific (human owns the orchestration choice). Trust-path: actuator
 script + request handling are security-sensitive (they drive a trusted session)
 → guard/trust class, human-applied.
+
+**Facet A — RESOLVING DIRECTION: the ephemeral-worker substrate (human-confirmed
+2026-06-14).** The 2026-06-13 mechanism menu (A send-keys / B headless / C /loop)
+treated the wake as ONE mechanism and stalled on a false dilemma — send-keys is
+BLIND (injects into whatever the pane shows; no idle-state introspection) and
+headless `claude -p` is CLAUDE-SPECIFIC (what about gemini / other harnesses?).
+The zoom-out that dissolves it: the wake has **two layers**, the mechanism/policy
+split loom is built on (ADR-0006):
+- **Autonomy LOOP (harness-NEUTRAL, loom-owned):** "is there ready work? for which
+  session? fire a tick" — pure logic over durable artifacts (inbox/PLAN/
+  checkpoints). **T30 lives here** (the backlog→inbox readiness predicate).
+- **Tick ACTUATOR (per-harness ADAPTER):** "deliver one tick to session X of
+  harness H" — a new adapter VERB `wake(session)`, quarantined where loom ALREADY
+  handles harness differences (`loom.lock` `agents:` claude-code/gemini). "What
+  about gemini?" answers itself structurally: same place loom answers "how do I
+  *launch* gemini." send-keys / `-p` are just candidate BODIES of the claude
+  adapter's verb — never the design.
+
+**THE DECIDED SUBSTRATE: the unit of autonomy is an EPHEMERAL WORKER loom SPAWNS**
+(rehydrate → drain → act → persist → exit), NOT a warm session injected into.
+Rationale: deterministic (no blind pane injection), harness-agnostic (reuses
+loom's launch path), matches `ai-user-topology` ("state persisted outside,
+rehydrated on bring-up"), and ~80% already built — `config/hooks/checkpoint-inject`
+IS the rehydration primitive; the inbox + PLAN ARE the durable state. The warm
+interactive session is reframed as **the HUMAN's seat** (advisor design-thinking),
+never the robot's worker — removing the impedance mismatch that produced the
+blind-injection ugliness.
+
+**Consequence for the 2026-06-13 mechanisms:** **B (headless) is PROMOTED** from
+"topology-robust path" to THE autonomy substrate — generalized as a *loom-spawned
+worker via the per-harness launch adapter*, not a hardcoded `claude -p`. **A (host
+send-keys) is DEMOTED** to an optional human-convenience poke for the warm human
+seat — topology-specific, NEVER load-bearing for autonomy. **C (/loop) stays
+rejected** as primary. The constant-keystroke security invariant generalizes
+cleanly: a spawned worker runs the EXISTING guarded drain (+ T30 readiness
+predicate), so **spawn escalates nothing** — same "mechanism, not trust" floor.
+Still needs an ADR (couples T30's predicate + this substrate + the ADR-0020
+extension into one autonomy decision).
 
 **Facet B — close the mental-model↔reality gap (intake: draft 033).** The
 drain is silent today — you cannot tell "working" from "silently idle"
