@@ -65,8 +65,9 @@ human admin-merge is the acceptance; agents propose changes via PR.
    in-container). Nobody else moves shared refs casually (Shared-`.git`
    rule above).
 3. **Hand off per-branch, not per-session.** Each built branch goes to the
-   advisor inbox immediately when it's done — push → PR → merge while the
-   diff is hours old, not at session end. A handoff that waits for the
+   advisor inbox immediately when it's done — **as a `kind: git-task`** (the
+   explicit git-controller handoff, below) so the relay is tracked, not
+   detected — push → PR → merge while the diff is hours old, not at session end. A handoff that waits for the
    session boundary is a handoff that rots (see the 2026-06-12 cold-start
    loss class: in-flight branches unrelayed at orient,
    docs/e2e/cold-start-continuity.md).
@@ -139,8 +140,9 @@ never only in an envelope).
 
 - **Format:** header `AUTOPILOT: off|on` (default **off**; only the human
   flips it); append-only blocks `--- id: NNN` / `from:` / `serves: <queue-row
-  fragment>` / optional `kind: task|design|fyi|draft` / optional `after:
-  <condition>` / `status: WAITING|QUEUED|TAKEN|DONE|UNREAD|READ` / body.
+  fragment>` / optional `kind: task|design|fyi|draft|git-task` / optional `after:
+  <condition>` / optional `parked-on:`/`parked-at:`/`superseded-by:` (ADR-0020,
+  before `status:`) / `status: WAITING|QUEUED|PARKED|TAKEN|DONE|UNREAD|READ` / body.
 - **Non-work kinds (T25):** `kind: fyi` — ephemeral context (schedules,
   intents, heads-ups): no `serves:` needed, the drain skips it BEFORE the
   orphan check (never ridden, never orphan-flagged), read at orientation →
@@ -148,6 +150,17 @@ never only in an envelope).
   non-expiring intake (discussion results, ad-hoc proposals): never ridden,
   never pruned; lives until a /coordinate triage verdict (promote |
   merge-into | park | drop).
+- **Git-controller handoff (`kind: git-task`):** an EXPLICIT, tracked handoff of
+  a git action the emitting seat cannot perform itself — addressed to the
+  git-controller (the advisor today, ADR-0017). Body names the **branch + the
+  action** (`push+PR`, or `merge #N`) + the queue row it serves. The emitting
+  seat does NOT rely on the controller *detecting* its branch; it flags the
+  task. Not ridden by the Writer's drain — the advisor drains git-tasks as its
+  git-controller routine (push → PR → relay), so the boundary is **visible and
+  queue-tracked, not implicit**. **Scales down with capability:** once the
+  Writer gains push + `gh pr create` (036/T15 clears, ADR-0017 §1) it performs
+  those itself and emits `git-task` ONLY for `merge` — the permanent
+  human/reviewer gate (ADR-0017 §2, no agent merges its own work to main).
 - **Cross-agent write rule:** a role appends only to OTHERS' inboxes and
   updates only its OWN inbox's item statuses — the sole cross-agent write
   surface.
