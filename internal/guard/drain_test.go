@@ -46,6 +46,20 @@ Fixture body.
 	if err := os.WriteFile(filepath.Join(root, "docs", "PLAN.md"), []byte(queue), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// ADR-0020: the thin drain delegates the per-item decision to
+	// config/hooks/resurface-decide and exits early without it. Stage the real
+	// script into the fixture root so the drain runs end to end.
+	decideDir := filepath.Join(root, "config", "hooks")
+	if err := os.MkdirAll(decideDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src, rerr := os.ReadFile(filepath.Join("..", "..", "config", "hooks", "resurface-decide"))
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if err := os.WriteFile(filepath.Join(decideDir, "resurface-decide"), src, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	return root
 }
 
