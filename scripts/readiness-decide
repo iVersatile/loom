@@ -1,0 +1,113 @@
+#!/bin/sh
+# readiness-decide — ADR-0022 slice 1: the OFFLINE READINESS-RUNNER.
+# Origin : ADR-0022 (autonomy substrate) slice 1; advisor envelope adv-058.
+# Reuse  : recurring — the offline decision a future loop/promoter (slices 2–5)
+#          calls; verb-candidate (relocates under config/hooks/, human-applied,
+#          when load-bearing — see LOCATION below).
+# Runs on: loom-dev (the autonomy loop's seat); pure read-only over repo files.
+#
+# Decision-helper (not an activity script): no `set -eu`, no mutation — a pure
+# awk filter, the same shape as config/hooks/{resurface-decide,pull-next}.
+#
+# The backlog-scoped analog of config/hooks/{resurface-decide,pull-next}. Those
+# close the loop over the INBOX; this answers the backlog question ADR-0022
+# Decision 3 poses: "is there a READY backlog row to promote?" — with ZERO agent
+# tokens, so a future loop/promoter (slices 2–5) can gate on it offline.
+#
+# LOCATION (slice-1 deliberate): lives in scripts/ — the agent-committable tool
+# the future trust-path hook CALLS (ADR-0022 lists this exact option). It is
+# OFFLINE / not yet load-bearing: nothing acts on its verdict until promote-next
+# (slice 2) + the wiring (slice 5). HARDENING REQUIRED BEFORE LOAD-BEARING: when a
+# live path begins to act on these verdicts, this file must relocate under
+# config/hooks/ behind protect-paths (ADR-0021), human-applied — otherwise the
+# decision logic is agent-editable and amendment-2's external-truth guarantee is
+# forgeable one level up (by rewriting the script, not the deps source).
+#
+# Pure mechanism: read-only, NO new authority, NO session-driving, NO spawner.
+# It only reads docs/PLAN.md's tactical queue + an EXTERNAL-TRUTH merged-refs
+# file and prints, per queued candidate row, ONE fixed-vocab verdict:
+#   READY           highest-priority eligible row (exec-class, deps cleared, no
+#                   inversion) — the one a promoter would mint next.
+#   BLOCKED-DEPS    a depends-on PR is not in the external-truth merged set, OR
+#                   the depends-on cell carries an unresolvable textual dep.
+#   NOT-EXEC-READY  no structured `[class:exec]` tag — design-stub / thread-
+#                   incubator / un-triaged. Fail-closed: an untagged row is NEVER
+#                   auto-pullable (this IS the self-selection allow-list floor,
+#                   ADR-0022 amendment 5 / Decision 3e — a row opts IN explicitly).
+#   INVERSION       eligible, but a higher-priority eligible row exists; pulling
+#                   this ahead of it inverts priority (reuse pull-next R5).
+#   SUPERSEDED      explicit `[superseded...]` tag.
+#
+# SECURITY (ADR-0022 amendments 2 + 3, same doctrine as resurface-decide R2):
+#  - DEPS BY EXTERNAL TRUTH ONLY ($2). The caller MUST pass the host/CI-written
+#    merged-refs file (one PR number per line) derived from `gh pr view <n>
+#    --json state,mergedAt` or a CI artifact — a source the agent CANNOT write.
+#    This script reads NOTHING ELSE: it NEVER consults git commit subjects. The
+#    drain's subject-grep cache (drain-inbox.sh:45) is FORBIDDEN here — the Writer
+#    controls commit subjects, so a one-line `fix: … (#150)` could otherwise mark
+#    a human-BLOCKED PR "merged" and auto-execute the gated row (the S1 red-team
+#    blocker). A row that only *claims* "merged (#150)" in prose, with 150 absent
+#    from the external-truth file, MUST yield BLOCKED-DEPS.
+#  - EXEC-READY BY A STRUCTURED FIELD, not a heuristic. The exec-ready gate is the
+#    exact tag `[class:exec]` — NOT the drain's `/thread stub/` substring
+#    (drain-inbox.sh:76, trivially evaded). Absent/unknown ⇒ NOT-EXEC-READY.
+#  - INJECTION-PROOF FIXED VOCABULARY. Row text (depends-on, task, owner) is read
+#    with awk string ops ONLY — never passed to a shell, never eval'd, and NEVER
+#    echoed into a decision token. Every verdict word is a hardcoded constant;
+#    the only request-derived value that ever prints is an integer row index.
+#  - CONSERVATIVE: fail to NOT-pull (ADR-0022 consequences). Anything unresolved,
+#    untagged, or malformed lands on a non-READY verdict.
+#
+# ROW MODEL: candidate = a tactical-queue row (between the BEGIN/END TACTICAL
+# QUEUE fence) whose status cell's leading word is `queued`. Rows are keyed by
+# 1-based position among candidates ("row N", queue order). Columns (FS=`|`):
+# $2 task · $3 depends-on · $4 serves · $5 owner · $6 status · $7 PR.
+#
+# Args: $1 = docs/PLAN.md, $2 = external-truth merged-refs file (PR# per line;
+#       a missing/empty file ⇒ no PR is merged ⇒ PR-deps fail closed).
+awk -F'|' -v merged="$2" '
+function trim(s){ gsub(/^[[:space:]]+|[[:space:]]+$/,"",s); return s }
+function first_word(s,  a){ s=trim(s); split(s,a,/[[:space:]]+/); return tolower(a[1]) }
+# deps_cleared: external-truth ONLY. empty/dash ⇒ no deps (cleared). Otherwise
+# every #NNN cited must be in the merged set; a non-empty cell with NO PR ref is
+# an unresolvable textual dep ⇒ NOT cleared (conservative).
+function deps_cleared(cell,  s,tok,hasPR){
+  cell=trim(cell)
+  if (cell=="" || cell=="—" || cell=="-") return 1
+  hasPR=0; s=cell
+  while (match(s,/#[0-9]+/)){
+    tok=substr(s,RSTART+1,RLENGTH-1); hasPR=1
+    if (!(tok in m)) return 0
+    s=substr(s,RSTART+RLENGTH)
+  }
+  return hasPR ? 1 : 0
+}
+BEGIN{
+  while ((getline line < merged) > 0) if (line ~ /^[0-9]+$/) m[line]=1
+  close(merged)
+  infence=0; n=0
+}
+/<!-- BEGIN TACTICAL QUEUE/ { infence=1; next }
+/<!-- END TACTICAL QUEUE/   { infence=0; next }
+infence && /^\|/ {
+  if (first_word($6) != "queued") next             # not a live candidate row
+  n++
+  if ($0 ~ /\[superseded/)          pv[n]="SUPERSEDED (explicit supersede tag)"
+  else if ($0 !~ /\[class:exec\]/)  pv[n]="NOT-EXEC-READY (no [class:exec] tag — not auto-pullable)"
+  else if (!deps_cleared($3))       pv[n]="BLOCKED-DEPS (external-truth dep uncleared)"
+  else                              pv[n]="ELIGIBLE"
+  next
+}
+END{
+  winner=0
+  for (i=1;i<=n;i++){
+    v=pv[i]
+    if (v=="ELIGIBLE"){
+      if (winner==0){ winner=i; v="READY" }
+      else            v="INVERSION (row " winner " is higher-priority READY)"
+    }
+    print "row " i ": " v
+  }
+  if (n==0) print "(no queued candidate rows)"
+}
+' "$1"
