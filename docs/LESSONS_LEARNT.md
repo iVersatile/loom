@@ -6,6 +6,29 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud`
 
+## LL-014 — Hand-writing an engine-produced artifact to pass a verify is drift, not a fix
+- Date: 2026-06-15
+- Tags: `engine`
+- Symptom: ADR-0019 PR4 Part 1's `/var/lib/loom/role` marker was absent after
+  `loom build`; we made the verify pass by hand-running `docker exec loom-dev sh -c
+  'printf … > /var/lib/loom/role; chown; chmod'`. Green check — but the value lived
+  only in that one container on one host, was nowhere in the tree, and dies on the
+  next recreate or any other env.
+- Root cause: three mechanism defects made the marker un-producible the loom way —
+  the role was sourced from an ambient build env (`LOOM_SESSION_ROLE`, not
+  version-controlled), the write no-op'd silently on an empty role, and it sat
+  behind the convergence early-return (`container.go`), so a normal `loom build`
+  never wrote it. The manual `docker exec` papered over all three at once.
+- Fix: produce the artifact the loom way — a DECLARATIVE in-tree source (a `role:`
+  playbook field), an idempotent write folded into the convergence digest
+  (missing/stale marker ⇒ converge rewrites it, mirroring the `/var/lib/loom/home`
+  sentinel), and a loud failure when a marker is expected but the role is empty.
+  Then `loom build` reproduces it on every env (PR4 Part-1-redo, envelope adv-062).
+- Prevention: when an engine-produced artifact is missing, fix the MECHANISM —
+  never hand-run a host command to satisfy a verify. The test: "would this
+  reproduce from the tree on a clean env with one `loom build`?" If no, you are
+  recording drift, not converging state.
+
 ## LL-013 — A test that assumes an env knob's default breaks under CI's pin; reproduce with the knob, don't presume the tier
 - Date: 2026-06-12
 - Tags: `engine` · `ci`
