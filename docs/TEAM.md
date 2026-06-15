@@ -246,14 +246,15 @@ row, ONE fixed-vocab verdict — `READY` (the single highest-priority eligible
 row) · `BLOCKED-DEPS` · `NOT-EXEC-READY` · `INVERSION` · `SUPERSEDED`. Pure
 read-only mechanism — no promotion, no spawn (those are slices 2–5).
 
-- **`[class:exec]` row-class tag (the self-selection floor, ADR-0022 Decision
-  3e / amendment 5).** A queue row is auto-pullable ONLY if it carries the exact
-  literal `[class:exec]` tag. **Absent ⇒ `NOT-EXEC-READY`** — fail-closed: a row
-  opts INTO autonomy explicitly; design-stubs / thread-incubators / un-triaged
-  rows are never self-selected. This is a STRUCTURED tag, deliberately NOT the
-  drain's `/thread stub/` substring heuristic (trivially evaded). Tagging a row
-  is the triage judgment the human / `promote-next` (slice 2) owns — slice 1
-  ships only the reader, so today every real row reads `NOT-EXEC-READY`.
+- **`[class:exec]` row-class tag = the EXEC-READY gate (ADR-0022 Decision 3b).**
+  A row is exec-ready ONLY if it carries the exact literal `[class:exec]` tag.
+  **Absent ⇒ `NOT-EXEC-READY`** — fail-closed: a row opts INTO autonomy
+  explicitly; design-stubs / thread-incubators / un-triaged rows are never
+  exec-ready. This is a STRUCTURED tag, deliberately NOT the drain's `/thread
+  stub/` substring heuristic (trivially evaded). Tagging a row is a triage act —
+  slice 1 ships only the reader, so today every real row reads `NOT-EXEC-READY`.
+  (Exec-readiness is DISTINCT from the self-selection floor below: the tag gets a
+  row to `READY`; the allow-list decides whether `READY` auto-QUEUEs.)
 - **Deps by EXTERNAL TRUTH only (amendment 2).** `depends-on` PR refs (`#NNN`)
   must all appear in the host/CI-written merged-refs file (`gh pr view`-derived).
   The runner reads NOTHING else — **never** git commit subjects
@@ -266,6 +267,30 @@ read-only mechanism — no promotion, no spawn (those are slices 2–5).
 - **Injection-proof.** Verdicts are hardcoded constants; row text is read with
   awk string ops only — never shelled, never echoed into a decision token (only
   an integer row index prints).
+
+**Slice 2 (offline, here):** `scripts/promote-next` ACTS on the single `READY`
+verdict by minting a real, parser-valid inbox envelope (`--- id: promote-<slug>`)
+for that row — the backlog→inbox REFILL. It reuses `readiness-decide` for the
+verdict (one home for the security logic), so a `BLOCKED-DEPS`/`NOT-EXEC-READY`/
+`INVERSION`/`SUPERSEDED` row never mints. It is NOT a deliver-direct path — the
+existing drain delivers the minted envelope, audit trail intact.
+
+- **Self-selection floor = the auto-pullable row-class allow-list (amendment 5),
+  DISTINCT from the never-auto PERMISSION floor (T23, untouched).** A `READY`
+  row's class must be on a pre-declared allow-list (`LOOM_AUTOPULL_CLASSES`,
+  **default empty**) to mint `status: QUEUED`; off the list it mints `status:
+  CONFIRM-REQUIRED` — the human tier (the drain only DELIVERs `QUEUED`, so it sits
+  inert until a human flips it). Default-empty = nothing self-selects without an
+  explicit opt-in. This governs *which work self-selects*; permission is a
+  separate gate.
+- **Full-key `serves` (M7 fix).** The minted `serves:` is the row's EXACT serves
+  cell; a sibling row whose serves is a *substring* is never conflated — no
+  substring orphan-match (`drain-inbox.sh:62`).
+- **Idempotent.** The id is `promote-<slug>` (sanitized `[a-z0-9-]` from the row
+  title); a re-run finds the existing id and no-ops — no double-mint.
+- **Rehydration-poisoning mitigation (S2).** The minted body is a FIXED template
+  referencing the row only by its sanitized slug — backlog prose is DATA, never
+  echoed as a trailing instruction.
 
 ## Context economy (T25, human-blessed 2026-06-11)
 
