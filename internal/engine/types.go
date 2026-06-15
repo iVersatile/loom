@@ -142,6 +142,11 @@ type BuildResult struct {
 	// LogPath is the diagnostic log for this run. Excluded from --json (the
 	// shape is frozen); the CLI surfaces it on stderr for troubleshooting.
 	LogPath string `json:"-"`
+
+	// Warnings carries non-fatal build advisories the CLI surfaces on stderr
+	// (LL-014: an empty role: that writes no marker is a visible warning, not a
+	// silent no-op). Excluded from --json (frozen shape); echoed to the diag log.
+	Warnings []string `json:"-"`
 }
 
 func (r BuildResult) Human() string {

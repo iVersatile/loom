@@ -30,16 +30,18 @@ func baseImage() string {
 }
 
 // sessionRole resolves the container's loom-role identity for the
-// /var/lib/loom/role marker (ADR-0019 PR4 Part 1). It is an OVERLAY/build value,
-// NOT a playbook key (the playbook has user:, not role:): sourced from the build
-// env LOOM_SESSION_ROLE — the SAME identity the doctor reminder names as the
-// drain-guard bridge. Empty/unset ⇒ no marker (root behavior unchanged); a
-// malformed value is rejected downstream by validRole (no marker, fail-safe).
-// DESIGN POINT (flagged for review): env is the minimal source that needs no
-// playbook-schema change and matches the existing bridge; alternatives are a
-// loom-dev overlay file or deriving from the project/overlay name.
-func sessionRole() string {
-	return strings.TrimSpace(os.Getenv("LOOM_SESSION_ROLE"))
+// /var/lib/loom/role marker (ADR-0019 PR4 §5, LL-014). The DECLARATIVE source is
+// the playbook `role:` field — tree-recorded, so `loom build` reproduces the
+// marker identically on every host (the LL-014 fix: no host-only hand-write).
+// LOOM_SESSION_ROLE is a DEMOTED explicit override (it wins when set, so a second
+// seat sharing one tree — e.g. the advisor — overrides without editing the
+// playbook) / test-seam. Empty ⇒ no marker; a malformed value is rejected
+// downstream by validRole (no marker, fail-safe).
+func sessionRole(pb *playbook.Playbook) string {
+	if v := strings.TrimSpace(os.Getenv("LOOM_SESSION_ROLE")); v != "" {
+		return v
+	}
+	return strings.TrimSpace(pb.Role)
 }
 
 // containerVersions adapts the runtime's in-container probe to
@@ -94,6 +96,21 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		Result:       "converged",
 	}
 	changed := false
+
+	// Role marker plan (LL-014 defect 2): fail LOUD on an empty role, never the
+	// old silent no-op. A non-root user: with no valid role: is a HARD ERROR
+	// (fail fast — before the lock/home writes — because the marker is the only
+	// non-forgeable way to resolve that user's role; without it the drain
+	// role-guard silently breaks). Root/unset + empty role is a visible warning
+	// (no marker, root fallback intact). validRole rejects unsafe charsets.
+	role := sessionRole(pb)
+	roleWarn, roleErr := roleMarkerPlan(pb.User, role)
+	if roleErr != nil {
+		return res, fmt.Errorf("build: %w", roleErr)
+	}
+	if roleWarn != "" {
+		res.Warnings = append(res.Warnings, roleWarn)
+	}
 
 	// 1. Resolve intent → concrete pins. `resolved` versions are probed inside
 	// the container AFTER it converges (step 5, T5); this pass carries forward
@@ -197,6 +214,9 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		logw = lf
 		res.LogPath = path
 		_, _ = fmt.Fprintf(lf, "loom build %s base=%s\n", ts, img)
+		for _, w := range res.Warnings {
+			_, _ = fmt.Fprintf(lf, "loom: WARNING %s\n", w)
+		}
 	}
 
 	// 4. Container — create or converge via the runtime. The project root is
@@ -214,7 +234,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		ProjectDir: projDir,
 		User:       pb.User,              // T10/ADR-0019: configured runtime user ("" = root)
 		Home:       homeForUser(pb.User), // resolved $HOME; consumed by the engine in PR 3
-		Role:       sessionRole(),        // ADR-0019 PR4 Part 1: /var/lib/loom/role marker source
+		Role:       role,                 // ADR-0019 PR4 §5: declarative role: → /var/lib/loom/role marker
 		Force:      opts.Force, LogW: logw,
 	})
 	if err != nil {

@@ -252,16 +252,18 @@ requirements:
     status: active
   - id: FR-BUILD-016
     kind: behavioral
-    # ADR-0019 PR4 Part 1: the engine writes the NON-FORGEABLE role marker at
-    # provision and doctor surfaces the runtime-user model. This readies the
-    # marker-file role resolution the drain-guard adopts after the HUMAN Part-2
-    # trust swap (replacing the forgeable id -un==root guess; ADR-0022 S3). Part 1
-    # only makes the marker EXIST — nothing reads it yet, so an unset role is
-    # byte-identical to a pre-PR4 build. The docker-side write is integration-
-    # validated (CI); unit tests pin the script + plumbing + doctor proxies.
-    statement: build plumbs an overlay role identity (LOOM_SESSION_ROLE, marker-safe charset only — never a playbook key) onto the spec and, at provision, writes it to a ROOT-OWNED single-line /var/lib/loom/role marker (a non-root agent can read but not forge it); an empty/invalid role writes no marker and is byte-identical to a root build; doctor surfaces the container:user model (root under Model A, the configured non-root user named as the entry-verb exec identity).
-    source: [SPEC-verbs.md#build, SPEC-verbs.md#doctor]
-    tests: [engine.TestValidRole, engine.TestRoleMarkerScript, engine.TestBuildPopulatesRole, engine.TestDoctorContainerUser]
+    # ADR-0019 PR4 §5 (LL-014 REDO of Part 1): the role marker is produced the
+    # loom way — sourced from the DECLARATIVE playbook role: field (LOOM_SESSION_ROLE
+    # demoted to an override/test-seam), folded into the convergence digest so a
+    # missing/stale marker self-heals on a plain build, and fail-loud instead of a
+    # silent no-op on an empty role. Readies the marker-file role resolution the
+    # drain-guard adopts after the HUMAN Part-2 swap (replacing the forgeable
+    # id -un==root guess; ADR-0022 S3). The docker-side write/read is integration-
+    # validated (CI); unit tests pin the script + plumbing + convergence + fail-loud
+    # + doctor proxies.
+    statement: build sources the role from the declarative playbook role: field (LOOM_SESSION_ROLE overrides when set; marker-safe charset only) and writes it to a ROOT-OWNED single-line /var/lib/loom/role marker a non-root agent can read but not forge; the marker is a convergence dimension (a missing/stale marker rewrites on the next plain build, mirroring the home sentinel); an empty/invalid role writes no marker — root/unset surfaces a visible warning (byte-identical build otherwise) while a non-root user: with no valid role is a hard build error; doctor surfaces the container:user model (root under Model A, the configured non-root user named as the entry-verb exec identity).
+    source: [SPEC-playbook.md#role, SPEC-verbs.md#build, SPEC-verbs.md#doctor]
+    tests: [engine.TestValidRole, engine.TestRoleMarkerScript, engine.TestNeedsRoleMarker, engine.TestRoleMarkerPlan, engine.TestBuildPopulatesRole, engine.TestBuildRoleLoudFail, engine.TestDoctorContainerUser]
     status: active
   - id: FR-SCHEMA-008
     kind: schema

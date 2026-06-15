@@ -35,5 +35,6 @@ func roleMarkerWired(pb playbook.Playbook, root string) (Check, bool) {
 	return Check{Name: "host:role-marker", OK: false, Detail: fmt.Sprintf(
 		"non-root user %q but the drain-guard still uses the id -un==root fallback — apply T10 PR 4 "+
 			"(docs/patches/0022): on a non-root container the role-guard fail-closes and the Stop-hook "+
-			"drain SILENTLY NO-OPS (autonomous delivery stops). Bridge: LOOM_SESSION_ROLE=loom-author", pb.User)}, true
+			"drain SILENTLY NO-OPS (autonomous delivery stops). Marker source: declare role: in the "+
+			"playbook (ADR-0019 PR4 §5) — or LOOM_SESSION_ROLE override — then rebuild", pb.User)}, true
 }

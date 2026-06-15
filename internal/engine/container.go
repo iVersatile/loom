@@ -59,13 +59,15 @@ type ContainerSpec struct {
 	Home string
 
 	// Role is the container's loom-role identity, written to the ROOT-OWNED
-	// /var/lib/loom/role marker at provision (ADR-0019 PR4 Part 1). It is the
-	// NON-FORGEABLE role source the drain-guard will read once the human Part-2
-	// trust swap lands — replacing today's forgeable `id -un==root ⇒ loom-author`
-	// guess (ADR-0022 S3 caveat). NOT a playbook key (the playbook has user:, not
-	// role:): it is an overlay/build value (sourced from LOOM_SESSION_ROLE, the
-	// documented drain-guard bridge). "" ⇒ no marker is written and behavior is
-	// UNCHANGED — Part 1 only makes the marker EXIST; nothing reads it until P2.
+	// /var/lib/loom/role marker (ADR-0019 PR4 §5, LL-014). It is the NON-FORGEABLE
+	// role source the drain-guard will read once the human Part-2 trust swap lands
+	// — replacing today's forgeable `id -un==root ⇒ loom-author` guess (ADR-0022
+	// S3 caveat). Sourced from the DECLARATIVE playbook `role:` field (build.go
+	// sessionRole; LOOM_SESSION_ROLE is a demoted override/test-seam) so the marker
+	// reproduces from the tree on every host. The write is a CONVERGENCE DIMENSION
+	// (needsRoleMarker, mirroring needsHomeSync), so a missing/stale marker
+	// self-heals on the next plain build. "" ⇒ no marker and root behavior is
+	// UNCHANGED; nothing reads it until human Part 2.
 	Role string
 }
 
@@ -175,7 +177,12 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		homeWant := homeDigest(spec.HomeDir)
 		reprovision := needsReprovision(readProvisionDigest(spec.Name), want)
 		homeSync := needsHomeSync(readHomeDigest(spec.Name), homeWant)
-		if !reprovision && !homeSync {
+		// The role marker is a convergence dimension too (ADR-0019 PR4 §5, LL-014
+		// defect 3): a container converged before the marker existed — or one whose
+		// marker was lost — reads "" and must self-heal on a plain build, not only
+		// on --force/create. writeRoleMarker below (idempotent) does the write.
+		roleMark := needsRoleMarker(readRoleMarker(spec.Name), spec.Role)
+		if !reprovision && !homeSync && !roleMark {
 			return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "exists"}, nil
 		}
 		// The non-root user must exist before shell-init targets its home and
@@ -366,8 +373,15 @@ func validRole(role string) bool {
 	return true
 }
 
+// roleMarker is the in-container marker recording the container's loom-role
+// identity (ADR-0019 PR4 §5). Root-owned single line; the non-forgeable role
+// source the drain-guard reads after the human Part-2 swap. It joins the
+// convergence digests (needsRoleMarker), the same presence-is-not-convergence
+// pattern as homeSentinel/provisionSentinel.
+const roleMarker = "/var/lib/loom/role"
+
 // roleMarkerScript writes the role to the ROOT-OWNED /var/lib/loom/role marker
-// (one line) — ADR-0019 PR4 Part 1. Root-owned + 0644 so a future non-root agent
+// (one line) — ADR-0019 PR4 §5. Root-owned + 0644 so a future non-root agent
 // can READ but never FORGE it (the non-forgeable role source the drain-guard
 // reads after the human Part-2 swap, replacing the `id -un==root` guess). Empty
 // for an invalid/unset role (no marker written; root behavior unchanged). The
@@ -376,7 +390,47 @@ func roleMarkerScript(role string) string {
 	if !validRole(role) {
 		return ""
 	}
-	return fmt.Sprintf("set -e\nmkdir -p /var/lib/loom\nprintf '%%s\\n' '%s' > /var/lib/loom/role\nchown root:root /var/lib/loom/role\nchmod 0644 /var/lib/loom/role\n", role)
+	return fmt.Sprintf("set -e\nmkdir -p /var/lib/loom\nprintf '%%s\\n' '%s' > %s\nchown root:root %s\nchmod 0644 %s\n", role, roleMarker, roleMarker, roleMarker)
+}
+
+// readRoleMarker reads the in-container role marker; "" when absent/unreadable
+// (a container provisioned before PR4, or one whose marker was lost). Mirrors
+// readHomeDigest. NOTE: integration-validated (docker host), not the local gate.
+func readRoleMarker(name string) string {
+	out, err := exec.Command("docker", "exec", name, "cat", roleMarker).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// needsRoleMarker mirrors needsHomeSync for the role marker: (re)write when a
+// valid role is declared and the container's marker is missing or stale (LL-014
+// defect 3 — a missing marker reads "" and self-heals on the next plain build).
+// An empty/invalid want ⇒ false: no marker, no rewrite (root compatibility).
+func needsRoleMarker(have, want string) bool {
+	return validRole(want) && have != want
+}
+
+// roleMarkerPlan validates the role/user combination at build time and reports
+// how the marker behaves — LL-014 defect 2: an empty role must no longer be a
+// silent no-op. A valid role ⇒ the marker is written (no warning, no error). An
+// empty/invalid role ⇒ a non-root user is a HARD ERROR (the marker is the only
+// non-forgeable way to resolve that user's role; without it the drain role-guard
+// silently breaks), while root/unset yields a visible warning and no marker (the
+// root fallback stays intact). Charset is validated identically to the write path.
+func roleMarkerPlan(user, role string) (warning string, err error) {
+	if validRole(role) {
+		return "", nil
+	}
+	detail := "no role: declared"
+	if role != "" {
+		detail = fmt.Sprintf("role %q is not marker-safe ([A-Za-z0-9_-] only)", role)
+	}
+	if user != "" && user != "root" {
+		return "", fmt.Errorf("non-root user %q requires a valid role: — %s; that combination silently breaks the drain role-guard (ADR-0019 PR4 §5)", user, detail)
+	}
+	return fmt.Sprintf("%s — %s not written; drain-guard keeps the id -un==root fallback", detail, roleMarker), nil
 }
 
 // writeRoleMarker writes the /var/lib/loom/role marker inside the container (ADR-

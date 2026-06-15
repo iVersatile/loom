@@ -48,16 +48,26 @@ func TestRoleMarkerScript(t *testing.T) {
 	}
 }
 
-// TestBuildPopulatesRole (ADR-0019 PR4 Part 1): build plumbs LOOM_SESSION_ROLE
-// onto ContainerSpec.Role — the overlay/build source (not a playbook key). Unset
-// ⇒ empty (no marker, root behavior unchanged). Part 1 only LAYS the value; the
-// drain-guard reads the marker after the human Part-2 swap.
-func TestBuildPopulatesRole(t *testing.T) {
-	root := tempProject(t)
-	pbPath := filepath.Join(root, "loom.yml")
+// addLine appends a playbook line to the temp-project loom.yml (test helper for
+// the declarative role:/user: cases — same shape as TestDoctorContainerUser).
+func addLine(t *testing.T, pbPath, line string) {
+	t.Helper()
+	data, err := os.ReadFile(pbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pbPath, append(data, []byte("\n"+line+"\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
-	t.Run("env set flows to spec.Role", func(t *testing.T) {
-		t.Setenv("LOOM_SESSION_ROLE", "loom-author")
+// TestBuildPopulatesRole (ADR-0019 PR4 §5, LL-014): build plumbs the DECLARATIVE
+// playbook role: onto ContainerSpec.Role; LOOM_SESSION_ROLE is a demoted override
+// that wins when set; neither ⇒ empty (no marker, root behavior unchanged). The
+// value only LAYS here; the drain-guard reads the marker after human Part 2.
+func TestBuildPopulatesRole(t *testing.T) {
+	build := func(t *testing.T, pbPath string) ContainerSpec {
+		t.Helper()
 		var spec ContainerSpec
 		rt := fakeRuntime{
 			ensureInfo:   ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"},
@@ -66,23 +76,120 @@ func TestBuildPopulatesRole(t *testing.T) {
 		if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err != nil {
 			t.Fatalf("build: %v", err)
 		}
-		if spec.Role != "loom-author" {
-			t.Errorf("spec.Role = %q, want loom-author", spec.Role)
+		return spec
+	}
+
+	t.Run("declarative role: flows to spec.Role", func(t *testing.T) {
+		t.Setenv("LOOM_SESSION_ROLE", "")
+		pbPath := filepath.Join(tempProject(t), "loom.yml")
+		addLine(t, pbPath, "role: loom-author")
+		if spec := build(t, pbPath); spec.Role != "loom-author" {
+			t.Errorf("spec.Role = %q, want loom-author (declarative source)", spec.Role)
 		}
 	})
 
-	t.Run("env unset ⇒ empty role (no marker)", func(t *testing.T) {
+	t.Run("LOOM_SESSION_ROLE overrides the playbook role:", func(t *testing.T) {
+		t.Setenv("LOOM_SESSION_ROLE", "loom-advisor")
+		pbPath := filepath.Join(tempProject(t), "loom.yml")
+		addLine(t, pbPath, "role: loom-author")
+		if spec := build(t, pbPath); spec.Role != "loom-advisor" {
+			t.Errorf("spec.Role = %q, want loom-advisor (env override wins)", spec.Role)
+		}
+	})
+
+	t.Run("neither ⇒ empty role (no marker)", func(t *testing.T) {
 		t.Setenv("LOOM_SESSION_ROLE", "")
-		var spec ContainerSpec
-		rt := fakeRuntime{
-			ensureInfo:   ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"},
-			ensureRecord: &spec,
-		}
-		if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err != nil {
-			t.Fatalf("build: %v", err)
-		}
-		if spec.Role != "" {
+		pbPath := filepath.Join(tempProject(t), "loom.yml")
+		if spec := build(t, pbPath); spec.Role != "" {
 			t.Errorf("spec.Role = %q, want empty", spec.Role)
+		}
+	})
+}
+
+// TestNeedsRoleMarker (LL-014 defect 3) is the gate-testable proxy for the
+// convergence fold: a missing marker on an already-converged container reads ""
+// and MUST re-trigger a write on the next plain build; an up-to-date marker is a
+// no-op; an empty/invalid want never writes (root compatibility). The docker-side
+// readRoleMarker + Ensure early-return wiring is integration-validated.
+func TestNeedsRoleMarker(t *testing.T) {
+	cases := []struct {
+		have, want string
+		need       bool
+	}{
+		{"", "loom-author", true},             // defect-3: marker absent on a converged container ⇒ heal
+		{"loom-author", "loom-author", false}, // present + current ⇒ no-op
+		{"loom-old", "loom-author", true},     // stale ⇒ rewrite
+		{"loom-author", "", false},            // want empty (root) ⇒ never write
+		{"", "", false},                       // nothing wanted ⇒ no-op
+		{"", "bad role", false},               // invalid want ⇒ never write (fail-safe)
+	}
+	for _, c := range cases {
+		if got := needsRoleMarker(c.have, c.want); got != c.need {
+			t.Errorf("needsRoleMarker(%q,%q) = %v, want %v", c.have, c.want, got, c.need)
+		}
+	}
+}
+
+// TestRoleMarkerPlan (LL-014 defect 2): the empty-role no-op must fail loud. A
+// non-root user with no valid role is a HARD ERROR; root + empty/invalid is a
+// visible warning (no marker); a valid role is silent (marker written).
+func TestRoleMarkerPlan(t *testing.T) {
+	// Hard error: non-root user, no/invalid role.
+	for _, role := range []string{"", "bad role"} {
+		if w, err := roleMarkerPlan("agent", role); err == nil {
+			t.Errorf("roleMarkerPlan(agent,%q): want error, got warning %q", role, w)
+		}
+	}
+	// Warning, no error: root/unset + empty or invalid role.
+	for _, user := range []string{"", "root"} {
+		w, err := roleMarkerPlan(user, "")
+		if err != nil {
+			t.Errorf("roleMarkerPlan(%q,\"\"): want warning not error, got %v", user, err)
+		}
+		if w == "" {
+			t.Errorf("roleMarkerPlan(%q,\"\"): want a visible warning, got none", user)
+		}
+	}
+	// Valid role: silent on both axes (the marker is written).
+	if w, err := roleMarkerPlan("agent", "loom-author"); w != "" || err != nil {
+		t.Errorf("roleMarkerPlan(agent,loom-author) = (%q,%v), want (\"\",nil)", w, err)
+	}
+}
+
+// TestBuildRoleLoudFail wires the loud-fail through buildImpl: a non-root user:
+// with no role: aborts the build with an error; root + no role: succeeds with a
+// surfaced warning (and no marker). LL-014 defect 2 at the verb boundary.
+func TestBuildRoleLoudFail(t *testing.T) {
+	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"}}
+
+	t.Run("non-root user + no role ⇒ hard error", func(t *testing.T) {
+		t.Setenv("LOOM_SESSION_ROLE", "")
+		pbPath := filepath.Join(tempProject(t), "loom.yml")
+		addLine(t, pbPath, "user: agent")
+		if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err == nil {
+			t.Fatal("want a hard error for non-root user with no role, got nil")
+		}
+	})
+
+	t.Run("non-root user + role ⇒ ok", func(t *testing.T) {
+		t.Setenv("LOOM_SESSION_ROLE", "")
+		pbPath := filepath.Join(tempProject(t), "loom.yml")
+		addLine(t, pbPath, "user: agent")
+		addLine(t, pbPath, "role: agent-role")
+		if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err != nil {
+			t.Fatalf("non-root user WITH a role must build: %v", err)
+		}
+	})
+
+	t.Run("root + no role ⇒ warning, not error", func(t *testing.T) {
+		t.Setenv("LOOM_SESSION_ROLE", "")
+		pbPath := filepath.Join(tempProject(t), "loom.yml")
+		res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock)
+		if err != nil {
+			t.Fatalf("root + no role must not error: %v", err)
+		}
+		if len(res.Warnings) == 0 {
+			t.Error("root + no role must surface a visible warning")
 		}
 	})
 }
