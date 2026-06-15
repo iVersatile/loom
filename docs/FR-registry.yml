@@ -250,6 +250,19 @@ requirements:
     source: [SPEC-playbook.md#user, SPEC-verbs.md#build]
     tests: [engine.TestProvisionUserScript, engine.TestChownHomeScript, engine.TestCreateRunArgs, engine.TestHomeForUserResolution, engine.TestHomeCpTargetSingleOwner]
     status: active
+  - id: FR-BUILD-016
+    kind: behavioral
+    # ADR-0019 PR4 Part 1: the engine writes the NON-FORGEABLE role marker at
+    # provision and doctor surfaces the runtime-user model. This readies the
+    # marker-file role resolution the drain-guard adopts after the HUMAN Part-2
+    # trust swap (replacing the forgeable id -un==root guess; ADR-0022 S3). Part 1
+    # only makes the marker EXIST — nothing reads it yet, so an unset role is
+    # byte-identical to a pre-PR4 build. The docker-side write is integration-
+    # validated (CI); unit tests pin the script + plumbing + doctor proxies.
+    statement: build plumbs an overlay role identity (LOOM_SESSION_ROLE, marker-safe charset only — never a playbook key) onto the spec and, at provision, writes it to a ROOT-OWNED single-line /var/lib/loom/role marker (a non-root agent can read but not forge it); an empty/invalid role writes no marker and is byte-identical to a root build; doctor surfaces the container:user model (root under Model A, the configured non-root user named as the entry-verb exec identity).
+    source: [SPEC-verbs.md#build, SPEC-verbs.md#doctor]
+    tests: [engine.TestValidRole, engine.TestRoleMarkerScript, engine.TestBuildPopulatesRole, engine.TestDoctorContainerUser]
+    status: active
   - id: FR-SCHEMA-008
     kind: schema
     # T16 PR 2: the base-authored rule is enforced at Load per non-base LAYER

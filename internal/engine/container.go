@@ -57,6 +57,16 @@ type ContainerSpec struct {
 	// home-sync/creds retarget, ownership chown) in T10 PR 3.
 	User string
 	Home string
+
+	// Role is the container's loom-role identity, written to the ROOT-OWNED
+	// /var/lib/loom/role marker at provision (ADR-0019 PR4 Part 1). It is the
+	// NON-FORGEABLE role source the drain-guard will read once the human Part-2
+	// trust swap lands — replacing today's forgeable `id -un==root ⇒ loom-author`
+	// guess (ADR-0022 S3 caveat). NOT a playbook key (the playbook has user:, not
+	// role:): it is an overlay/build value (sourced from LOOM_SESSION_ROLE, the
+	// documented drain-guard bridge). "" ⇒ no marker is written and behavior is
+	// UNCHANGED — Part 1 only makes the marker EXIST; nothing reads it until P2.
+	Role string
 }
 
 // dockerLogged runs a docker command, tees its combined output to logw (when
@@ -173,6 +183,11 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		if err := ensureUser(spec.Name, spec.User, spec.LogW); err != nil {
 			return ContainerInfo{}, err
 		}
+		// Role marker (ADR-0019 PR4 Part 1): root-owned /var/lib/loom/role.
+		// No-op for an empty role; writes nothing else's behavior changes.
+		if err := writeRoleMarker(spec.Name, spec.Role, spec.LogW); err != nil {
+			return ContainerInfo{}, err
+		}
 		// Shell-init is wired on every converge, UNCONDITIONALLY — not gated
 		// on the tool set (T4): a toolless playbook's ~/.bashrc.d dotfiles
 		// must be sourced too, in login and interactive shells alike.
@@ -212,6 +227,11 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	// home and before the home sync's chown; the container itself runs as root,
 	// so this and every provision step need no `-u`. No-op for root/unset.
 	if err := ensureUser(spec.Name, spec.User, spec.LogW); err != nil {
+		return ContainerInfo{}, err
+	}
+	// Role marker (ADR-0019 PR4 Part 1): root-owned /var/lib/loom/role, written
+	// at create. No-op for an empty role; nothing reads it until human Part 2.
+	if err := writeRoleMarker(spec.Name, spec.Role, spec.LogW); err != nil {
 		return ContainerInfo{}, err
 	}
 	// Unconditional shell-init (T4): wired on create regardless of the tool
@@ -322,6 +342,53 @@ func chownHome(name, user, home string, logw io.Writer) error {
 	}
 	if out, err := dockerLogged(logw, "exec", name, "sh", "-c", script); err != nil {
 		return fmt.Errorf("chown home %s: %v: %s", home, err, out)
+	}
+	return nil
+}
+
+// validRole accepts a marker-safe role identity: non-empty and [A-Za-z0-9_-]
+// only, so the value can NEVER inject into the marker-write shell. Anything else
+// (empty, whitespace, shell metachars) ⇒ no marker (fail-safe, behavior unchanged).
+func validRole(role string) bool {
+	if role == "" {
+		return false
+	}
+	for _, r := range role {
+		switch {
+		case r == '-' || r == '_':
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// roleMarkerScript writes the role to the ROOT-OWNED /var/lib/loom/role marker
+// (one line) — ADR-0019 PR4 Part 1. Root-owned + 0644 so a future non-root agent
+// can READ but never FORGE it (the non-forgeable role source the drain-guard
+// reads after the human Part-2 swap, replacing the `id -un==root` guess). Empty
+// for an invalid/unset role (no marker written; root behavior unchanged). The
+// role is charset-validated, so embedding it in the script cannot inject.
+func roleMarkerScript(role string) string {
+	if !validRole(role) {
+		return ""
+	}
+	return fmt.Sprintf("set -e\nmkdir -p /var/lib/loom\nprintf '%%s\\n' '%s' > /var/lib/loom/role\nchown root:root /var/lib/loom/role\nchmod 0644 /var/lib/loom/role\n", role)
+}
+
+// writeRoleMarker writes the /var/lib/loom/role marker inside the container (ADR-
+// 0019 PR4 Part 1). No-op for an empty/invalid role. Runs as root (the container
+// default under Model A), like ensureUser — the marker must be root-owned.
+func writeRoleMarker(name, role string, logw io.Writer) error {
+	script := roleMarkerScript(role)
+	if script == "" {
+		return nil
+	}
+	if out, err := dockerLogged(logw, "exec", name, "sh", "-c", script); err != nil {
+		return fmt.Errorf("role marker %s: %v: %s", role, err, out)
 	}
 	return nil
 }
