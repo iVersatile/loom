@@ -292,6 +292,30 @@ existing drain delivers the minted envelope, audit trail intact.
   referencing the row only by its sanitized slug — backlog prose is DATA, never
   echoed as a trailing instruction.
 
+**Slice 3 (offline, here):** `scripts/spawn-guard` is the "may I spawn now?"
+decision the future loop (slice 4 actuator, gated on ADR-0019 PR4) calls BEFORE
+every spawn. The drain's 3-per-cycle budget is `stop_hook_active`-scoped =
+intra-process; a freshly *spawned* worker resets it, so it does NOT bound work
+across spawns. spawn-guard owns the DURABLE cross-spawn bound (`.drain-count` is
+explicitly not it). Fixed-vocab verdict:
+
+- **`DENY-HALT` checked FIRST** (before the rate test), mirroring the drain's
+  HALT-before-AUTOPILOT order (T23): a HALTed system spawns nothing and pays no
+  spawn cost.
+- **`DENY-RATE`** when in-window spawns ≥ max, reporting bounded backoff (~seconds
+  until the oldest in-window entry ages out). Max + window are params
+  (`LOOM_SPAWN_MAX` default 3, `LOOM_SPAWN_WINDOW` default 3600s).
+- **`ALLOW`** records the grant by appending one epoch line to the ledger
+  (`.scratch/inbox/.spawn-log`) — the ledger is the single source of the count.
+- **Fail-closed:** a malformed/unreadable ledger ⇒ `DENY-RATE` (treated at-limit),
+  never fail-open. A missing ledger is the legitimate first spawn (ALLOW).
+- **Injection-proof:** verdicts are constants; a non-epoch ledger line fails closed
+  and reaches no shell.
+- **Carry-forward (slice-5 hardening, human-applied):** the ledger is agent-
+  writable `.scratch/` — an agent could delete it to reset the count. Before the
+  spawner is load-bearing the ledger must be HOST/append-only/tamper-evident (same
+  "external truth has two halves" class as merged-refs + the autopull allow-list).
+
 ## Context economy (T25, human-blessed 2026-06-11)
 
 - **State lives in artifacts; channels carry intent + work only.** Never
