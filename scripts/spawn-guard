@@ -1,0 +1,87 @@
+#!/bin/sh
+# spawn-guard — ADR-0022 slice 3: the offline CROSS-SPAWN RATE LEDGER +
+#               HALT-BEFORE-SPAWN decision (Decision 4, amendment 1).
+# Origin : ADR-0022 (autonomy substrate) slice 3; advisor envelope adv-060.
+# Reuse  : recurring — the "may I spawn now?" gate the future loop (slice 4
+#          actuator, GATED on ADR-0019 PR4) calls BEFORE every spawn;
+#          verb-candidate (relocates with the other slice helpers, slice 5).
+# Runs on: loom-dev (the autonomy loop's seat). Reads the ledger + HALT sentinel;
+#          the ONLY mutation: appending ONE ledger line when it grants a spawn.
+#
+# WHY (Decision 4): the drain's 3-per-cycle budget (drain-inbox.sh:36-42) is gated
+# on stop_hook_active — INTRA-PROCESS only. A freshly SPAWNED worker starts at
+# count=0, so that cap does NOT bound work across spawns; the human seat used to
+# rate-limit by hand, and the spawner removes that. So the loop must own a DURABLE
+# cross-spawn rate bound. `.drain-count` is explicitly NOT this bound; this is.
+#
+# Pure mechanism: NO actual spawner, NO session-driving (slice 4). Decision-helper
+# shape (no `set -eu`): emits ONE fixed-vocab verdict —
+#   ALLOW       HALT absent AND in-window spawns < max. Records the grant (appends
+#               one ledger line) — the ledger is the single source of the count.
+#   DENY-HALT   the HALT sentinel is present. Checked FIRST, before the rate test
+#               (mirrors the drain's HALT-before-AUTOPILOT ordering, T23): a HALTed
+#               system must not even pay spawn cost.
+#   DENY-RATE   in-window spawns ≥ max (reports bounded backoff: ~seconds until the
+#               oldest in-window entry ages out), OR the ledger is malformed/
+#               unreadable — FAIL-CLOSED (treat as at-limit; NEVER fail-open).
+#
+# SECURITY: fixed-vocab verdicts are hardcoded constants; nothing from the ledger
+# is echoed into a verdict token; the ledger is parsed with awk string ops only,
+# never eval'd. A ledger line that isn't a leading epoch integer ⇒ fail-closed
+# DENY-RATE (a shell-metachar line creates no file, reaches no shell).
+#
+# CARRY-FORWARD HARDENING (slice-5 checklist, human-applied): the ledger lives in
+# agent-writable `.scratch/` — an agent could DELETE it to reset the count and
+# defeat the bound. Before the spawner is load-bearing, the ledger must be HOST/
+# append-only/tamper-evident (the SAME "external truth has two halves" class as the
+# merged-refs file [slice-1 note 1] and the autopull allow-list [slice-2 note]).
+# This slice builds the COUNTING logic correctly; tamper-resistance is the human
+# hardening. Also relocates under config/hooks/ behind protect-paths (slice 5).
+#
+# Args: $1 = spawn-ledger file (one epoch-seconds integer per granted spawn;
+#            missing = no prior spawns), $2 = HALT sentinel path.
+# Env:  LOOM_SPAWN_MAX (default 3), LOOM_SPAWN_WINDOW (seconds, default 3600 = 1h),
+#       LOOM_NOW (epoch; default `date +%s`; injected by tests for determinism).
+LEDGER="$1"; HALT="$2"
+NOW="${LOOM_NOW:-$(date +%s)}"
+MAX="${LOOM_SPAWN_MAX:-3}"
+WINDOW="${LOOM_SPAWN_WINDOW:-3600}"
+
+# 1. HALT FIRST — short-circuit before any rate logic (T23).
+if [ -e "$HALT" ]; then
+	echo "DENY-HALT (HALT sentinel present — spawn nothing)"
+	exit 0
+fi
+
+# 2. Rate. Missing ledger = zero prior spawns (the legitimate first spawn — NOT a
+#    malformed-ledger case). An existing-but-unreadable ledger fails closed.
+if [ -e "$LEDGER" ] && [ ! -r "$LEDGER" ]; then
+	echo "DENY-RATE (ledger unreadable — fail-closed, treated at-limit)"
+	exit 0
+fi
+res="ALLOW"
+if [ -e "$LEDGER" ]; then
+	res=$(awk -v now="$NOW" -v max="$MAX" -v window="$WINDOW" '
+		{ if ($1 !~ /^[0-9]+$/) { bad=1; next }              # any non-epoch line ⇒ fail-closed
+		  if ($1+0 >= now-window) { c++; if (oldest=="" || $1+0 < oldest) oldest=$1+0 } }
+		END { if (bad)      { print "BAD"; exit }
+		      if (c >= max) { w = oldest + window - now; if (w < 0) w = 0; print "RATE " w; exit }
+		      print "ALLOW" }
+	' "$LEDGER" 2>/dev/null)
+fi
+
+# 3. Dispatch the fixed-vocab verdict; ALLOW records the grant (one ledger line).
+set -- $res
+case "$1" in
+	ALLOW)
+		printf '%s\n' "$NOW" >> "$LEDGER" || {
+			echo "DENY-RATE (ledger not writable — fail-closed)"; exit 0; }
+		echo "ALLOW (spawn granted + recorded; window ${WINDOW}s, max ${MAX})"
+		;;
+	RATE)
+		echo "DENY-RATE (>= ${MAX} spawns in ${WINDOW}s window; retry in ~${2}s)"
+		;;
+	*)  # BAD or any unexpected awk failure
+		echo "DENY-RATE (malformed/failed ledger evaluation — fail-closed, treated at-limit)"
+		;;
+esac

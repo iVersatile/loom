@@ -57,6 +57,7 @@ credential scan + `teardown --clean-state` are the specced homes for it).
 | `resolve-plan-union.go` | recurring — any conflicted merge/rebase touching the PLAN queue table (TEAM.md git discipline rule 4; `go run ./scripts ...`) | /replan integration or a git merge driver |
 | `readiness-decide` | recurring — the ADR-0022 offline backlog-readiness decision (decision-helper, not an activity script; `internal/guard/readiness_test.go` gates it) | relocates under `config/hooks/` behind protect-paths (human-applied) when a live path acts on its verdict (ADR-0022 slice 5) |
 | `promote-next` | recurring — the ADR-0022 backlog→inbox refill actuator: mints an envelope for the `READY` row (reuses `readiness-decide`; `internal/guard/promote_test.go` gates it) | relocates with `readiness-decide` under `config/hooks/` (human-applied, slice 5) |
+| `spawn-guard` | recurring — the ADR-0022 cross-spawn rate ledger + HALT-before-spawn decision called before every spawn (`internal/guard/spawn_test.go` gates it) | relocates under `config/hooks/`; ledger goes host/append-only/tamper-evident (human-applied, slice 5) |
 
 One exception to the POSIX-sh convention: `resolve-plan-union.go` is Go —
 loom-dev ships no python (the seed's language), and rule 4 is mechanism only
