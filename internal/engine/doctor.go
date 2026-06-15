@@ -185,6 +185,19 @@ func doctorImpl(opts DoctorOpts, rt ContainerRuntime) (DoctorResult, error) {
 	}
 	res.Checks = append(res.Checks, Check{Name: "container:state", OK: true, Detail: cname + ": " + state})
 
+	// container:user surfaces the container's runtime-user model (ADR-0019 PR4
+	// Part 1) — the companion to the role marker. Under Model A the container
+	// always RUNS as root; a configured non-root user is applied per entry-verb
+	// via `exec -u <user>`. Making this visible is what the reviewer hand-checked
+	// once; doctor mechanizes it, so the operator sees the runtime user that the
+	// drain-guard's role resolution depends on. Derived statically from the merged
+	// playbook (the Model A invariant guarantees the runtime user is root).
+	userModel := "root (Model A: container runs as root)"
+	if pb.User != "" && pb.User != "root" {
+		userModel = fmt.Sprintf("root (Model A: container runs as root; entry verbs exec -u %s)", pb.User)
+	}
+	res.Checks = append(res.Checks, Check{Name: "container:user", OK: true, Detail: userModel})
+
 	// Home wiring (C1): the container's home sentinel must match the staged
 	// $HOME — guard hooks and settings count only once the sync put them in.
 	// Live-readable only (the sentinel lives inside the container); a stopped

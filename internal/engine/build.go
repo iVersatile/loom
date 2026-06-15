@@ -29,6 +29,19 @@ func baseImage() string {
 	return defaultBaseImage
 }
 
+// sessionRole resolves the container's loom-role identity for the
+// /var/lib/loom/role marker (ADR-0019 PR4 Part 1). It is an OVERLAY/build value,
+// NOT a playbook key (the playbook has user:, not role:): sourced from the build
+// env LOOM_SESSION_ROLE — the SAME identity the doctor reminder names as the
+// drain-guard bridge. Empty/unset ⇒ no marker (root behavior unchanged); a
+// malformed value is rejected downstream by validRole (no marker, fail-safe).
+// DESIGN POINT (flagged for review): env is the minimal source that needs no
+// playbook-schema change and matches the existing bridge; alternatives are a
+// loom-dev overlay file or deriving from the project/overlay name.
+func sessionRole() string {
+	return strings.TrimSpace(os.Getenv("LOOM_SESSION_ROLE"))
+}
+
 // containerVersions adapts the runtime's in-container probe to
 // resolver.VersionProbe: the lock pins the CONTAINER's reality (T5), never the
 // build host's — a Mac build must not record "Apple Git" for a debian container.
@@ -201,6 +214,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		ProjectDir: projDir,
 		User:       pb.User,              // T10/ADR-0019: configured runtime user ("" = root)
 		Home:       homeForUser(pb.User), // resolved $HOME; consumed by the engine in PR 3
+		Role:       sessionRole(),        // ADR-0019 PR4 Part 1: /var/lib/loom/role marker source
 		Force:      opts.Force, LogW: logw,
 	})
 	if err != nil {
