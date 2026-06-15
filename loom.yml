@@ -16,6 +16,14 @@ tools:
 rules:
   - loom/project
 
+# Loom-role identity → the root-owned /var/lib/loom/role marker `loom build`
+# writes (T10/ADR-0019 PR4 §5, LL-014: declarative + in-tree, never a host hack).
+# loom-author is the primary autonomy seat; the advisor seat overrides per build
+# with LOOM_SESSION_ROLE=loom-advisor (the demoted env, kept as the per-seat
+# override / test-seam). After PR4 Part 2 lands, the drain role-guard reads this
+# marker instead of the forgeable `id -un==root` guess. Conceptual home: ADR-0021.
+role: loom-author
+
 env:
   - ANTHROPIC_API_KEY
 

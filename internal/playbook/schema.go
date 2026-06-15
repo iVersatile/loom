@@ -36,6 +36,18 @@ type Playbook struct {
 	// (docker run --user, useradd, ownership chown) is T10 PR 3.
 	User string `json:"user,omitempty"`
 
+	// Role is the container's loom-role identity (T10/ADR-0019 PR4 §5, LL-014).
+	// Optional scalar, last-non-empty-wins, authored at ANY tier — the DECLARATIVE
+	// IN-TREE source for the root-owned /var/lib/loom/role marker `loom build`
+	// writes (replacing the ambient LOOM_SESSION_ROLE env, which is demoted to an
+	// explicit override / test-seam). Unset means no marker is written and the
+	// build is byte-identical to a pre-PR4 root build — EXCEPT a non-root `user:`
+	// with an empty/invalid role is a HARD ERROR (that combination silently breaks
+	// the drain role-guard). Marker-safe charset is enforced where it is consumed
+	// (engine `validRole`); the schema only requires the same single-token shape as
+	// `user:`. The conceptual home is the role model (ADR-0021).
+	Role string `json:"role,omitempty"`
+
 	Agents   []string `json:"agents,omitempty"`   // agent harnesses
 	Tools    []string `json:"tools,omitempty"`    // name@version intent
 	Rules    []string `json:"rules,omitempty"`    // references, not bodies

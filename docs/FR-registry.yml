@@ -286,6 +286,18 @@ requirements:
     source: SPEC-playbook.md#user
     tests: [playbook.TestUserMergeLastWins, playbook.TestValidateUserFormat, engine.TestHomeForUserResolution, engine.TestBuildPopulatesUserAndHome]
     status: active
+  - id: FR-SCHEMA-010
+    kind: schema
+    # T10 PR 4 §5 (ADR-0019, LL-014): role: is the DECLARATIVE in-tree source for
+    # the /var/lib/loom/role marker, replacing the ambient LOOM_SESSION_ROLE env
+    # (demoted to an override/test-seam). This FR covers only the schema joint —
+    # the optional scalar's merge + single-token validation; the engine BEHAVIOR
+    # (marker-safe charset, fail-loud on non-root+empty, convergence write) is
+    # FR-BUILD-016. The non-root-user-needs-a-role rule is build-time, not schema.
+    statement: the optional `role:` scalar merges last-non-empty-wins across any tier (never base-restricted); a set value must be a single token (no whitespace, no / or :); unset means no role marker is written.
+    source: SPEC-playbook.md#role
+    tests: [playbook.TestRoleMergeLastWins, playbook.TestValidateRoleFormat]
+    status: active
 
   # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---
   - id: FR-EXEC-001
