@@ -236,6 +236,37 @@ sources (the drain diff itself is human-applied). Guard-tested:
   PARKED/QUEUED item (no priority inversion, R5); all-blocked ⇒ stay idle (the
   poll re-surfaces / the over-age tier escalates).
 
+## Backlog-readiness layer: which PLAN row is auto-pullable (ADR-0022)
+
+ADR-0020 closes the loop over the INBOX; ADR-0022 extends it to the PLAN/FR
+backlog so the loop can self-refill instead of waiting on a human triage gate.
+**Slice 1 (offline, here):** `scripts/readiness-decide` reads the tactical-queue
+fence + an EXTERNAL-TRUTH merged-refs file and prints, per `queued` candidate
+row, ONE fixed-vocab verdict — `READY` (the single highest-priority eligible
+row) · `BLOCKED-DEPS` · `NOT-EXEC-READY` · `INVERSION` · `SUPERSEDED`. Pure
+read-only mechanism — no promotion, no spawn (those are slices 2–5).
+
+- **`[class:exec]` row-class tag (the self-selection floor, ADR-0022 Decision
+  3e / amendment 5).** A queue row is auto-pullable ONLY if it carries the exact
+  literal `[class:exec]` tag. **Absent ⇒ `NOT-EXEC-READY`** — fail-closed: a row
+  opts INTO autonomy explicitly; design-stubs / thread-incubators / un-triaged
+  rows are never self-selected. This is a STRUCTURED tag, deliberately NOT the
+  drain's `/thread stub/` substring heuristic (trivially evaded). Tagging a row
+  is the triage judgment the human / `promote-next` (slice 2) owns — slice 1
+  ships only the reader, so today every real row reads `NOT-EXEC-READY`.
+- **Deps by EXTERNAL TRUTH only (amendment 2).** `depends-on` PR refs (`#NNN`)
+  must all appear in the host/CI-written merged-refs file (`gh pr view`-derived).
+  The runner reads NOTHING else — **never** git commit subjects
+  (`drain-inbox.sh:45`), which the Writer forges by wording a commit. A row that
+  merely *claims* "merged (#150)" in prose, with 150 absent from external truth,
+  is `BLOCKED-DEPS`. A non-empty `depends-on` with no resolvable `#NNN` (textual
+  dep) is also `BLOCKED-DEPS` (conservative: fail to NOT-pull).
+- **No inversion (R5, reused).** Among eligible rows, only the first in queue
+  order is `READY`; the rest are `INVERSION` until it clears.
+- **Injection-proof.** Verdicts are hardcoded constants; row text is read with
+  awk string ops only — never shelled, never echoed into a decision token (only
+  an integer row index prints).
+
 ## Context economy (T25, human-blessed 2026-06-11)
 
 - **State lives in artifacts; channels carry intent + work only.** Never
