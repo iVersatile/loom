@@ -163,6 +163,10 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 		"go install github.com/zricethezav/gitleaks/v8@latest",
 		"go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest",
 		"astral.sh/uv/install.sh",
+		// adv-065: go-built tools, uv, and the harness all land in the SHARED
+		// /usr/local/bin (reachable by the non-root runtime user), not root's home.
+		"export GOBIN=/usr/local/bin",
+		"UV_INSTALL_DIR=/usr/local/bin",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("provision script missing %q\n---\n%s", want, s)
@@ -170,7 +174,9 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 	}
 	// T4: shell config has ONE owner. The provision script never appends to
 	// shell-init files (persistent PATH lives in ~/.bashrc.d/path.go.sh; the
-	// loader is ensureShellInit's, unconditional) and never hardcodes /root.
+	// loader is ensureShellInit's, unconditional) and never installs into root's
+	// home in a way a non-root user cannot reach (adv-065: GOBIN moves go-built
+	// tools off /root/go/bin).
 	for _, never := range []string{".profile", ".bashrc", "/root/go/bin"} {
 		if strings.Contains(s, never) {
 			t.Errorf("provision script must not touch %q (T4 single owner)\n---\n%s", never, s)
@@ -310,15 +316,18 @@ func TestNeedsHomeSync(t *testing.T) {
 	}
 }
 
-// TestProvisionScriptInstallsAgent pins T8: a declared agent yields its install
-// step in the provision script (claude-code via the native installer, no Node,
-// landing on ~/.local/bin). Its persistent PATH is dotfile-owned (T4): the
-// generated ~/.bashrc.d/path.local.sh, never an append to shell-init files here.
+// TestProvisionScriptInstallsAgent pins T8 + adv-065: a declared agent yields its
+// native install step (claude-code, no Node), THEN relocates the binary from
+// root's ~/.local/bin to the SHARED /usr/local/bin so the non-root runtime user
+// can run it. Persistent PATH for /usr/local/bin is the default login PATH, never
+// an append to shell-init files here (T4).
 func TestProvisionScriptInstallsAgent(t *testing.T) {
 	s := provisionScript(nil, []AgentInstall{{Name: "claude-code", Source: "native-installer"}})
 	for _, want := range []string{
 		"claude.ai/install.sh", // the native installer is invoked
 		"retry ",               // wrapped in the resilience retry helper
+		`cp -L "$HOME/.local/bin/claude" /usr/local/bin/claude`, // relocated to the shared bin
+		"chmod 0755 /usr/local/bin/claude",                      // world-exec for the non-root user
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("agent provision missing %q\n---\n%s", want, s)

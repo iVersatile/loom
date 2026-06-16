@@ -165,6 +165,10 @@ func expectedPathDotfiles(tools []ToolInstall, agents []AgentInstall, homeDir st
 	}
 	for _, a := range agents {
 		if a.Name == "claude-code" {
+			// ~/.local/bin is the per-user runtime-install bin (e.g. a `pip --user`
+			// or a uv tool the agent installs at runtime). The harness BINARY no
+			// longer lives here: provision relocates it to the shared /usr/local/bin
+			// so the non-root runtime user can run it (adv-065, agentInstallCmd).
 			add("path.local.sh", `export PATH="$PATH:$HOME/.local/bin"`)
 			break
 		}
