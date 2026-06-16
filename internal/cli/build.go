@@ -21,6 +21,9 @@ func newBuildCmd() *cobra.Command {
 		force, _ := cmd.Flags().GetBool("force")
 		res, err := engine.Build(engine.BuildOpts{PlaybookPath: playbookPath(cmd), Force: force})
 		out := emit(cmd, res, err)
+		for _, w := range res.Warnings {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "loom: warning: %s\n", w)
+		}
 		if res.LogPath != "" {
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "loom: build log: %s\n", res.LogPath)
 		}
