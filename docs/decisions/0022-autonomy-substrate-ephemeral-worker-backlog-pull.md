@@ -194,3 +194,44 @@ dissolves the dilemma and unifies #1 + #2 into one autonomy decision.
 - docs/TOPOLOGY.md `ai-user-topology` · `config/hooks/checkpoint-inject`
   (rehydration) · `.claude/hooks/drain-inbox.sh` + `config/hooks/{pull-next,
   resurface-decide}` · docs/PLAN.md "agent-initiated lifecycle / task continuity".
+
+## Amendment (2026-06-16) — REFILL ≠ WAKE: the wake actuator is self-schedule, not external-spawn
+
+**Context.** This ADR framed the substrate as "ephemeral worker + backlog pull" and
+built the wake actuator as an EXTERNAL SPAWN (a fresh `claude -p` worker). A spike
+(adv-071) plus the author's in-container analysis (advisor-inbox 073), reached via a
+deliberate zoom-out, showed the design **conflated two separable concerns**:
+- **REFILL** (backlog → inbox) — readiness-decide / promote-next / spawn-guard /
+  spawn-loop (slices 1–4). Genuinely useful; **retained unchanged.**
+- **WAKE** (resume a stopped session) — solved here via external spawn, which hit two
+  hard walls: a credentials/auth wall AND the harness permission classifier refusing
+  an agent to self-bootstrap another autonomous agent. Those walls are the
+  "would the guardrails hold if you tried the worst thing" test **passing** — an agent
+  correctly cannot spawn a new agent.
+
+**Decision — the wake actuator is SELF-SCHEDULE, not external-spawn.**
+- At a Stop with no eligible work, the agent arms `ScheduleWakeup(delay, "re-check
+  inbox")` — a **first-party harness primitive** (schedule one's own resume), NOT a
+  nested agent. It has none of the spawn walls: no new creds, no classifier-bootstrap,
+  no host-side runner. It is how the advisor's own `/loop` runs.
+- **The refill substrate (slices 1–4) is retained unchanged.** The spawn-loop's verdict
+  logic (HALT-first → readiness → promote-next → rate) stays; **only the ALLOW branch
+  changes from `SPAWN`(new agent) to `WAKE`(self-schedule).**
+- **Ephemeral release is dropped for the wake half.** The trade is one continuous
+  (harness-summarized) session vs. N fresh sessions paying cold-start every cycle and
+  hitting the spawn walls; for SERIAL wake (the stated goal) summarization gives the
+  context-economy benefit without the cost. Ephemeral earns its keep only for TRUE
+  PARALLELISM (concurrent workers), which is out of scope here.
+- **Bounds (safety):** HALT-first still gates (no self-wake past a HALT); the self-poll
+  is bounded — cadence clamp (long idle ticks, `ScheduleWakeup` cache economics),
+  give-up-after-K-empty-ticks, human-interruptible — so it cannot spin.
+- **Closes** the open wake-primitive gap (T27 facet A / #129 — "nothing re-wakes a
+  fully-idle session").
+
+**Supersedes** the external-spawn actuator (the spawner-as-launcher). The `loom wake`
+verb, a host-side runner, and a `Bash(claude -p:*)` allow-rule are **dropped** — the
+last would defeat the classifier safety the spike surfaced (adv-071).
+
+**Authorship chain:** human-decided (zoom-out 2026-06-16; author's in-box analysis
+adopted) → agent-transcribed (this amendment) → human-accepted (merge = acceptance,
+ALLOW_SPEC_CHANGE, per RULES §5/C3).
