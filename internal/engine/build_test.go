@@ -616,6 +616,7 @@ func TestHomeForUserResolution(t *testing.T) {
 // PR 2 only LAYS this value; the engine consumes it (docker run --user, home
 // retarget, chown) in PR 3 — so this asserts the plumbing, not the behavior.
 func TestBuildPopulatesUserAndHome(t *testing.T) {
+	t.Setenv("LOOM_SESSION_ROLE", "") // hermetic: this test exercises user/home plumbing, not role resolution
 	// Default: the fixture sets no user:, so the spec stays root-homed.
 	root := tempProject(t)
 	var spec ContainerSpec
@@ -631,13 +632,15 @@ func TestBuildPopulatesUserAndHome(t *testing.T) {
 	}
 
 	// user: set on the project overlay flows through merge → spec, $HOME resolved.
+	// A non-root user requires a role: (adv-067 TASK 2: an empty marker breaks the
+	// drain role-guard), so declare one — this test exercises user/home plumbing.
 	root2 := tempProject(t)
 	pbPath := filepath.Join(root2, "loom.yml")
 	data, err := os.ReadFile(pbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(pbPath, append(data, []byte("\nuser: agent\n")...), 0o644); err != nil {
+	if err := os.WriteFile(pbPath, append(data, []byte("\nuser: agent\nrole: agent\n")...), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var spec2 ContainerSpec

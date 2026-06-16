@@ -422,19 +422,30 @@ func needsRoleMarker(have, want string) bool {
 	return validRole(want) && have != want
 }
 
-// roleMarkerPlan reports how the marker behaves for a declared role — LL-014
-// defect 2: an empty role must no longer be a silent no-op. The rule keys ONLY on
-// the role, NOT the user (adv-063): a non-root user: is general container
-// hardening; a non-root container that is not a loom drain-seat has no role and
-// must not be forced to invent one (a missing marker is a safe no-op — the
-// drain-guard fails closed, and the doctor host:role-marker check #144 already
-// fires at the non-root moment). So:
-//   - no role declared ⇒ visible WARNING, no marker (fallback intact);
-//   - a role declared but not marker-safe ⇒ HARD ERROR (a typo to fix, not a
-//     silent skip — same charset the write path enforces);
+// isNonRootUser reports whether a configured user is a real non-root account —
+// "" and "root" are the container default under Model A (mirrors execUserArgs).
+func isNonRootUser(user string) bool {
+	return user != "" && user != "root"
+}
+
+// roleMarkerPlan reports how the marker behaves for a declared (user, role) pair.
+// Keyed on BOTH (adv-067 TASK 2, realigning the code to the FROZEN SPEC-playbook
+// #role + ADR-0019 §5 after #159/adv-063 drifted to role-only; human ruled
+// 2026-06-16 the spec is right). LL-014 defect 2: an empty role is never a silent
+// no-op. The user matters because a NON-ROOT seat with no marker is a real break,
+// not benign hardening:
+//   - root (user "" or "root") + no role ⇒ visible WARNING, no marker (root build
+//     byte-identical, the id -un==root fallback is correct there);
+//   - NON-ROOT user + no role ⇒ HARD ERROR — without the root-owned marker the
+//     drain role-guard fail-closes on a non-root container and the Stop-hook drain
+//     SILENTLY no-ops (autonomous delivery dies); declare role: (or clear user:);
+//   - any role declared but not marker-safe ⇒ HARD ERROR (a typo to fix);
 //   - a valid role ⇒ silent (the marker is written).
-func roleMarkerPlan(role string) (warning string, err error) {
+func roleMarkerPlan(user, role string) (warning string, err error) {
 	if role == "" {
+		if isNonRootUser(user) {
+			return "", fmt.Errorf("non-root user %q requires a role: — without the root-owned %s marker the drain role-guard fail-closes and the Stop-hook drain silently no-ops; declare role: or clear user: (ADR-0019 PR4 §5)", user, roleMarker)
+		}
 		return fmt.Sprintf("no role: declared — %s not written; drain-guard keeps the id -un==root fallback", roleMarker), nil
 	}
 	if !validRole(role) {
