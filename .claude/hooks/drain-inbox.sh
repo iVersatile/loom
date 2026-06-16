@@ -21,7 +21,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 # Role guard (LL-011): own loom-author's inbox only.
 role="${LOOM_SESSION_ROLE:-}"
-if [ -z "$role" ] && [ "$(id -un 2>/dev/null)" = "root" ]; then role="loom-author"; fi
+if [ -z "$role" ] && [ -r /var/lib/loom/role ]; then role=$(cat /var/lib/loom/role 2>/dev/null); fi
 [ "$role" = "loom-author" ] || exit 0
 
 # Kill-switch (T23): HALT gates ALL drains, before AUTOPILOT.
