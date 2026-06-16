@@ -10,15 +10,15 @@ import (
 
 // runSpawnLoop runs scripts/spawn-loop (ADR-0022 slice-4 home — agent-committable
 // scripts/, same as slices 1–3) over fixtures with hermetic env (LL-006/LL-010)
-// plus the caller's overrides (LOOM_AUTOPULL_CLASSES for the self-selection floor;
-// LOOM_NOW/MAX/WINDOW for deterministic rate tests).
-func runSpawnLoop(t *testing.T, env []string, plan, merged, inbox, ledger, halt string) string {
+// plus the caller's overrides. $6 = empty-tick state file (the bounded self-poll
+// counter; adv-074 self-wake re-frame).
+func runSpawnLoop(t *testing.T, env []string, plan, merged, inbox, ledger, halt, ticks string) string {
 	t.Helper()
 	abs, err := filepath.Abs(filepath.Join("..", "..", "scripts", "spawn-loop"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := exec.Command("sh", abs, plan, merged, inbox, ledger, halt)
+	c := exec.Command("sh", abs, plan, merged, inbox, ledger, halt, ticks)
 	c.Env = append(hermeticEnv(), env...)
 	out, err := c.CombinedOutput()
 	if err != nil {
@@ -27,134 +27,193 @@ func runSpawnLoop(t *testing.T, env []string, plan, merged, inbox, ledger, halt 
 	return string(out)
 }
 
-// TestSpawnLoop covers the ADR-0022 slice-4 orchestrator matrix: HALT-before-spawn
-// (REQUIRED — spawns nothing AND refills nothing), no READY backlog, the
-// self-selection floor (CONFIRM-REQUIRED ⇒ no spawn), the ALLOW path (promotes +
-// records exactly one grant), and the rate bound (refills but does not spawn).
+func readTicks(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ""
+		}
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// TestSpawnLoop covers the ADR-0022 slice-4 SELF-WAKE matrix (adv-074): HALT-first
+// (wakes nothing, refills nothing), the ALLOW path (promotes + WAKE + records one
+// grant + resets the empty-tick counter), the self-selection floor (CONFIRM-
+// REQUIRED ⇒ NO-WAKE), the rate bound (WAKE-BACKOFF, refills but no grant), and the
+// bounded self-poll (WAKE-POLL under the bound, IDLE-STOP at it).
 func TestSpawnLoop(t *testing.T) {
 	readyExecRow := "| **demo row** [class:exec] | — | agent lifecycle continuity | loom-author | queued | — |"
 	allow := []string{"LOOM_AUTOPULL_CLASSES=exec"}
-	// Deterministic rate clock: now=10000, window=3600 ⇒ in-window threshold 6400.
 	rateEnv := append([]string{"LOOM_NOW=10000", "LOOM_SPAWN_MAX=3", "LOOM_SPAWN_WINDOW=3600"}, allow...)
 
-	// HALT-before-spawn (REQUIRED, ADR-0022): a present HALT sentinel ⇒ NO-SPAWN
-	// HALT, and NOTHING is refilled (no envelope) or recorded (no ledger line) —
-	// the HALT short-circuits BEFORE promote-next/spawn-guard.
-	t.Run("HALT before spawn spawns and refills nothing", func(t *testing.T) {
+	// HALT-before-wake (REQUIRED, ADR-0022): a present HALT ⇒ NO-WAKE HALT, and
+	// NOTHING is refilled (no envelope), recorded (no grant), or ticked.
+	t.Run("HALT before wake wakes and refills nothing", func(t *testing.T) {
 		dir := t.TempDir()
 		plan := planFixture(t, dir, readyExecRow)
 		merged := writeFixture(t, dir, "merged.txt", "")
 		inbox := writeFixture(t, dir, "inbox.md", "")
 		ledger := filepath.Join(dir, "ledger")
 		halt := writeFixture(t, dir, "HALT", "")
-		out := runSpawnLoop(t, allow, plan, merged, inbox, ledger, halt)
-		if !strings.HasPrefix(out, "NO-SPAWN HALT") {
-			t.Fatalf("HALT must yield NO-SPAWN HALT, got: %s", out)
+		ticks := filepath.Join(dir, "ticks")
+		out := runSpawnLoop(t, allow, plan, merged, inbox, ledger, halt, ticks)
+		if !strings.HasPrefix(out, "NO-WAKE HALT") {
+			t.Fatalf("HALT must yield NO-WAKE HALT, got: %s", out)
 		}
-		if body := readFile(t, inbox); strings.Contains(body, "--- id: promote-") {
-			t.Errorf("HALT must refill nothing, but an envelope was minted:\n%s", body)
+		if strings.Contains(readFile(t, inbox), "--- id: promote-") {
+			t.Error("HALT must refill nothing")
 		}
 		if countLines(t, ledger) != 0 {
-			t.Errorf("HALT must record no spawn grant, ledger has %d lines", countLines(t, ledger))
+			t.Errorf("HALT must record no grant, ledger=%d", countLines(t, ledger))
+		}
+		if readTicks(t, ticks) != "" {
+			t.Errorf("HALT must not touch the tick counter, got %q", readTicks(t, ticks))
 		}
 	})
 
-	t.Run("no READY backlog ⇒ NO-SPAWN NO-BACKLOG", func(t *testing.T) {
-		dir := t.TempDir()
-		// A candidate row WITHOUT [class:exec] is NOT-EXEC-READY ⇒ never READY.
-		plan := planFixture(t, dir, "| **untagged** | — | k | loom-author | queued | — |")
-		merged := writeFixture(t, dir, "merged.txt", "")
-		inbox := writeFixture(t, dir, "inbox.md", "")
-		noHalt := filepath.Join(dir, "no-halt")
-		out := runSpawnLoop(t, allow, plan, merged, inbox, filepath.Join(dir, "ledger"), noHalt)
-		if !strings.HasPrefix(out, "NO-SPAWN NO-BACKLOG") {
-			t.Fatalf("want NO-SPAWN NO-BACKLOG, got: %s", out)
-		}
-	})
-
-	// Self-selection floor: a READY row whose class is NOT on the auto-pull
-	// allow-list mints CONFIRM-REQUIRED ⇒ NO-SPAWN (human tier), and never spawns.
-	t.Run("off-allow-list READY ⇒ NO-SPAWN CONFIRM-REQUIRED, no grant", func(t *testing.T) {
+	// ALLOW path: READY + allow-listed + rate ok ⇒ WAKE (not SPAWN); promotes
+	// QUEUED; records exactly one grant; resets the empty-tick counter to 0.
+	t.Run("ALLOW path ⇒ WAKE, promotes QUEUED, one grant, ticks reset", func(t *testing.T) {
 		dir := t.TempDir()
 		plan := planFixture(t, dir, readyExecRow)
 		merged := writeFixture(t, dir, "merged.txt", "")
 		inbox := writeFixture(t, dir, "inbox.md", "")
 		ledger := filepath.Join(dir, "ledger")
+		ticks := writeFixture(t, dir, "ticks", "4\n") // pretend prior empty polls
 		noHalt := filepath.Join(dir, "no-halt")
-		out := runSpawnLoop(t, nil, plan, merged, inbox, ledger, noHalt) // empty allow-list
-		if !strings.HasPrefix(out, "NO-SPAWN CONFIRM-REQUIRED") {
-			t.Fatalf("want NO-SPAWN CONFIRM-REQUIRED, got: %s", out)
+		out := runSpawnLoop(t, allow, plan, merged, inbox, ledger, noHalt, ticks)
+		if !strings.HasPrefix(out, "WAKE delay=") {
+			t.Fatalf("want WAKE delay= on the allow path, got: %s", out)
 		}
-		if !strings.Contains(readFile(t, inbox), "status: CONFIRM-REQUIRED") {
-			t.Error("the row should still be refilled as CONFIRM-REQUIRED (human tier)")
-		}
-		if countLines(t, ledger) != 0 {
-			t.Errorf("a confirm-required promote must record no spawn grant, ledger=%d", countLines(t, ledger))
-		}
-	})
-
-	// ALLOW path: READY + allow-listed + rate under bound ⇒ SPAWN; the row is
-	// promoted QUEUED and the grant is recorded as exactly one ledger line.
-	t.Run("ALLOW path ⇒ SPAWN, promotes QUEUED, records one grant", func(t *testing.T) {
-		dir := t.TempDir()
-		plan := planFixture(t, dir, readyExecRow)
-		merged := writeFixture(t, dir, "merged.txt", "")
-		inbox := writeFixture(t, dir, "inbox.md", "")
-		ledger := filepath.Join(dir, "ledger")
-		noHalt := filepath.Join(dir, "no-halt")
-		out := runSpawnLoop(t, allow, plan, merged, inbox, ledger, noHalt)
-		if !strings.HasPrefix(out, "SPAWN") {
-			t.Fatalf("want SPAWN on the allow path, got: %s", out)
+		if strings.HasPrefix(out, "WAKE-") {
+			t.Fatalf("ALLOW must be plain WAKE, not WAKE-POLL/BACKOFF: %s", out)
 		}
 		if !strings.Contains(readFile(t, inbox), "status: QUEUED") {
 			t.Error("allow-listed READY row must be promoted QUEUED")
 		}
 		if n := countLines(t, ledger); n != 1 {
-			t.Errorf("SPAWN must record exactly one grant, ledger has %d lines", n)
+			t.Errorf("WAKE must record exactly one grant, ledger=%d", n)
+		}
+		if readTicks(t, ticks) != "0" {
+			t.Errorf("finding work must reset the empty-tick counter to 0, got %q", readTicks(t, ticks))
 		}
 	})
 
-	// Rate bound: a ledger already at LOOM_SPAWN_MAX in-window ⇒ NO-SPAWN RATE.
-	// The refill still happens (promote runs before the gate) but no grant is
-	// recorded — the durable cross-spawn bound holds.
-	t.Run("at rate limit ⇒ NO-SPAWN RATE, refills but records no grant", func(t *testing.T) {
+	t.Run("off-allow-list READY ⇒ NO-WAKE CONFIRM-REQUIRED", func(t *testing.T) {
 		dir := t.TempDir()
 		plan := planFixture(t, dir, readyExecRow)
 		merged := writeFixture(t, dir, "merged.txt", "")
 		inbox := writeFixture(t, dir, "inbox.md", "")
-		ledger := writeFixture(t, dir, "ledger", "9000\n9001\n9002\n") // 3 in-window = MAX
-		noHalt := filepath.Join(dir, "no-halt")
-		out := runSpawnLoop(t, rateEnv, plan, merged, inbox, ledger, noHalt)
-		if !strings.HasPrefix(out, "NO-SPAWN RATE") {
-			t.Fatalf("want NO-SPAWN RATE at the limit, got: %s", out)
+		out := runSpawnLoop(t, nil, plan, merged, inbox, filepath.Join(dir, "ledger"),
+			filepath.Join(dir, "no-halt"), filepath.Join(dir, "ticks"))
+		if !strings.HasPrefix(out, "NO-WAKE CONFIRM-REQUIRED") {
+			t.Fatalf("want NO-WAKE CONFIRM-REQUIRED, got: %s", out)
+		}
+		if !strings.Contains(readFile(t, inbox), "status: CONFIRM-REQUIRED") {
+			t.Error("the row should still be refilled as CONFIRM-REQUIRED (human tier)")
+		}
+	})
+
+	// Rate bound: a ledger already at LOOM_SPAWN_MAX in-window ⇒ WAKE-BACKOFF. The
+	// refill still happens (promote runs before the gate); no grant is recorded.
+	t.Run("at rate limit ⇒ WAKE-BACKOFF, refills but records no grant", func(t *testing.T) {
+		dir := t.TempDir()
+		plan := planFixture(t, dir, readyExecRow)
+		merged := writeFixture(t, dir, "merged.txt", "")
+		inbox := writeFixture(t, dir, "inbox.md", "")
+		ledger := writeFixture(t, dir, "ledger", "9000\n9001\n9002\n")
+		out := runSpawnLoop(t, rateEnv, plan, merged, inbox, ledger,
+			filepath.Join(dir, "no-halt"), filepath.Join(dir, "ticks"))
+		if !strings.HasPrefix(out, "WAKE-BACKOFF") {
+			t.Fatalf("want WAKE-BACKOFF at the limit, got: %s", out)
 		}
 		if !strings.Contains(readFile(t, inbox), "status: QUEUED") {
-			t.Error("the refill (promote-next) runs before the rate gate — envelope should be minted")
+			t.Error("the refill runs before the rate gate — envelope should be minted")
 		}
 		if n := countLines(t, ledger); n != 3 {
-			t.Errorf("a rate-denied cycle must append no grant, ledger has %d lines (want 3)", n)
+			t.Errorf("a rate-bounded cycle must append no grant, ledger=%d (want 3)", n)
+		}
+	})
+
+	// Bounded self-poll: no READY backlog under the give-up bound ⇒ WAKE-POLL and
+	// the empty-tick counter increments.
+	t.Run("no backlog under bound ⇒ WAKE-POLL, ticks increment", func(t *testing.T) {
+		dir := t.TempDir()
+		plan := planFixture(t, dir, "| **untagged** | — | k | loom-author | queued | — |")
+		merged := writeFixture(t, dir, "merged.txt", "")
+		inbox := writeFixture(t, dir, "inbox.md", "")
+		ticks := writeFixture(t, dir, "ticks", "1\n")
+		out := runSpawnLoop(t, append([]string{"LOOM_WAKE_MAX_EMPTY=3"}, allow...),
+			plan, merged, inbox, filepath.Join(dir, "ledger"), filepath.Join(dir, "no-halt"), ticks)
+		if !strings.HasPrefix(out, "WAKE-POLL delay=") {
+			t.Fatalf("want WAKE-POLL under the bound, got: %s", out)
+		}
+		if readTicks(t, ticks) != "2" {
+			t.Errorf("an empty poll must increment the tick counter to 2, got %q", readTicks(t, ticks))
+		}
+	})
+
+	// Give-up: at the bound, NO re-arm ⇒ IDLE-STOP, and the counter resets so a
+	// future external wake gets a fresh poll budget.
+	t.Run("no backlog at bound ⇒ IDLE-STOP, ticks reset", func(t *testing.T) {
+		dir := t.TempDir()
+		plan := planFixture(t, dir, "| **untagged** | — | k | loom-author | queued | — |")
+		merged := writeFixture(t, dir, "merged.txt", "")
+		inbox := writeFixture(t, dir, "inbox.md", "")
+		ticks := writeFixture(t, dir, "ticks", "2\n") // +1 ⇒ 3 == MAX
+		out := runSpawnLoop(t, append([]string{"LOOM_WAKE_MAX_EMPTY=3"}, allow...),
+			plan, merged, inbox, filepath.Join(dir, "ledger"), filepath.Join(dir, "no-halt"), ticks)
+		if !strings.HasPrefix(out, "IDLE-STOP") {
+			t.Fatalf("want IDLE-STOP at the give-up bound, got: %s", out)
+		}
+		if readTicks(t, ticks) != "0" {
+			t.Errorf("give-up must reset the tick counter to 0, got %q", readTicks(t, ticks))
 		}
 	})
 }
 
-// TestSpawnLoopFixedVocab pins injection-safety: every verdict's leading token is
-// a hardcoded constant from the fixed set, even when a row carries shell
-// metacharacters — row prose never reaches a shell or the verdict token.
+// TestSpawnLoopCadenceClamp pins the cadence clamp (adv-074 bound): an out-of-range
+// idle delay is pulled into the ScheduleWakeup [60,3600] window — never a <60s spin.
+func TestSpawnLoopCadenceClamp(t *testing.T) {
+	dir := t.TempDir()
+	plan := planFixture(t, dir, "| **untagged** | — | k | loom-author | queued | — |")
+	merged := writeFixture(t, dir, "merged.txt", "")
+	inbox := writeFixture(t, dir, "inbox.md", "")
+	noHalt := filepath.Join(dir, "no-halt")
+
+	huge := runSpawnLoop(t, []string{"LOOM_WAKE_IDLE_DELAY=99999"}, plan, merged, inbox,
+		filepath.Join(dir, "ledger"), noHalt, filepath.Join(dir, "t1"))
+	if !strings.Contains(huge, "delay=3600") {
+		t.Errorf("an over-range idle delay must clamp to 3600, got: %s", huge)
+	}
+	tiny := runSpawnLoop(t, []string{"LOOM_WAKE_IDLE_DELAY=1"}, plan, merged, inbox,
+		filepath.Join(dir, "ledger"), noHalt, filepath.Join(dir, "t2"))
+	if !strings.Contains(tiny, "delay=60") {
+		t.Errorf("an under-range idle delay must clamp to 60 (no fast spin), got: %s", tiny)
+	}
+}
+
+// TestSpawnLoopFixedVocab pins injection-safety: the verdict leads with a hardcoded
+// token even when a row carries shell metacharacters — row prose never reaches a
+// shell or the verdict token.
 func TestSpawnLoopFixedVocab(t *testing.T) {
 	dir := t.TempDir()
 	canary := filepath.Join(dir, "canary")
-	// A malicious task title: if any field were eval'd, the canary file appears.
 	plan := planFixture(t, dir,
 		"| **evil $(touch "+canary+") row** [class:exec] | — | k | loom-author | queued | — |")
 	merged := writeFixture(t, dir, "merged.txt", "")
 	inbox := writeFixture(t, dir, "inbox.md", "")
-	noHalt := filepath.Join(dir, "no-halt")
-	out := runSpawnLoop(t, []string{"LOOM_AUTOPULL_CLASSES=exec"}, plan, merged, inbox, filepath.Join(dir, "ledger"), noHalt)
+	out := runSpawnLoop(t, []string{"LOOM_AUTOPULL_CLASSES=exec"}, plan, merged, inbox,
+		filepath.Join(dir, "ledger"), filepath.Join(dir, "no-halt"), filepath.Join(dir, "ticks"))
 	lead := strings.Fields(out)
-	if len(lead) == 0 || (lead[0] != "SPAWN" && lead[0] != "NO-SPAWN") {
-		t.Fatalf("verdict must lead with a fixed token (SPAWN/NO-SPAWN), got: %s", out)
+	allowed := map[string]bool{"WAKE": true, "WAKE-POLL": true, "WAKE-BACKOFF": true, "IDLE-STOP": true, "NO-WAKE": true}
+	if len(lead) == 0 || !allowed[lead[0]] {
+		t.Fatalf("verdict must lead with a fixed token, got: %s", out)
 	}
 	if _, err := os.Stat(canary); err == nil {
-		t.Fatal("injection: a row title was eval'd by the loop (canary file created)")
+		t.Fatal("injection: a row title was eval'd (canary file created)")
 	}
 }

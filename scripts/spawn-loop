@@ -1,101 +1,152 @@
 #!/bin/sh
-# spawn-loop — ADR-0022 slice 4: the OFFLINE SPAWNER ORCHESTRATOR.
-# Origin : ADR-0022 (autonomy substrate) slice 4; advisor envelope adv-070.
-#          GATED on ADR-0019 PR4 (a non-forgeable role-marked session is the
-#          precondition) — that merged (#164), so this slice may ship.
+# spawn-loop — ADR-0022 slice 4: the OFFLINE WAKE ORCHESTRATOR (self-schedule).
+# Origin : ADR-0022 (autonomy substrate) slice 4; advisor envelopes adv-070 (build)
+#          + adv-072/073/074 (the wake re-frame: SELF-WAKE replaces external spawn).
 # Reuse  : recurring — the self-wake decision the live loop runs each cycle to end
 #          Writer-idle; verb-candidate (relocates under config/hooks/, slice 5).
-# Runs on: loom-dev (the autonomy loop's seat). It only READS repo files and
-#          ORCHESTRATES the three merged slice helpers; its own only mutations are
-#          theirs (promote-next appends an envelope; spawn-guard appends a ledger
-#          line on a grant). It NEVER drives a session — see the TRUST-PATH SEAM.
+# Runs on: loom-dev (the autonomy loop's seat). It READS repo files, ORCHESTRATES
+#          the three merged slice helpers, and tracks a small empty-tick counter;
+#          its only other mutations are the helpers' (promote-next appends an
+#          envelope; spawn-guard appends a ledger line on a grant). It NEVER drives
+#          a session and NEVER spawns a new agent — see the WAKE RE-FRAME + SEAM.
 #
-# Decision-helper / orchestrator shape (no `set -eu`): defers ALL security-
-# sensitive logic to the three single-home helpers and emits ONE fixed-vocab
-# verdict. The chain (ADR-0022 Decision 4):
-#   HALT-first → readiness-decide → promote-next → spawn-guard → (ALLOW ⇒ SPAWN).
+# WAKE RE-FRAME (adv-072/074, human-confirmed): ADR-0022 first anchored the wake on
+# EXTERNAL SPAWN (an ephemeral `claude -p` worker). The adv-071 spike found that
+# path hits two walls — headless auth AND the permission classifier (an agent may
+# NOT self-bootstrap another autonomous agent). SELF-WAKE sidesteps both: the seat
+# arms its OWN next inbox re-check via the harness ScheduleWakeup primitive (a
+# first-party tool, not a spawn — no new creds, no classifier-bootstrap). This is
+# the missing wake-primitive (T27 facet A / #129): the drain handles "work exists
+# at this Stop"; self-wake handles "make a Stop RECUR when idle". The two compose.
+# REFILL is unchanged (slices 1-3); only the ACTUATOR changes SPAWN -> WAKE.
 #
-# WHY (ADR-0022): the human used to be the inbox-refill valve AND the session
-# waker. This composes the offline halves so an idle seat self-refills from the
-# READY backlog and decides whether to wake — keeping the human on the gates
-# (self-selection floor + HALT + rate bound), removing them from transport.
+# Decision-helper / orchestrator shape (no `set -eu`): defers ALL security logic to
+# the three single-home helpers and emits ONE fixed-vocab verdict. Chain:
+#   HALT-first -> readiness-decide -> promote-next -> spawn-guard -> (ALLOW => WAKE).
 #
 # TRUST-PATH SEAM (ADR-0022 caveat — HUMAN-APPLIED, do NOT self-wire): this script
-# DECIDES; it does not ACT the spawn. On ALLOW it emits the fixed token `SPAWN`
-# (constant payload — ONE wake unit, never a growing payload) for the trust-path
-# ACTUATOR (the harness wiring that actually wakes/spawns a session) to consume.
-# That actuator is a trust-path bit (029.C / ALLOW_TRUST_CHANGE, like the drain
-# hook) and is wired by the human, NOT here. Build = offline decision + guard
-# tests; the wake half is flagged for the human.
+# DECIDES the next wake (verdict + delay); it does NOT call ScheduleWakeup. The
+# Stop-hook that reads a WAKE* verdict and arms ScheduleWakeup(delay) is the
+# trust-path wiring (029.C / ALLOW_TRUST_CHANGE, like the drain hook), applied by
+# the human. Build = this offline decision + bounds + guard tests; the Stop-hook
+# arming half is flagged for the human.
 #
-# FIXED VOCABULARY (hardcoded constants; nothing from a row/ledger is echoed into
-# the decision token — the leading word is the verdict):
-#   SPAWN        HALT absent, a READY backlog row was promoted to QUEUED (its class
-#                is on the LOOM_AUTOPULL_CLASSES allow-list), and spawn-guard granted
-#                (rate ledger under bound). The actuator wakes ONE session.
-#   NO-SPAWN     anything else — each with a fixed reason token (fail-safe default):
-#                HALT · NO-BACKLOG · CONFIRM-REQUIRED · RATE · GUARD-FAIL · UNKNOWN.
+# FIXED VOCABULARY (hardcoded; leading token is the verdict; nothing from a row or
+# ledger is echoed into it). Every WAKE* carries `delay=<seconds>` for the wiring:
+#   WAKE          HALT absent, a READY row promoted to QUEUED (class on the
+#                 LOOM_AUTOPULL_CLASSES allow-list), spawn-guard granted. Self-
+#                 schedule a NEAR-TERM re-check to process it. Resets the empty-tick
+#                 counter (work was found).
+#   WAKE-POLL     no READY backlog now, but under the give-up bound: self-schedule a
+#                 LONG-IDLE re-check. Increments the empty-tick counter.
+#   WAKE-BACKOFF  work exists but spawn-guard rate-bounded: re-arm after a back-off
+#                 (does NOT count as an empty tick — there IS work).
+#   IDLE-STOP     no work AND empty-ticks reached the bound: GIVE UP — do NOT re-arm
+#                 (an external/human event re-wakes the seat). Resets the counter so
+#                 a future wake starts a fresh poll budget. Prevents a spin.
+#   NO-WAKE       HALT · CONFIRM-REQUIRED (human tier) · GUARD-FAIL · UNKNOWN
+#                 (fail-safe default) — fixed reason token, no re-arm.
 #
-# SECURITY: sub-helper output is matched with `case` globs against FIXED substrings
-# (ALLOW / DENY-HALT / DENY-RATE / "no READY" / "status QUEUED" / "status CONFIRM-
-# REQUIRED"), never eval'd. The only request-derived value that prints is the
-# promote-next slug, already sanitized to [a-z0-9-] by promote-next — trailing
-# DATA, never the verdict token.
+# BOUNDS (adv-074 item 3, my caveats in envelope 073): the self-poll MUST NOT spin.
+#  - cadence clamp: emitted delays are clamped to [60, 3600]s (the ScheduleWakeup
+#    runtime range; long idle ticks honor the prompt-cache economics — no <300s
+#    polling for nothing). Defaults: work 60s, idle 1800s.
+#  - give-up-after-K-empty-ticks: LOOM_WAKE_MAX_EMPTY consecutive empty polls =>
+#    IDLE-STOP (no re-arm). A found-work cycle resets the counter.
+#  - HALT-first still blocks every wake. Human-interruptible by construction (the
+#    human can cancel any scheduled wake / set HALT).
 #
-# Args: $1 = docs/PLAN.md, $2 = external-truth merged-refs file, $3 = target inbox,
-#       $4 = spawn-ledger, $5 = HALT sentinel.
-# Env (passed through to the helpers): LOOM_AUTOPULL_CLASSES (promote-next floor);
-#       LOOM_SPAWN_MAX / LOOM_SPAWN_WINDOW / LOOM_NOW (spawn-guard rate bound).
+# SECURITY: sub-helper output matched with `case` globs against FIXED substrings,
+# never eval'd; the tick file holds a single integer (non-integer => treated 0); the
+# only request-derived value printed is the promote-next slug, already sanitized to
+# [a-z0-9-] — trailing DATA, never the verdict token.
+#
+# Args: $1 = docs/PLAN.md, $2 = external-truth merged-refs, $3 = target inbox,
+#       $4 = spawn-ledger, $5 = HALT sentinel, $6 = empty-tick state file.
+# Env : LOOM_AUTOPULL_CLASSES (promote-next floor); LOOM_SPAWN_MAX/WINDOW/NOW
+#       (spawn-guard); LOOM_WAKE_WORK_DELAY (default 60), LOOM_WAKE_IDLE_DELAY
+#       (default 1800), LOOM_WAKE_MAX_EMPTY (default 5).
 
-PLAN="$1"; MERGED="$2"; INBOX="$3"; LEDGER="$4"; HALT="$5"
+PLAN="$1"; MERGED="$2"; INBOX="$3"; LEDGER="$4"; HALT="$5"; TICKS="$6"
 SELF_DIR=$(dirname "$0")
+WORK_DELAY="${LOOM_WAKE_WORK_DELAY:-60}"
+IDLE_DELAY="${LOOM_WAKE_IDLE_DELAY:-1800}"
+MAX_EMPTY="${LOOM_WAKE_MAX_EMPTY:-5}"
 
-# 1. HALT FIRST — fail-safe, before ANY spawn cost or refill, ahead of the drain's
-#    and spawn-guard's own HALT checks (T23 HALT-before-AUTOPILOT ordering). A
-#    HALTed system spawns nothing, period.
+# clamp DELAY to the ScheduleWakeup range [60,3600] (cadence clamp). Non-integer or
+# under/over the range is pulled to the nearest bound (fail-safe, never spin-fast).
+clamp() {
+	d="$1"
+	case "$d" in *[!0-9]*|"") d="$IDLE_DELAY" ;; esac
+	case "$d" in *[!0-9]*|"") d=1800 ;; esac
+	[ "$d" -lt 60 ] && d=60
+	[ "$d" -gt 3600 ] && d=3600
+	printf '%s' "$d"
+}
+
+# read the empty-tick counter (single integer; absent/garbage => 0).
+read_ticks() {
+	t=$(cat "$TICKS" 2>/dev/null)
+	case "$t" in *[!0-9]*|"") t=0 ;; esac
+	printf '%s' "$t"
+}
+write_ticks() { [ -n "$TICKS" ] && printf '%s\n' "$1" > "$TICKS" 2>/dev/null; }
+
+# 1. HALT FIRST — fail-safe, before ANY refill/wake cost; never touches the tick
+#    counter (T23 HALT-before-AUTOPILOT ordering). A HALTed seat wakes nothing.
 if [ -e "$HALT" ]; then
-	echo "NO-SPAWN HALT (sentinel present — spawn nothing)"
+	echo "NO-WAKE HALT (sentinel present — wake nothing)"
 	exit 0
 fi
 
-# 2. Refill — promote-next runs readiness-decide internally (its single home) and
-#    mints at most one envelope for the READY backlog row, idempotently. We branch
-#    on its fixed-vocab outcome; no row prose reaches a decision here.
+# 2. Refill — promote-next runs readiness-decide internally and mints at most one
+#    envelope for the READY backlog row, idempotently. Branch on its fixed vocab.
 refill=$(sh "$SELF_DIR/promote-next" "$PLAN" "$MERGED" "$INBOX" 2>/dev/null)
 case "$refill" in
 	*"no READY backlog row"*)
-		echo "NO-SPAWN NO-BACKLOG (no READY backlog row to promote)"
+		# Empty tick: bounded self-poll. Give up after MAX_EMPTY consecutive empties
+		# so an idle seat does not poll forever (it re-wakes on an external event).
+		t=$(read_ticks); t=$((t + 1))
+		if [ "$t" -ge "$MAX_EMPTY" ]; then
+			write_ticks 0
+			echo "IDLE-STOP (no work; gave up after $MAX_EMPTY empty ticks — external/human event re-wakes)"
+		else
+			write_ticks "$t"
+			echo "WAKE-POLL delay=$(clamp "$IDLE_DELAY") (no work; self-poll tick $t/$MAX_EMPTY)"
+		fi
 		exit 0 ;;
 	*"status CONFIRM-REQUIRED"*)
-		# Self-selection floor (ADR-0022 amendment 5): the row's class is NOT on the
-		# auto-pullable allow-list, so it was minted for a HUMAN flip. Waking a
-		# session would not help — the drain only delivers QUEUED. Human tier.
-		echo "NO-SPAWN CONFIRM-REQUIRED (promoted for human confirmation — not auto-spawnable)"
+		# A READY row was promoted but its class is off the auto-pull allow-list:
+		# minted for a HUMAN flip (human tier). Self-waking would not help — the
+		# drain only delivers QUEUED. Not an empty tick (backlog was non-empty): reset.
+		write_ticks 0
+		echo "NO-WAKE CONFIRM-REQUIRED (promoted for human confirmation — not auto-wakeable)"
 		exit 0 ;;
 	*"status QUEUED"*|*"already present"*)
 		: ;;  # eligible work present (just minted, or minted on a prior cycle) — proceed
 	*)
-		echo "NO-SPAWN UNKNOWN (unrecognized promote-next outcome — fail-safe)"
+		echo "NO-WAKE UNKNOWN (unrecognized promote-next outcome — fail-safe)"
 		exit 0 ;;
 esac
 
-# 3. Rate/HALT gate — spawn-guard owns the DURABLE cross-spawn bound (the per-process
-#    drain .drain-count does NOT bound across spawns). ALLOW appends one ledger line
-#    (the grant ↔ this SPAWN verdict are 1:1).
+# 3. Rate/HALT gate — spawn-guard owns the DURABLE cross-cycle rate bound. ALLOW
+#    appends one ledger line (the grant <-> this WAKE verdict are 1:1).
 guard=$(sh "$SELF_DIR/spawn-guard" "$LEDGER" "$HALT" 2>/dev/null)
 case "$guard" in
 	ALLOW*)
-		# Promoted slug (sanitized [a-z0-9-] by promote-next) as trailing DATA only.
+		write_ticks 0  # found work — reset the empty-poll budget
 		slug=$(printf '%s' "$refill" | sed -n 's/^promote-next: minted promote-\([a-z0-9-]*\) .*$/\1/p' | head -1)
-		echo "SPAWN (grant recorded; actuator wakes ONE session)${slug:+ for promote-$slug}"
+		echo "WAKE delay=$(clamp "$WORK_DELAY") (work refilled; self-schedule inbox re-check)${slug:+ for promote-$slug}"
 		exit 0 ;;
 	DENY-HALT*)
-		echo "NO-SPAWN HALT (spawn-guard: HALT sentinel present)"
+		echo "NO-WAKE HALT (spawn-guard: HALT sentinel present)"
 		exit 0 ;;
 	DENY-RATE*)
-		echo "NO-SPAWN RATE (spawn-guard: cross-spawn rate bound — back off)"
+		# Work exists but the rate bound is hit: re-arm after a back-off, do NOT
+		# count as an empty tick and do NOT give up (the window will clear).
+		echo "WAKE-BACKOFF delay=$(clamp "$IDLE_DELAY") (rate bound — retry after back-off)"
 		exit 0 ;;
 	*)
-		echo "NO-SPAWN GUARD-FAIL (spawn-guard gave no ALLOW — fail-closed)"
+		echo "NO-WAKE GUARD-FAIL (spawn-guard gave no ALLOW — fail-closed)"
 		exit 0 ;;
 esac
