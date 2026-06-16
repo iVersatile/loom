@@ -77,3 +77,57 @@ protection). The two should not share one rule.
   topology changes who holds review authority; **or the trial shows
   prompt-fatigue in practice** (frequent outward prompts being blind-granted
   — evidence: allow-list growth without matching review acts).
+
+## Amendment (2026-06-16) — tiered merge gate: ordinary code sheds human labor; trust/frozen paths stay human
+
+**Context.** Decision 2 already permits the merge click to be made by "the human
+OR a reviewing seat that did not author the change." In practice the human kept
+doing per-PR merge labor on ordinary code whose correctness CI had already
+proven — rubber-stamp clicks that train the "yes-always" reflex the Consequences
+section warns kills the gate's signal. The 2026-06-16 batch (#162–165) made it
+concrete: the one high-signal catch (an integration regression on adv-065's
+`gopls` path) was made by **CI, not a human merger** — a human clicking merge
+would not have caught it. The merge gate bundles two **labor** guards
+(correctness, spec/governance drift — better mechanized) with two **signal**
+guards (guardrail-weakening, the author≠approver autonomy boundary — genuinely
+human). They should not share one click.
+
+**Decision 2 is refined (not reversed) into a path/class tier:**
+
+5. **Ordinary-class PR** — touches only code/tests/docs OUTSIDE the trust and
+   frozen sets — with CI green (gate + fr-verify + integration) and an
+   author≠merger reviewing seat: the **reviewing seat (advisor today) may merge,
+   including via armed auto-merge — no human click.** This is Decision 2's
+   "reviewing seat that did not author" path, made routine for the labor-only
+   class. Armed auto-merge is valid **only against a protected base** (required
+   checks present); a stacked PR's auto-merge waits until it retargets to `main`,
+   else it bypasses CI entirely (2026-06-16 #165 merged red into its feature
+   branch this way).
+
+6. **Trust/frozen-class PR** — touches any of: `.claude/settings*.json`,
+   `.claude/hooks/**`, `config/hooks/**` (the protect-paths trust class,
+   ADR-0018/029); a deny-rule or guardrail config; an outward-allow widening
+   (ADR-0017 Decision/Consequences); or a frozen SPEC clause or any ADR
+   (including THIS one): **human merge only, always.** Never auto-merged, never
+   reviewing-seat-merged. This is where the human out-performs CI — the "would
+   the guardrails hold if you tried the worst thing" check and the author≠approver
+   boundary.
+
+**Floors unchanged:** server-side branch protection on `main` remains the
+load-bearing guardrail (Decision 2); the reviewing-seat merge is anti-footgun
+convenience above it. The T28 guardrail-drift detector remains the compensating
+control and SHOULD additionally **classify** each PR into ordinary vs
+trust/frozen — the tier must be mechanized, not eyeballed (RULES §5; same
+mechanism family as the 2026-06-16 lane-discipline edit-guard).
+
+**Caveat (carried from Consequences, inverted):** auto-merging the ordinary class
+is correct ONLY while CI carries the correctness signal; if integration coverage
+rots, ordinary-class auto-merge silently ships regressions. Revisit if: the tier
+classifier cannot be mechanized; CI coverage drops below the bar that justifies
+trusting green; or a trust/frozen PR is ever found auto-merged (a classifier miss
+= a Severity-1 incident — roll back the tier).
+
+**Authorship chain:** human-decided (merge-gate harm-analysis discussion
+2026-06-16; human ruled the tiering and "stop asking for ordinary merge labor")
+→ agent-transcribed (this amendment) → human-accepted (merge = acceptance,
+ALLOW_SPEC_CHANGE, per RULES §5/C3).
