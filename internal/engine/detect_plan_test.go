@@ -29,10 +29,14 @@ type fakeRuntime struct {
 	ensureRecord    *ContainerSpec // when set, Ensure records the spec it was asked to converge
 	teardownRemoved Removed
 	teardownErr     error
-	teardownRecord  *teardownArgs     // when set, Teardown records what was asked
-	probeVersions   map[string]string // canned in-container versions (T5)
-	homeSentinel    string            // canned home-sync sentinel digest (T7/C1)
-	running         bool              // canned container state (LL-012)
+	teardownRecord  *teardownArgs        // when set, Teardown records what was asked
+	probeVersions   map[string]string    // canned in-container versions (T5)
+	statOut         map[string][3]string // canned `stat` per path: {owner, mode, uid} (adv-064)
+	statErr         map[string]error     // canned stat error per path (adv-064)
+	userUIDs        map[string]string    // canned `id -u` per user (adv-064)
+	userErr         map[string]error     // canned id error per user (adv-064)
+	homeSentinel    string               // canned home-sync sentinel digest (T7/C1)
+	running         bool                 // canned container state (LL-012)
 	runningErr      error
 	execExit        int       // canned command exit code for Exec
 	execErr         error     // canned transport error for Exec
@@ -85,6 +89,23 @@ func (r fakeRuntime) Teardown(name, level string, cleanState bool, _ io.Writer) 
 func (r fakeRuntime) Probe(_, binary string) (bool, string) {
 	v, ok := r.probeVersions[binary]
 	return ok, v
+}
+
+// StatPath returns canned owner/mode/uid for a path ("" fields when unset).
+func (r fakeRuntime) StatPath(_, p string) (string, string, string, error) {
+	if err := r.statErr[p]; err != nil {
+		return "", "", "", err
+	}
+	v := r.statOut[p]
+	return v[0], v[1], v[2], nil
+}
+
+// UserUID returns the canned uid for a user (adv-064).
+func (r fakeRuntime) UserUID(_, user string) (string, error) {
+	if err := r.userErr[user]; err != nil {
+		return "", err
+	}
+	return r.userUIDs[user], nil
 }
 
 // HomeDigest returns the canned home sentinel ("" = absent/stopped).

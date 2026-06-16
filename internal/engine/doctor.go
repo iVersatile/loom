@@ -198,6 +198,15 @@ func doctorImpl(opts DoctorOpts, rt ContainerRuntime) (DoctorResult, error) {
 	}
 	res.Checks = append(res.Checks, Check{Name: "container:user", OK: true, Detail: userModel})
 
+	// Non-root verification (T10 PR4 Part 3, adv-064): mechanize the ad-hoc exec
+	// spot-checks that proved the non-root seat into durable doctor claims — the
+	// marker is non-forgeable by the runtime user, and that user can write the
+	// workspace (the loop-survival invariant). Live-only (read-only docker probes;
+	// doctor never Starts a container) and graded only for a non-root user.
+	if running {
+		res.Checks = append(res.Checks, nonRootContainerChecks(rt, cname, *pb)...)
+	}
+
 	// Home wiring (C1): the container's home sentinel must match the staged
 	// $HOME — guard hooks and settings count only once the sync put them in.
 	// Live-readable only (the sentinel lives inside the container); a stopped

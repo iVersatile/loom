@@ -106,6 +106,13 @@ type ContainerRuntime interface {
 	// best-effort, its version. The lock's `resolved` source of truth (T5): the
 	// lock pins the container, never the build host.
 	Probe(container, binary string) (present bool, version string)
+	// StatPath reports a path's owner name, octal mode, and owner uid inside the
+	// container — read-only (`stat -c '%U %a %u'`). Doctor uses it to verify the
+	// role marker is non-forgeable and the workspace is writable (adv-064).
+	StatPath(container, path string) (owner, mode, uid string, err error)
+	// UserUID reports the numeric uid of a named user inside the container —
+	// read-only (`id -u <user>`). Errs when the user does not exist (adv-064).
+	UserUID(container, user string) (string, error)
 	// HomeDigest reads the container's home-sync sentinel digest (T7); "" when
 	// absent or unreadable (including a stopped container — callers never start
 	// one to ask; read-only verbs grade the staging tier instead).
@@ -621,6 +628,32 @@ func (dockerRuntime) Probe(container, binary string) (bool, string) {
 		}
 	}
 	return false, ""
+}
+
+// StatPath reads a path's owner name, octal mode, and owner uid inside the
+// container via a single read-only `stat` (adv-064). NOTE: integration-validated,
+// not the local gate.
+func (dockerRuntime) StatPath(container, p string) (owner, mode, uid string, err error) {
+	out, err := exec.Command("docker", "exec", container, "stat", "-c", "%U %a %u", p).Output()
+	if err != nil {
+		return "", "", "", err
+	}
+	fields := strings.Fields(strings.TrimSpace(string(out)))
+	if len(fields) != 3 {
+		return "", "", "", fmt.Errorf("unexpected stat output %q for %s", string(out), p)
+	}
+	return fields[0], fields[1], fields[2], nil
+}
+
+// UserUID reads a named user's numeric uid inside the container via read-only
+// `id -u` (adv-064); a non-existent user makes `id` exit non-zero. NOTE:
+// integration-validated, not the local gate.
+func (dockerRuntime) UserUID(container, user string) (string, error) {
+	out, err := exec.Command("docker", "exec", container, "id", "-u", user).Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // Start brings a stopped container up. `docker start` on a running container
