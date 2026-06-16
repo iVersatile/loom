@@ -24,6 +24,17 @@ rules:
 # marker instead of the forgeable `id -un==root` guess. Conceptual home: ADR-0021.
 role: loom-author
 
+# Runtime user (T10/ADR-0019 Model A, PR4 Part 3): loom-dev runs the agent SESSION
+# as the non-root `loom` user (entry verbs `exec -u loom`), making the root-owned
+# /var/lib/loom/role marker TRULY non-forgeable — a non-root agent reads but cannot
+# write it (ADR-0022 S3 caveat closed; the spawner, slice 4, needs this). The
+# container itself still runs as root (Model A); this is the per-entry-verb identity.
+# useradd prefers uid 1000, matching the bind-mounted workspace owner (uid 1000) so
+# .scratch/inbox stays writable and the drain keeps flipping statuses. The drain
+# role-guard already resolves via the marker (PR4 Part 2), so going non-root is safe
+# (the old id -un==root fallback is gone — that was the load-bearing ordering).
+user: loom
+
 env:
   - ANTHROPIC_API_KEY
 
