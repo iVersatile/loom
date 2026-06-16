@@ -1,0 +1,34 @@
+#!/bin/sh
+# self-wake-tick — ADR-0022 shape A (adv-075/076, human-confirmed): ONE self-wake
+# decision tick for the Writer's /loop. Thin wrapper that runs scripts/spawn-loop
+# with loom-dev's STANDARD seat paths and prints its fixed-vocab verdict
+# (WAKE / WAKE-POLL / WAKE-BACKOFF / IDLE-STOP / NO-WAKE, each WAKE* carrying
+# `delay=<seconds>`).
+#
+# HOW SHAPE A USES IT (the /loop recipe, see .claude/skills/self-wake/SKILL.md):
+# the AGENT runs this each turn and reads the leading verdict token —
+#   WAKE / WAKE-POLL / WAKE-BACKOFF  -> call ScheduleWakeup(<delay>, "re-check inbox"), then stop
+#   IDLE-STOP / NO-WAKE              -> do NOT re-arm; let the session stop
+# This is NOT a trust-path hook: the re-arm is an ordinary agent tool call the
+# existing permission floor already mediates (shape A's whole point — zero trust
+# surface, unlike a Stop-hook block+instruct). The bounds live in spawn-loop
+# (delay clamp [60,3600], give-up-after-K-empty-ticks, HALT-first).
+#
+# Pure path resolver: NO decision logic of its own (spawn-loop owns it all). Root
+# resolves from LOOM_ROOT / CLAUDE_PROJECT_DIR / git toplevel / PWD; each path has a
+# LOOM_WAKE_* override (tests point them at fixtures). The merged-refs default is
+# the drain's .scratch/inbox/.merged-prs cache — like the slice helpers, this must
+# become a HOST/CI-written external-truth file before the loop is load-bearing
+# (the ledger/tick files live in agent-writable .scratch/ for the same reason).
+#
+# Env passthrough to spawn-loop: LOOM_AUTOPULL_CLASSES, LOOM_SPAWN_MAX/WINDOW/NOW,
+# LOOM_WAKE_WORK_DELAY/IDLE_DELAY/MAX_EMPTY.
+ROOT="${LOOM_ROOT:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
+SELF_DIR=$(dirname "$0")
+exec sh "$SELF_DIR/spawn-loop" \
+	"${LOOM_WAKE_PLAN:-$ROOT/docs/PLAN.md}" \
+	"${LOOM_WAKE_MERGED:-$ROOT/.scratch/inbox/.merged-prs}" \
+	"${LOOM_WAKE_INBOX:-$ROOT/.scratch/inbox/loom-author.md}" \
+	"${LOOM_WAKE_LEDGER:-$ROOT/.scratch/inbox/.spawn-log}" \
+	"${LOOM_WAKE_HALT:-$ROOT/.scratch/inbox/HALT}" \
+	"${LOOM_WAKE_TICKS:-$ROOT/.scratch/inbox/.wake-ticks}"
