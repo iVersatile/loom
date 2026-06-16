@@ -92,7 +92,11 @@ func TestE2EBuildAndSurviveRebuild(t *testing.T) {
 			t.Logf("=== build.log ===\n%s", data)
 		}
 	}
-	assertInContainer(containerHome + "/go/bin/gopls")
+	// gopls (a go-built tool) lands in the SHARED /usr/local/bin, not root's
+	// $HOME/go/bin — adv-065 set GOBIN=/usr/local/bin so the non-root runtime user
+	// can run it (/root/go/bin is 0700, unreachable). This assertion follows the
+	// relocation; the unit gate only checks the provision SCRIPT text (adv-068).
+	assertInContainer("/usr/local/bin/gopls")
 
 	// Tear the container down, rebuild, and confirm $HOME config returns.
 	if _, err := Teardown(TeardownOpts{PlaybookPath: pb, Level: "stop"}); err != nil {

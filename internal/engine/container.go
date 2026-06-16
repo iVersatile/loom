@@ -208,6 +208,12 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		if err := ensureShellInit(spec.Name, spec.home(), spec.LogW); err != nil {
 			return ContainerInfo{}, err
 		}
+		// Shared toolchain PATH (/etc/profile.d, adv-065): unconditional like
+		// shell-init, so the root probe and the non-root runtime user both find
+		// /usr/local/go/bin regardless of whose home the path dotfile landed in.
+		if err := ensureSharedToolPath(spec.Name, spec.Tools, spec.LogW); err != nil {
+			return ContainerInfo{}, err
+		}
 		synced := false
 		if spec.HomeDir != "" {
 			if out, err := dockerLogged(spec.LogW, "cp", spec.HomeDir+"/.", homeCpTarget(spec.Name, spec.home())); err != nil {
@@ -251,6 +257,10 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 	// Unconditional shell-init (T4): wired on create regardless of the tool
 	// set, so the loader exists before any home sync or provision step.
 	if err := ensureShellInit(spec.Name, spec.home(), spec.LogW); err != nil {
+		return ContainerInfo{}, err
+	}
+	// Shared toolchain PATH (/etc/profile.d, adv-065): see the reconcile branch.
+	if err := ensureSharedToolPath(spec.Name, spec.Tools, spec.LogW); err != nil {
 		return ContainerInfo{}, err
 	}
 	synced := false
@@ -419,19 +429,30 @@ func needsRoleMarker(have, want string) bool {
 	return validRole(want) && have != want
 }
 
-// roleMarkerPlan reports how the marker behaves for a declared role — LL-014
-// defect 2: an empty role must no longer be a silent no-op. The rule keys ONLY on
-// the role, NOT the user (adv-063): a non-root user: is general container
-// hardening; a non-root container that is not a loom drain-seat has no role and
-// must not be forced to invent one (a missing marker is a safe no-op — the
-// drain-guard fails closed, and the doctor host:role-marker check #144 already
-// fires at the non-root moment). So:
-//   - no role declared ⇒ visible WARNING, no marker (fallback intact);
-//   - a role declared but not marker-safe ⇒ HARD ERROR (a typo to fix, not a
-//     silent skip — same charset the write path enforces);
+// isNonRootUser reports whether a configured user is a real non-root account —
+// "" and "root" are the container default under Model A (mirrors execUserArgs).
+func isNonRootUser(user string) bool {
+	return user != "" && user != "root"
+}
+
+// roleMarkerPlan reports how the marker behaves for a declared (user, role) pair.
+// Keyed on BOTH (adv-067 TASK 2, realigning the code to the FROZEN SPEC-playbook
+// #role + ADR-0019 §5 after #159/adv-063 drifted to role-only; human ruled
+// 2026-06-16 the spec is right). LL-014 defect 2: an empty role is never a silent
+// no-op. The user matters because a NON-ROOT seat with no marker is a real break,
+// not benign hardening:
+//   - root (user "" or "root") + no role ⇒ visible WARNING, no marker (root build
+//     byte-identical, the id -un==root fallback is correct there);
+//   - NON-ROOT user + no role ⇒ HARD ERROR — without the root-owned marker the
+//     drain role-guard fail-closes on a non-root container and the Stop-hook drain
+//     SILENTLY no-ops (autonomous delivery dies); declare role: (or clear user:);
+//   - any role declared but not marker-safe ⇒ HARD ERROR (a typo to fix);
 //   - a valid role ⇒ silent (the marker is written).
-func roleMarkerPlan(role string) (warning string, err error) {
+func roleMarkerPlan(user, role string) (warning string, err error) {
 	if role == "" {
+		if isNonRootUser(user) {
+			return "", fmt.Errorf("non-root user %q requires a role: — without the root-owned %s marker the drain role-guard fail-closes and the Stop-hook drain silently no-ops; declare role: or clear user: (ADR-0019 PR4 §5)", user, roleMarker)
+		}
 		return fmt.Sprintf("no role: declared — %s not written; drain-guard keeps the id -un==root fallback", roleMarker), nil
 	}
 	if !validRole(role) {
@@ -450,6 +471,57 @@ func writeRoleMarker(name, role string, logw io.Writer) error {
 	}
 	if out, err := dockerLogged(logw, "exec", name, "sh", "-c", script); err != nil {
 		return fmt.Errorf("role marker %s: %v: %s", role, err, out)
+	}
+	return nil
+}
+
+// sharedToolPath is the SHARED, container-wide PATH drop-in (adv-065). The Go
+// toolchain installs to /usr/local/go (shared), but its bin dir reaches a user's
+// PATH only via the home-synced ~/.bashrc.d/path.go.sh — which lands in the
+// CONFIGURED user's home (T10). The version probe and provision run as ROOT,
+// whose /root/.profile has no such loader on a non-root container, so `go` (and
+// every go-built tool) fell off root's probe PATH → an all-empty loom.lock.
+// /etc/profile.d is sourced by EVERY login shell (`sh -lc`) regardless of $HOME
+// or user, so it puts the toolchain on PATH for the root probe AND the non-root
+// runtime user uniformly — the shared-tool analogue of the home-scoped dotfile.
+const sharedToolPath = "/etc/profile.d/loom-path.sh"
+
+// hasGoToolchain reports whether the resolved tool set installs Go (tarball or a
+// go-built tool) — the only tool whose bin dir (/usr/local/go/bin) is not already
+// on the default login PATH and so needs the shared drop-in.
+func hasGoToolchain(tools []ToolInstall) bool {
+	for _, t := range tools {
+		if t.Source == "go-tarball" || t.Source == "go-install" {
+			return true
+		}
+	}
+	return false
+}
+
+// sharedToolPathScript writes the /etc/profile.d drop-in adding /usr/local/go/bin
+// to every login shell's PATH. Root-owned + 0644 (a non-root user reads but never
+// forges it). Empty when no Go toolchain is installed — apt tools live in /usr/bin
+// and the relocated harness/go-built tools in /usr/local/bin, both already on the
+// default login PATH, so no drop-in is needed.
+func sharedToolPathScript(tools []ToolInstall) string {
+	if !hasGoToolchain(tools) {
+		return ""
+	}
+	return fmt.Sprintf("set -e\nmkdir -p %s\nprintf '%%s\\n' 'export PATH=\"$PATH:/usr/local/go/bin\"' > %s\nchown root:root %s\nchmod 0644 %s\n",
+		filepath.Dir(sharedToolPath), sharedToolPath, sharedToolPath, sharedToolPath)
+}
+
+// ensureSharedToolPath writes the shared PATH drop-in inside the container, run
+// unconditionally on every converge (like ensureShellInit) so a container missing
+// it self-heals on a plain build. Runs as root (the container default, Model A) —
+// /etc/profile.d must be root-owned. No-op when no Go toolchain is declared.
+func ensureSharedToolPath(name string, tools []ToolInstall, logw io.Writer) error {
+	script := sharedToolPathScript(tools)
+	if script == "" {
+		return nil
+	}
+	if out, err := dockerLogged(logw, "exec", name, "sh", "-c", script); err != nil {
+		return fmt.Errorf("shared tool PATH: %v: %s", err, out)
 	}
 	return nil
 }
@@ -802,6 +874,12 @@ GOVER="$(retry curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)"
 retry curl -fsSL "https://go.dev/dl/${GOVER}.linux-${ARCH}.tar.gz" -o /tmp/go.tgz
 rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz && rm -f /tmp/go.tgz
 export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin"
+# go install lands binaries in a SHARED, world-exec dir (/usr/local/bin, like the
+# Go toolchain's own /usr/local/go) so the NON-ROOT runtime user can run them too
+# — NOT root's $HOME/go/bin, which a non-root user cannot reach (/root is 0700;
+# T10/adv-065). Only the install target moves; the GOPATH build cache stays in
+# root's home (root-only, not needed at runtime).
+export GOBIN=/usr/local/bin
 # Keep memory-heavy installs (gopls) alive on a small VM / ~7GB CI box: serialize
 # the build (-p=1, GOMAXPROCS=1) and cap the Go heap (GOMEMLIMIT) so the GC stays
 # under the ceiling instead of OOMing. Trades build speed for survival.
@@ -814,12 +892,15 @@ export GOMEMLIMIT=1GiB
 		b.WriteString("retry go install " + m + "\n")
 	}
 	if needUv {
-		b.WriteString("retry sh -c 'curl -fsSL https://astral.sh/uv/install.sh | sh'\n")
+		// UV_INSTALL_DIR puts uv in the SHARED /usr/local/bin (reachable by the
+		// non-root runtime user), not the provisioning root's ~/.local/bin (adv-065).
+		b.WriteString("retry sh -c 'curl -fsSL https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh'\n")
 	}
-	// Install declared agent harnesses (T8). claude-code's native installer
-	// needs no Node; it lands at ~/.local/bin — persistent PATH for it comes
-	// from the generated ~/.bashrc.d/path.local.sh dotfile (T4), not from
-	// appends here.
+	// Install declared agent harnesses (T8). claude-code's native installer needs
+	// no Node; it lands at root's ~/.local/bin (provision runs as root, Model A),
+	// then agentInstallCmd relocates the BINARY to the SHARED /usr/local/bin so the
+	// non-root runtime user can run it (adv-065). Persistent PATH for /usr/local/bin
+	// is the default login PATH; trust/hooks materialization is unchanged (dotfiles).
 	for _, a := range agents {
 		b.WriteString(agentInstallCmd(a))
 	}
@@ -835,14 +916,21 @@ export GOMEMLIMIT=1GiB
 	return b.String()
 }
 
-// agentInstallCmd emits the provision step that installs one agent harness.
-// Unknown agents (no installer yet) emit nothing — they are still recorded in
-// the provision digest so the intent is tracked. PATH wiring is dotfile-owned
-// (~/.bashrc.d/path.local.sh, T4), never appended to shell-init files here.
+// agentInstallCmd emits the provision step that installs one agent harness, then
+// relocates its BINARY to the SHARED /usr/local/bin. The native installer lands
+// the binary in root's ~/.local/bin (provision runs as root, Model A) — a path a
+// non-root runtime user cannot reach (/root is 0700), which left a non-root seat
+// with `claude: command not found` and an all-empty loom.lock (adv-065). The
+// claude binary is a self-contained ELF, so `cp -L` of the ~/.local/bin/claude
+// symlink target yields a working, world-exec binary on the default login PATH
+// for every user; only the binary moves — trust/hooks stay home-synced dotfiles.
+// Unknown agents (no installer yet) emit nothing — still recorded in the provision
+// digest so the intent is tracked.
 func agentInstallCmd(a AgentInstall) string {
 	switch a.Name {
 	case "claude-code":
-		return "retry sh -c 'curl -fsSL https://claude.ai/install.sh | bash'\n"
+		return "retry sh -c 'curl -fsSL https://claude.ai/install.sh | bash'\n" +
+			"cp -L \"$HOME/.local/bin/claude\" /usr/local/bin/claude && chmod 0755 /usr/local/bin/claude\n"
 	default:
 		return ""
 	}
