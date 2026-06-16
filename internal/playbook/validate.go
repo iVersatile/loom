@@ -51,6 +51,18 @@ func (pb *Playbook) Validate() error {
 		errs = append(errs, fmt.Sprintf("invalid user %q (must be a single token: no whitespace, no / or :)", pb.User))
 	}
 
+	// role: (T10/ADR-0019 PR4 §5, LL-014) is the declarative source for the
+	// /var/lib/loom/role marker — an optional, any-tier scalar, same single-token
+	// shape as user: (it lands in a shell-written marker file; the engine
+	// additionally enforces a marker-safe charset via validRole). The
+	// non-root-user-needs-a-role rule is a BUILD-time check (build.go), not a
+	// schema rule: it depends on the user/role COMBINATION, and a base-tier role
+	// with a project-tier user is a valid authored split the merged check still
+	// catches.
+	if pb.Role != "" && (strings.TrimSpace(pb.Role) != pb.Role || strings.ContainsAny(pb.Role, " \t\r\n/:")) {
+		errs = append(errs, fmt.Sprintf("invalid role %q (must be a single token: no whitespace, no / or :)", pb.Role))
+	}
+
 	for agent, h := range pb.Harness {
 		if agent == "" {
 			errs = append(errs, "harness: agent namespace key must be non-empty")

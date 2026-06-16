@@ -197,6 +197,29 @@ clause authorizes (provision-as-root / run-as-user split, `useradd`, ownership
 is sliced across T10 PR 3–4; this clause + the schema/merge/validate +
 `ContainerSpec.User/Home` plumbing is PR 2.
 
+## `role:` field (added 2026-06-15, T10 / ADR-0019 PR4 §5, LL-014)
+
+**`role:` (optional, scalar, later-wins): the container's loom-role identity, the
+declarative in-tree source for the root-owned `/var/lib/loom/role` marker `loom
+build` writes.** Unset means no marker (a root build is byte-identical to
+pre-PR4). A non-root `user:` with an empty/invalid `role:` is a **build-time
+error** — that combination silently breaks the drain role-guard (the marker is
+how a non-root agent's role is resolved without trusting `id -un`).
+
+Authored at any tier (last-non-empty-wins, like `user:`); the same single-token
+shape (no whitespace, no `/` or `:`), with the engine additionally enforcing a
+marker-safe charset (`[A-Za-z0-9_-]`) at write time — anything else writes no
+marker (fail-safe). The marker is produced **the loom way**: by `loom build` from
+this tree-recorded value, identically on every host, folded into the convergence
+digest so a missing marker self-heals on the next plain build (mirrors the
+`/var/lib/loom/home` sentinel) — never hand-written into a container (LL-014).
+
+The ambient `LOOM_SESSION_ROLE` env that PR4 Part 1 first used is **demoted** to
+an explicit override / test-seam (it wins over `role:` when set, so a second seat
+sharing one tree — e.g. the advisor — can override without editing the playbook).
+Conceptual home of the role model is ADR-0021. Whether anything *reads* the
+marker (the drain role-guard swap) is PR4 Part 2, human-applied.
+
 ## `harness:` section (added 2026-06-11, ADR-0015)
 
 Harness-home config — artifacts with semantics plain dotfiles lack: hook

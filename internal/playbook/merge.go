@@ -37,6 +37,9 @@ func Merge(layers ...*Playbook) *Playbook {
 		if l.User != "" {
 			out.User = l.User
 		}
+		if l.Role != "" {
+			out.Role = l.Role
+		}
 		if l.Extends != "" {
 			out.Extends = l.Extends
 		}

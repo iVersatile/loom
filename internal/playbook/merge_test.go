@@ -55,6 +55,29 @@ func TestUserMergeLastWins(t *testing.T) {
 	}
 }
 
+// TestRoleMergeLastWins covers the role: scalar (ADR-0019 PR4 §5): a
+// last-non-empty-wins scalar, so an env-wide base default can be overridden by a
+// project layer, and an empty later layer must not clobber an earlier value.
+func TestRoleMergeLastWins(t *testing.T) {
+	base := &Playbook{Loom: 1, Tier: TierBase, Role: "loom-author"}
+	stack := &Playbook{} // no role — must not blank the base default
+	proj := &Playbook{Tier: TierProject, Name: "loom", Role: "loom-advisor"}
+	if got := Merge(base, stack, proj).Role; got != "loom-advisor" {
+		t.Errorf("role = %q, want loom-advisor (project overrides base, empty layer ignored)", got)
+	}
+
+	// Base-only default survives when no later layer authors role.
+	projNoRole := &Playbook{Tier: TierProject, Name: "loom"}
+	if got := Merge(base, projNoRole).Role; got != "loom-author" {
+		t.Errorf("role = %q, want loom-author (base default, no override)", got)
+	}
+
+	// Unset everywhere stays unset (= no marker).
+	if got := Merge(&Playbook{Loom: 1, Tier: TierBase}, projNoRole).Role; got != "" {
+		t.Errorf("role = %q, want \"\" (unset = no marker)", got)
+	}
+}
+
 func TestMergeListsConcatAndDedup(t *testing.T) {
 	a := &Playbook{Tools: []string{"git", "jq"}, Ports: []int{8080}}
 	b := &Playbook{Tools: []string{"jq", "go@1.26"}, Ports: []int{8080, 9090}}

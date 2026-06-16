@@ -88,6 +88,36 @@ func TestValidateUserFormat(t *testing.T) {
 	}
 }
 
+// TestValidateRoleFormat covers the role: schema clause (ADR-0019 PR4 §5,
+// LL-014): role: is optional, accepted at any tier, and a set value must be a
+// single token (same shape as user:). The marker-safe charset narrowing and the
+// non-root-user-needs-a-role rule are engine/build-time concerns, not schema.
+func TestValidateRoleFormat(t *testing.T) {
+	valid := []*Playbook{
+		{Loom: 1, Tier: TierBase},                      // unset = no marker
+		{Loom: 1, Tier: TierBase, Role: "loom-author"}, // base-authored
+		{Loom: 1, Tier: TierProject, Name: "x", Role: "loom_advisor"},
+	}
+	for i, pb := range valid {
+		if err := pb.Validate(); err != nil {
+			t.Errorf("valid case %d (role=%q): %v", i, pb.Role, err)
+		}
+	}
+
+	invalid := map[string]*Playbook{
+		"role with space": {Loom: 1, Tier: TierBase, Role: "loom author"},
+		"role with slash": {Loom: 1, Tier: TierBase, Role: "a/b"},
+		"role with colon": {Loom: 1, Tier: TierBase, Role: "a:b"},
+		"role padded":     {Loom: 1, Tier: TierProject, Name: "x", Role: " role"},
+		"role with tab":   {Loom: 1, Tier: TierBase, Role: "ro\tle"},
+	}
+	for name, pb := range invalid {
+		if err := pb.Validate(); err == nil {
+			t.Errorf("%s: expected validation error, got nil", name)
+		}
+	}
+}
+
 func TestLoadMergesLayers(t *testing.T) {
 	res, err := Load("testdata/proj/loom.yml")
 	if err != nil {

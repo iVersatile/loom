@@ -62,12 +62,32 @@ value").
    keys on **name** (`id -un`), not uid, so name-based verification supports
    this with no change.
 5. **A root-owned role marker replaces the uid guess.** Provision writes
-   `/var/lib/loom/role` (`0644`, root-owned) from a new `ContainerSpec.Role`
-   (set by the loom-dev overlay / engine wiring — **never** a playbook `role:`
-   key; role is a TEAM concept). The drain guard resolves `LOOM_SESSION_ROLE`
-   env → the marker → UNRESOLVED = no-op (fail-closed). Security gain, not
-   parity: a non-root agent cannot forge its own role, and a host-side advisor
+   `/var/lib/loom/role` (`0644`, root-owned) from `ContainerSpec.Role`. The drain
+   guard resolves the marker → UNRESOLVED = no-op (fail-closed). Security gain,
+   not parity: a non-root agent cannot forge its own role, and a host-side advisor
    session has no marker, so the LL-011 fail-closed floor holds.
+
+   **§5 amendment (2026-06-15, PR4 Part-1 REDO — LL-014, envelope adv-062;
+   human-authorized spec change, merge = acceptance).** Part 1 (#154) shipped the
+   marker but sourced the role from the ambient `LOOM_SESSION_ROLE` env, no-op'd
+   silently on an empty role, and wrote only behind the convergence early-return —
+   so a normal `loom build` never produced it and a verify was "passed" by a
+   hand-run `docker exec` (drift, not convergence). The amendment makes the marker
+   producible the loom way:
+   - **Declarative in-tree source: an optional `role:` playbook field** (SPEC-
+     playbook `#role`), mirroring `user:`. This **supersedes** the original "never
+     a playbook `role:` key" wording above — the role model still lives at the TEAM
+     /ADR-0021 layer, but its *value per environment* must be tree-recorded to be
+     reproducible. `loom.yml` (loom-dev) sets `role: loom-author`.
+   - **`LOOM_SESSION_ROLE` is demoted** to an explicit override / test-seam (wins
+     over `role:` when set — lets a second seat on a shared tree override without
+     editing the playbook).
+   - **Fail loud, not silent:** a non-root `user:` with an empty/invalid `role:` is
+     a HARD build ERROR; root + empty role is a visible warning (no marker, root
+     fallback intact).
+   - **Convergence dimension:** the marker joins the early-return digest
+     (`needsRoleMarker`, mirroring `needsHomeSync`/`/var/lib/loom/home`), so a
+     missing/stale marker self-heals on the next plain `loom build` on every env.
 
 ## Consequences
 - **Default-root compatibility:** unset `user:` is byte-identical to today; the
@@ -89,13 +109,17 @@ value").
   `ContainerSpec.User/Home` plumbing** (resolved value populated, engine not yet
   consuming it). PR 3 = engine behavior (decisions 2–4: container runs as root +
   entry-verb `-u <user>` by name, collision-tolerant `useradd`, scoped chown,
-  integration-test re-derivation). PR 4 = the role marker (decision 5, a
-  trust-path human-applied diff) + the `container:user` doctor claim.
+  integration-test re-derivation). **PR 4 = the role marker (decision 5 + §5):
+  Part 1 = engine — declarative `role:` field, convergence-folded write, fail-loud
+  (#154, redone the loom way per §5/LL-014) + the `container:user` doctor claim;
+  Part 2 = the drain-guard swap that READS the marker (human-applied, trust path).**
 
 ## Links
 - T10 thread (docs/OPEN-THREADS.md) — full design + advisor red-team verdict.
 - ADR-0015 (harness home / `$HOME` materialization rule), ADR-0016 (entry verbs
   decision 7: entry runs as the configured user), ADR-0018 (declared-config
   doctrine the `user:` scalar follows).
-- SPEC-playbook.md `#user` — the frozen clause. FR-SCHEMA-009 — schema/merge/
-  validate + `$HOME` resolution coverage.
+- SPEC-playbook.md `#user`, `#role` — the frozen clauses. FR-SCHEMA-009 —
+  schema/merge/validate + `$HOME` resolution coverage. FR-BUILD-016 — the role
+  marker (declarative source, convergence write, fail-loud). LL-014 — why the
+  marker must be tree-produced, not hand-written.
