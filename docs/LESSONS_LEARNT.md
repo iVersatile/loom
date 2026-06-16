@@ -4,7 +4,33 @@ Append-only, indexed by surface-area tag. Before fixing a bug, grep this file fo
 the relevant tag; cite `Applying LL-NNN` in the commit body.
 
 ## Tag registry
-- `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud`
+- `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud` · `git`
+
+## LL-015 — An unenforced convention is not a guardrail; "use a worktree" must be a mechanism on every seat
+- Date: 2026-06-16
+- Tags: `git`
+- Symptom: Twice (2026-06-13, 2026-06-16) the advisor and the in-container Writer
+  edited the same files in the shared `main` checkout and collided; on 2026-06-16
+  an advisor `git stash` (extracting its own role-marker fix) swept the Writer's
+  commingled adv-065 `container.go`/`build_test.go` out of `main`'s working tree.
+  No work was lost — adv-065 was committed on its branch and recovered — but the
+  Writer's in-flight edits vanished mid-session.
+- Root cause: "work in a worktree, never edit `main`'s checkout" lived only as a
+  memory note — soft, advisor-only, unenforced. Under task focus, soft guidance
+  loses. By RULES §5 ("guardrails are mechanism, not trust"), a convention nothing
+  enforces is not a rule, and it must bind EVERY seat symmetrically. Host `ps`
+  does not show the in-container Writer (separate pid namespace), so "only one
+  process is running" is NOT evidence the shared tree is free.
+- Fix: make it a mechanism, symmetric across seats — (1) a PreToolUse edit-guard
+  refusing `Write`/`Edit` under the project tree while `HEAD` is `main`/`master`,
+  on BOTH harnesses (mirroring branch-guard's escapes); (2) each seat in its own
+  git worktree, so `main`'s primary checkout holds no agent CWD; (3) a RULES/TEAM
+  clause as the human-readable face (never instead of the mechanism). The hook is
+  the backstop; the topology is the real fix. (adv-067 TASK 3, ADR-0023.)
+- Prevention: before a `git stash`/`checkout`/`restore` that extracts "your own"
+  change, inspect the diff first — a file you think is yours may hold another
+  seat's commingled work. And when a working practice matters, encode it as a
+  guard + a topology, not a note one seat happens to remember.
 
 ## LL-014 — Hand-writing an engine-produced artifact to pass a verify is drift, not a fix
 - Date: 2026-06-15
