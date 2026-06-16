@@ -115,7 +115,14 @@ fi
 # repo with the role's inbox. ONE awk pass; values read as DATA (never eval'd). ---
 loom_str=""
 if [ -n "$repo_root" ]; then
-  role="${LOOM_SESSION_ROLE:-loom-author}"
+  # Role source = the declarative /var/lib/loom/role marker (loom.yml role:, PR4) —
+  # the SAME source the drain-guard reads (adv-066), so the glyph and the drain
+  # never disagree and launching a seat needs NO `export` (the marker is per-seat:
+  # Writer=loom-author, advisor=loom-advisor). LOOM_SESSION_ROLE stays env-FIRST as
+  # the drain-guard's demoted override/test-seam (NOT a launch ritual);
+  # LOOM_ROLE_MARKER overrides the marker path for tests only. Read as DATA, never
+  # eval'd; the marker is root-owned + charset-validated at write (non-forgeable).
+  role="${LOOM_SESSION_ROLE:-$(cat "${LOOM_ROLE_MARKER:-/var/lib/loom/role}" 2>/dev/null || echo loom-author)}"
   inbox="$repo_root/.scratch/inbox/${role}.md"
   if [ -f "$inbox" ]; then
     { read -r ap; read -r queued; read -r parked; } <<EOF2
