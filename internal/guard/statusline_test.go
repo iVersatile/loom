@@ -45,7 +45,20 @@ func runStatusline(t *testing.T, root string, extraEnv ...string) string {
 	}
 	c := exec.Command("sh", script)
 	c.Dir = root
-	c.Env = append(hermeticEnv(), extraEnv...)
+	// Hermetic role source (LL-006, adv-069): the statusline resolves role
+	// env-FIRST, so an ambient LOOM_SESSION_ROLE (the advisor shell exports it —
+	// the launch ritual adv-066 is retiring) would override the marker/default
+	// under test and fail the gate ONLY in that env (CI's clean env hid it). Drop
+	// it from the inherited env; a test that wants the override passes it via
+	// extraEnv (TestStatuslineEnvOverridesMarker), which is appended last and wins.
+	env := make([]string, 0, len(os.Environ()))
+	for _, kv := range hermeticEnv() {
+		if strings.HasPrefix(kv, "LOOM_SESSION_ROLE=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	c.Env = append(env, extraEnv...)
 	c.Stdin = strings.NewReader(`{"worktree":{"original_cwd":"` + root + `"},"model":{"display_name":"M"}}`)
 	out, err := c.Output() // statusline is best-effort (no set -e); never errors
 	if err != nil {
