@@ -1,0 +1,101 @@
+#!/bin/sh
+# spawn-loop — ADR-0022 slice 4: the OFFLINE SPAWNER ORCHESTRATOR.
+# Origin : ADR-0022 (autonomy substrate) slice 4; advisor envelope adv-070.
+#          GATED on ADR-0019 PR4 (a non-forgeable role-marked session is the
+#          precondition) — that merged (#164), so this slice may ship.
+# Reuse  : recurring — the self-wake decision the live loop runs each cycle to end
+#          Writer-idle; verb-candidate (relocates under config/hooks/, slice 5).
+# Runs on: loom-dev (the autonomy loop's seat). It only READS repo files and
+#          ORCHESTRATES the three merged slice helpers; its own only mutations are
+#          theirs (promote-next appends an envelope; spawn-guard appends a ledger
+#          line on a grant). It NEVER drives a session — see the TRUST-PATH SEAM.
+#
+# Decision-helper / orchestrator shape (no `set -eu`): defers ALL security-
+# sensitive logic to the three single-home helpers and emits ONE fixed-vocab
+# verdict. The chain (ADR-0022 Decision 4):
+#   HALT-first → readiness-decide → promote-next → spawn-guard → (ALLOW ⇒ SPAWN).
+#
+# WHY (ADR-0022): the human used to be the inbox-refill valve AND the session
+# waker. This composes the offline halves so an idle seat self-refills from the
+# READY backlog and decides whether to wake — keeping the human on the gates
+# (self-selection floor + HALT + rate bound), removing them from transport.
+#
+# TRUST-PATH SEAM (ADR-0022 caveat — HUMAN-APPLIED, do NOT self-wire): this script
+# DECIDES; it does not ACT the spawn. On ALLOW it emits the fixed token `SPAWN`
+# (constant payload — ONE wake unit, never a growing payload) for the trust-path
+# ACTUATOR (the harness wiring that actually wakes/spawns a session) to consume.
+# That actuator is a trust-path bit (029.C / ALLOW_TRUST_CHANGE, like the drain
+# hook) and is wired by the human, NOT here. Build = offline decision + guard
+# tests; the wake half is flagged for the human.
+#
+# FIXED VOCABULARY (hardcoded constants; nothing from a row/ledger is echoed into
+# the decision token — the leading word is the verdict):
+#   SPAWN        HALT absent, a READY backlog row was promoted to QUEUED (its class
+#                is on the LOOM_AUTOPULL_CLASSES allow-list), and spawn-guard granted
+#                (rate ledger under bound). The actuator wakes ONE session.
+#   NO-SPAWN     anything else — each with a fixed reason token (fail-safe default):
+#                HALT · NO-BACKLOG · CONFIRM-REQUIRED · RATE · GUARD-FAIL · UNKNOWN.
+#
+# SECURITY: sub-helper output is matched with `case` globs against FIXED substrings
+# (ALLOW / DENY-HALT / DENY-RATE / "no READY" / "status QUEUED" / "status CONFIRM-
+# REQUIRED"), never eval'd. The only request-derived value that prints is the
+# promote-next slug, already sanitized to [a-z0-9-] by promote-next — trailing
+# DATA, never the verdict token.
+#
+# Args: $1 = docs/PLAN.md, $2 = external-truth merged-refs file, $3 = target inbox,
+#       $4 = spawn-ledger, $5 = HALT sentinel.
+# Env (passed through to the helpers): LOOM_AUTOPULL_CLASSES (promote-next floor);
+#       LOOM_SPAWN_MAX / LOOM_SPAWN_WINDOW / LOOM_NOW (spawn-guard rate bound).
+
+PLAN="$1"; MERGED="$2"; INBOX="$3"; LEDGER="$4"; HALT="$5"
+SELF_DIR=$(dirname "$0")
+
+# 1. HALT FIRST — fail-safe, before ANY spawn cost or refill, ahead of the drain's
+#    and spawn-guard's own HALT checks (T23 HALT-before-AUTOPILOT ordering). A
+#    HALTed system spawns nothing, period.
+if [ -e "$HALT" ]; then
+	echo "NO-SPAWN HALT (sentinel present — spawn nothing)"
+	exit 0
+fi
+
+# 2. Refill — promote-next runs readiness-decide internally (its single home) and
+#    mints at most one envelope for the READY backlog row, idempotently. We branch
+#    on its fixed-vocab outcome; no row prose reaches a decision here.
+refill=$(sh "$SELF_DIR/promote-next" "$PLAN" "$MERGED" "$INBOX" 2>/dev/null)
+case "$refill" in
+	*"no READY backlog row"*)
+		echo "NO-SPAWN NO-BACKLOG (no READY backlog row to promote)"
+		exit 0 ;;
+	*"status CONFIRM-REQUIRED"*)
+		# Self-selection floor (ADR-0022 amendment 5): the row's class is NOT on the
+		# auto-pullable allow-list, so it was minted for a HUMAN flip. Waking a
+		# session would not help — the drain only delivers QUEUED. Human tier.
+		echo "NO-SPAWN CONFIRM-REQUIRED (promoted for human confirmation — not auto-spawnable)"
+		exit 0 ;;
+	*"status QUEUED"*|*"already present"*)
+		: ;;  # eligible work present (just minted, or minted on a prior cycle) — proceed
+	*)
+		echo "NO-SPAWN UNKNOWN (unrecognized promote-next outcome — fail-safe)"
+		exit 0 ;;
+esac
+
+# 3. Rate/HALT gate — spawn-guard owns the DURABLE cross-spawn bound (the per-process
+#    drain .drain-count does NOT bound across spawns). ALLOW appends one ledger line
+#    (the grant ↔ this SPAWN verdict are 1:1).
+guard=$(sh "$SELF_DIR/spawn-guard" "$LEDGER" "$HALT" 2>/dev/null)
+case "$guard" in
+	ALLOW*)
+		# Promoted slug (sanitized [a-z0-9-] by promote-next) as trailing DATA only.
+		slug=$(printf '%s' "$refill" | sed -n 's/^promote-next: minted promote-\([a-z0-9-]*\) .*$/\1/p' | head -1)
+		echo "SPAWN (grant recorded; actuator wakes ONE session)${slug:+ for promote-$slug}"
+		exit 0 ;;
+	DENY-HALT*)
+		echo "NO-SPAWN HALT (spawn-guard: HALT sentinel present)"
+		exit 0 ;;
+	DENY-RATE*)
+		echo "NO-SPAWN RATE (spawn-guard: cross-spawn rate bound — back off)"
+		exit 0 ;;
+	*)
+		echo "NO-SPAWN GUARD-FAIL (spawn-guard gave no ALLOW — fail-closed)"
+		exit 0 ;;
+esac
