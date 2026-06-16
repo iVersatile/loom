@@ -412,25 +412,25 @@ func needsRoleMarker(have, want string) bool {
 	return validRole(want) && have != want
 }
 
-// roleMarkerPlan validates the role/user combination at build time and reports
-// how the marker behaves — LL-014 defect 2: an empty role must no longer be a
-// silent no-op. A valid role ⇒ the marker is written (no warning, no error). An
-// empty/invalid role ⇒ a non-root user is a HARD ERROR (the marker is the only
-// non-forgeable way to resolve that user's role; without it the drain role-guard
-// silently breaks), while root/unset yields a visible warning and no marker (the
-// root fallback stays intact). Charset is validated identically to the write path.
-func roleMarkerPlan(user, role string) (warning string, err error) {
-	if validRole(role) {
-		return "", nil
+// roleMarkerPlan reports how the marker behaves for a declared role — LL-014
+// defect 2: an empty role must no longer be a silent no-op. The rule keys ONLY on
+// the role, NOT the user (adv-063): a non-root user: is general container
+// hardening; a non-root container that is not a loom drain-seat has no role and
+// must not be forced to invent one (a missing marker is a safe no-op — the
+// drain-guard fails closed, and the doctor host:role-marker check #144 already
+// fires at the non-root moment). So:
+//   - no role declared ⇒ visible WARNING, no marker (fallback intact);
+//   - a role declared but not marker-safe ⇒ HARD ERROR (a typo to fix, not a
+//     silent skip — same charset the write path enforces);
+//   - a valid role ⇒ silent (the marker is written).
+func roleMarkerPlan(role string) (warning string, err error) {
+	if role == "" {
+		return fmt.Sprintf("no role: declared — %s not written; drain-guard keeps the id -un==root fallback", roleMarker), nil
 	}
-	detail := "no role: declared"
-	if role != "" {
-		detail = fmt.Sprintf("role %q is not marker-safe ([A-Za-z0-9_-] only)", role)
+	if !validRole(role) {
+		return "", fmt.Errorf("role %q is not marker-safe ([A-Za-z0-9_-] only) — fix the typo or clear role: (ADR-0019 PR4 §5)", role)
 	}
-	if user != "" && user != "root" {
-		return "", fmt.Errorf("non-root user %q requires a valid role: — %s; that combination silently breaks the drain role-guard (ADR-0019 PR4 §5)", user, detail)
-	}
-	return fmt.Sprintf("%s — %s not written; drain-guard keeps the id -un==root fallback", detail, roleMarker), nil
+	return "", nil
 }
 
 // writeRoleMarker writes the /var/lib/loom/role marker inside the container (ADR-

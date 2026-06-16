@@ -97,14 +97,14 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 	}
 	changed := false
 
-	// Role marker plan (LL-014 defect 2): fail LOUD on an empty role, never the
-	// old silent no-op. A non-root user: with no valid role: is a HARD ERROR
-	// (fail fast — before the lock/home writes — because the marker is the only
-	// non-forgeable way to resolve that user's role; without it the drain
-	// role-guard silently breaks). Root/unset + empty role is a visible warning
-	// (no marker, root fallback intact). validRole rejects unsafe charsets.
+	// Role marker plan (LL-014 defect 2, re-scoped adv-063): fail LOUD on a
+	// declared-but-malformed role (a typo to fix), never the old silent no-op; an
+	// UNdeclared role is a visible warning, not an error — a non-root user: is
+	// general hardening and need not invent a role (the doctor host:role-marker
+	// check #144 catches the dogfood footgun at the non-root moment). Checked
+	// before the lock/home writes so a hard error fails fast with no side effects.
 	role := sessionRole(pb)
-	roleWarn, roleErr := roleMarkerPlan(pb.User, role)
+	roleWarn, roleErr := roleMarkerPlan(role)
 	if roleErr != nil {
 		return res, fmt.Errorf("build: %w", roleErr)
 	}

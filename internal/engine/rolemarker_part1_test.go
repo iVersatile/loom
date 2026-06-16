@@ -130,54 +130,71 @@ func TestNeedsRoleMarker(t *testing.T) {
 	}
 }
 
-// TestRoleMarkerPlan (LL-014 defect 2): the empty-role no-op must fail loud. A
-// non-root user with no valid role is a HARD ERROR; root + empty/invalid is a
-// visible warning (no marker); a valid role is silent (marker written).
+// TestRoleMarkerPlan (LL-014 defect 2, re-scoped adv-063): the rule keys on the
+// ROLE only, never the user. An undeclared role ⇒ visible warning (no marker,
+// fallback intact); a declared-but-malformed role ⇒ hard error (a typo to fix);
+// a valid role ⇒ silent (marker written).
 func TestRoleMarkerPlan(t *testing.T) {
-	// Hard error: non-root user, no/invalid role.
-	for _, role := range []string{"", "bad role"} {
-		if w, err := roleMarkerPlan("agent", role); err == nil {
-			t.Errorf("roleMarkerPlan(agent,%q): want error, got warning %q", role, w)
+	// Undeclared role ⇒ warning, no error.
+	w, err := roleMarkerPlan("")
+	if err != nil {
+		t.Errorf("roleMarkerPlan(\"\"): want warning not error, got %v", err)
+	}
+	if w == "" {
+		t.Error("roleMarkerPlan(\"\"): want a visible warning, got none")
+	}
+	// Declared but not marker-safe ⇒ hard error (independent of any user).
+	for _, role := range []string{"bad role", "a;rm -rf /", "a/b"} {
+		if w, err := roleMarkerPlan(role); err == nil {
+			t.Errorf("roleMarkerPlan(%q): want error, got warning %q", role, w)
 		}
 	}
-	// Warning, no error: root/unset + empty or invalid role.
-	for _, user := range []string{"", "root"} {
-		w, err := roleMarkerPlan(user, "")
-		if err != nil {
-			t.Errorf("roleMarkerPlan(%q,\"\"): want warning not error, got %v", user, err)
-		}
-		if w == "" {
-			t.Errorf("roleMarkerPlan(%q,\"\"): want a visible warning, got none", user)
-		}
-	}
-	// Valid role: silent on both axes (the marker is written).
-	if w, err := roleMarkerPlan("agent", "loom-author"); w != "" || err != nil {
-		t.Errorf("roleMarkerPlan(agent,loom-author) = (%q,%v), want (\"\",nil)", w, err)
+	// Valid role ⇒ silent.
+	if w, err := roleMarkerPlan("loom-author"); w != "" || err != nil {
+		t.Errorf("roleMarkerPlan(loom-author) = (%q,%v), want (\"\",nil)", w, err)
 	}
 }
 
-// TestBuildRoleLoudFail wires the loud-fail through buildImpl: a non-root user:
-// with no role: aborts the build with an error; root + no role: succeeds with a
-// surfaced warning (and no marker). LL-014 defect 2 at the verb boundary.
+// TestBuildRoleLoudFail wires the re-scoped loud-fail through buildImpl (adv-063):
+// a DECLARED-but-malformed role aborts the build (any user); a missing role is a
+// surfaced warning, NOT an error — including for a non-root user: (general
+// hardening must not force a role). LL-014 defect 2 at the verb boundary.
 func TestBuildRoleLoudFail(t *testing.T) {
 	rt := fakeRuntime{ensureInfo: ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"}}
 
-	t.Run("non-root user + no role ⇒ hard error", func(t *testing.T) {
+	t.Run("malformed role ⇒ hard error", func(t *testing.T) {
 		t.Setenv("LOOM_SESSION_ROLE", "")
 		pbPath := filepath.Join(tempProject(t), "loom.yml")
-		addLine(t, pbPath, "user: agent")
+		addLine(t, pbPath, "role: bad/role")
 		if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err == nil {
-			t.Fatal("want a hard error for non-root user with no role, got nil")
+			t.Fatal("want a hard error for a declared-but-malformed role, got nil")
 		}
 	})
 
-	t.Run("non-root user + role ⇒ ok", func(t *testing.T) {
+	t.Run("non-root user + no role ⇒ warning, not error", func(t *testing.T) {
+		t.Setenv("LOOM_SESSION_ROLE", "")
+		pbPath := filepath.Join(tempProject(t), "loom.yml")
+		addLine(t, pbPath, "user: agent")
+		res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock)
+		if err != nil {
+			t.Fatalf("non-root user without a role must NOT error (general hardening): %v", err)
+		}
+		if len(res.Warnings) == 0 {
+			t.Error("non-root user + no role must surface a visible warning")
+		}
+	})
+
+	t.Run("non-root user + valid role ⇒ ok, no warning", func(t *testing.T) {
 		t.Setenv("LOOM_SESSION_ROLE", "")
 		pbPath := filepath.Join(tempProject(t), "loom.yml")
 		addLine(t, pbPath, "user: agent")
 		addLine(t, pbPath, "role: agent-role")
-		if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock); err != nil {
-			t.Fatalf("non-root user WITH a role must build: %v", err)
+		res, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt, fixedClock)
+		if err != nil {
+			t.Fatalf("non-root user WITH a valid role must build: %v", err)
+		}
+		if len(res.Warnings) != 0 {
+			t.Errorf("valid role must not warn, got %v", res.Warnings)
 		}
 	})
 
