@@ -76,3 +76,20 @@ This reuses the T31 discipline (a recency/heartbeat heuristic rather than a frag
 ## What this does NOT change
 
 The human stays on the same two gates: **what enters the queue** (backlog refill / self-selection — the empty `LOOM_AUTOPULL_CLASSES` floor) and **trust-path merges**. The fleet is "autonomy inside an envelope," not unbounded.
+
+## Revision R1 (2026-06-17) — resolutions to the author-confer rebuttal
+
+The first `/confer` (an ad-hoc ephemeral author, 2026-06-17) returned **REBUT** with four objections. This revision answers them; the author stated it expects to flip to **AGREE** once these are addressed. (The rebuttal itself is the proof-of-concept for concern 3 below — an independent author seat red-teamed the supervisor's proposal and changed it.)
+
+- **R1.1 — durable birth certificate (was: "no proposal exists where I read").** Resolved by process: this proposal (ADR-0025 + thread T33) **lands on `main` as `Status: Proposed`** before the re-confer, so the re-confer worker reads it from its own checkout. Landing the proposal is **not** acceptance — acceptance remains the human moving it to `docs/decisions/` after a passing re-confer. (Restates the orphan-guard rule: ephemeral acts only on durably-recorded intent.)
+
+- **R1.2 — author independence / who red-teams the supervisor (the strongest objection).** The fleet model **must not** concentrate unchecked design authority in the advisor. Therefore, as a **binding clause of this ADR**:
+  - Every **supervisor-level decision** (an ADR, a topology change, a trust-path change) REQUIRES an **independent author confer** — spawn a fresh ephemeral author for a verdict — **before** human acceptance. The confer is not optional garnish; it is the institutional red-team. This very rebuttal is the precedent.
+  - An ephemeral author **always retains the independent-dissent path**: it may return `REBUT` and that blocks the advisor's proposal from auto-progressing (exactly what happened here). The advisor cannot self-ratify a supervisor-level decision.
+  - Cross-task *design memory* lives in the durable record (threads/ADRs/checkpoint), not in the advisor's head — so a fresh worker can reconstruct context and dissent on equal footing, not as a typist.
+
+- **R1.3 — spawn blast-radius (1:N).** Hard precondition, added to "prerequisites": **no N>1 fleet until the spawn-guard rate-ledger (#169) is relocated host/append-only and load-bearing** (it currently lives in agent-writable `.scratch/`). Until then the supervisor runs **strictly 1:1** (one worker at a time). A compromised supervisor stays rate-capped + HALT-gated; the ledger being tamper-resistant is what makes that guarantee real.
+
+- **R1.4 — dead-worker recovery (RULES §5).** The reaper (§reaper) is bound to **ADR-0020 PARK→resurface**, with the **worktree** as the recovery unit (not just the queue row): a dead worker's claimed item is `REQUEUE`d by PARK-ing it with `parked-on: worker-died:<id>` + `retry:n`, which **resurfaces** through the existing ADR-0020 path (escalate-to-human after `k` retries). Every reap + requeue writes an **audit-log** line and is **idempotent** (re-running the reaper on the same dead worktree is a no-op). No half-finished work is silently lost.
+
+**Net:** independence is now a binding clause (not a hope), the fleet is gated behind a hardened spawn-ledger, dead workers have a defined recovery path, and the proposal has a durable home. Re-confer expected to pass.
