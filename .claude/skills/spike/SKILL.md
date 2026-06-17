@@ -11,7 +11,9 @@ time-boxed probe that answers the open questions by measurement and surfaces gap
 the design missed. *When in doubt, spike it out.*
 
 This is the mechanism behind the standing methodology; an unenforced "we should
-prototype" is trust, not a rule (RULES §5). The skill is how it actually happens.
+prototype" is trust, not a rule (RULES §5). The skill is how it actually happens, and
+`scripts/spike-sandbox` makes the "run it isolated, then tear it down" half mechanical
+rather than a discipline you must remember every time.
 
 ## When a spike is MANDATORY
 Before an `AskUserQuestion` / a decision, when ANY of these is unknown and a probe
@@ -32,8 +34,18 @@ If you cannot measure the trade-off you are asking the human to weigh, you owe a
 2. **Split the work** (advisor + author, per docs/TEAM.md roles):
    - advisor defines the spike, analyses, sketches the host-side / design parts;
    - author runs the in-container / environment-specific probes (it has that context).
-3. **Run it isolated** — manual probes on a scratch branch. NEVER wire a spike into
-   an autonomous loop, and never merge it as a feature.
+3. **Run it isolated — TOOL: `scripts/spike-sandbox`.** Don't hand-roll the isolation;
+   the tool gives you a throwaway sandbox with **guaranteed teardown** (a trap removes
+   it even if the probe crashes), so a spike can never silently leak into prod or get
+   mistaken for real work:
+   ```
+   scripts/spike-sandbox <topic> -- <probe command>          # dir sandbox, auto-torn-down
+   scripts/spike-sandbox --worktree <topic> -- <probe>        # detached git worktree probe
+   scripts/spike-sandbox <topic>                              # print a path for a manual probe
+   scripts/spike-sandbox --clean <topic>                      # remove a leftover manual sandbox
+   ```
+   NEVER wire a spike into an autonomous loop, and never merge it as a feature — the
+   sandbox is detached/throwaway precisely so it cannot become one.
 4. **Write findings, not code**, to `.scratch/spikes/<topic>.md`: the answer to each
    question + any GAP that reorders the work.
 5. **Then decide with the human** — bring findings, not guesses. A blocking gap
@@ -52,3 +64,9 @@ If you cannot measure the trade-off you are asking the human to weigh, you owe a
 ## Output
 A `.scratch/spikes/<topic>.md` findings note + a grounded recommendation — NOT a
 merged feature. The decision that follows is the human's, now informed.
+
+## Relationship to the rest of the decision trio
+- **/spike** — measure an unknown empirically (this skill) when the trade-off can't be
+  reasoned from the armchair.
+- **/zoom-out** — when the real question is whether you have the right options at all.
+- **/confer** — when the call needs the other seat's judgement, not just a measurement.
