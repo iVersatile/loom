@@ -72,3 +72,6 @@ edit that precedes the commit.
 PreToolUse wiring (trust path) and decides the own-worktree launch shape.
 3. Writer builds the FR + guard-suite test + doc clauses on top. Spec before code:
 no hook code ships until the decision is on record.
+
+## Amendment — advisor-in-loom (T34), 2026-06-17
+The original framing was two seats across two containers (host advisor + in-container Writer). The **advisor-in-loom** workstream (T34) puts the persistent advisor **and** N ephemeral author-workers in ONE `loom-dev`. The own-worktree topology (layer 1) is the load-bearing enabler for that co-existence: **each session — the advisor and every ephemeral worker — operates in its OWN worktree; `loom-dev`'s primary checkout holds no agent CWD.** This is also ADR-0025's hard precondition for N>1 and the reaper's recovery unit. The edit-guard hook (layer 2) + the RULES clause apply unchanged, symmetric across all in-container sessions. No new decision — this records that "own-worktree per *seat*" generalizes to "own-worktree per *session*" once both roles share loom-dev.
