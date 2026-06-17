@@ -526,6 +526,7 @@ func TestCreateRunArgs(t *testing.T) {
 	spec := ContainerSpec{
 		Name: "loom-dev", Project: "loom", BaseImage: "debian:bookworm-slim",
 		Agents:     []AgentInstall{{Name: "claude-code", Source: "native-installer"}},
+		Tools:      []ToolInstall{{Name: "gh", Source: "go-install"}},
 		ProjectDir: "/host/repo/loom",
 	}
 	got := strings.Join(createRunArgs(spec, "/host/.claude/.credentials.json", true), " ")
@@ -534,6 +535,9 @@ func TestCreateRunArgs(t *testing.T) {
 		"--label loom.managed=true",
 		"--label loom.project=loom",
 		"-v loom-dev-claude:" + containerHome + "/.claude",
+		// gh-config volume (ADR-0026): persists `gh auth login` across rebuilds,
+		// mounted only because gh is a declared tool.
+		"-v loom-dev-gh:" + containerHome + "/.config/gh",
 		"-v /host/repo/loom:/workspace/loom",
 		"-v /host/.claude/.credentials.json:" + containerHome + "/.claude/.credentials.json:ro",
 	} {
@@ -545,10 +549,11 @@ func TestCreateRunArgs(t *testing.T) {
 		t.Errorf("image+command must come last: %s", got)
 	}
 
-	// No agent → no agent-home volume; no project dir → no workspace mount.
+	// No agent → no agent-home volume; no gh tool → no gh-config volume; no
+	// project dir → no workspace mount.
 	bare := ContainerSpec{Name: "x-dev", Project: "x", BaseImage: "img"}
 	g := strings.Join(createRunArgs(bare, "", false), " ")
-	if strings.Contains(g, "-claude:") || strings.Contains(g, "/workspace/") {
+	if strings.Contains(g, "-claude:") || strings.Contains(g, "-gh:") || strings.Contains(g, "/workspace/") {
 		t.Errorf("bare spec must not mount volume or workspace: %s", g)
 	}
 
@@ -558,11 +563,15 @@ func TestCreateRunArgs(t *testing.T) {
 	nonRoot := ContainerSpec{
 		Name: "loom-dev", Project: "loom", BaseImage: "debian:bookworm-slim",
 		Agents: []AgentInstall{{Name: "claude-code", Source: "native-installer"}},
+		Tools:  []ToolInstall{{Name: "gh", Source: "go-install"}},
 		User:   "dev", Home: "/home/dev",
 	}
 	gr := strings.Join(createRunArgs(nonRoot, "/host/.claude/.credentials.json", true), " ")
 	if !strings.Contains(gr, "-v loom-dev-claude:/home/dev/.claude") {
 		t.Errorf("non-root agent-home volume must target /home/dev: %s", gr)
+	}
+	if !strings.Contains(gr, "-v loom-dev-gh:/home/dev/.config/gh") {
+		t.Errorf("non-root gh-config volume must target /home/dev: %s", gr)
 	}
 	if !strings.Contains(gr, "/home/dev/.claude/.credentials.json:ro") {
 		t.Errorf("non-root creds mount must target /home/dev: %s", gr)

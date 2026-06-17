@@ -6,3 +6,17 @@
 [user]
 	name = Ying Wang
 	email = 1323991+iVersatile@users.noreply.github.com
+
+# gh credential helper (ADR-0026) — `git push`/fetch over HTTPS authenticate via
+# the gh token kept in the persistent ~/.config/gh volume (engine: ghConfigVolume).
+# Mirrors the per-host block `gh auth setup-git` writes: the empty `helper =`
+# RESETS any inherited helper so gh's token always wins, then gh's git-credential
+# helper supplies it. PATH-relative `gh` (not an absolute path) — gh is on PATH via
+# the shared tool dir, and this declared gitconfig is authored before gh's install
+# location is known. Re-converged each build; in-container edits are erased drift.
+[credential "https://github.com"]
+	helper =
+	helper = !gh auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !gh auth git-credential
