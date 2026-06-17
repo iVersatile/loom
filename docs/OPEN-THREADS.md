@@ -1253,3 +1253,7 @@ Pointers: ADR-0020 (the loop this extends) · T27 (wake + observability) · T21
 (transport) · `.claude/hooks/drain-inbox.sh` + `config/hooks/{pull-next,resurface-
 decide}` · docs/PLAN.md "agent-initiated lifecycle / task continuity" row · memory
 drain-loop-closes-over-inbox (advisor session record).
+
+## T31 — cold-floor liveness probe: nudge on "deliverable" or gate on a real cold signal?   🟢 decided — human ruled Option A (no probe) for the 7-day trial; C in reserve
+Resolution: collapse "cold-idle AND deliverable QUEUED work" → "deliverable QUEUED work" (built in #174); a redundant nudge to a live session is harmless (idempotent drain: TAKEN + `.drain-count`; the inject is human-gated). resurface-decide stays the single deliverable-truth so the floor can't drift from the drain. Graduate to C (suppress the nudge if the drain ran within the last cron window — reuse `.drain-count`/last-TAKEN) **iff** the trial's "nudge volume sane / no thrash" watch-item trips. B (full host-observable liveness probe) rejected for now — the reachability wall + a second source of truth that can drift aren't justified by a harmless-redundancy case.
+Pointers: ADR-0022 cold-floor · #174 (`scripts/cold-check`, `internal/guard/coldfloor_test.go`) · `docs/cold-floor-trial.md` (trial verdict criteria) · Writer adv-078 design-call flag · advisor confer ruling envelope (Writer inbox 2026-06-17).
