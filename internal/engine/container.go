@@ -288,9 +288,10 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 // image. Phase 1 creates no per-project data volume, so the volumes tier has
 // nothing extra to remove today (phase-1 review F1: it used to claim a
 // `<name>-data` volume nothing creates — fiction); it stays a distinct level
-// as the Phase-2 data-volume surface. The agent-home volume (auth/memory/
-// logs) is removed ONLY by cleanState — wiping agent state must be an
-// explicit choice, never a side effect of a tier.
+// as the Phase-2 data-volume surface. The persistent credential volumes — the
+// agent-home volume (auth/memory/logs) and the gh-config volume (VCS token,
+// ADR-0026) — are removed ONLY by cleanState — wiping stored credentials must
+// be an explicit choice, never a side effect of a tier.
 // NOTE: the docker path is integration-validated (Work 7 / CI), not the local gate.
 func (dockerRuntime) Teardown(name, level string, cleanState bool, logw io.Writer) (Removed, error) {
 	r := Removed{Containers: []string{}, Volumes: []string{}, Images: []string{}}
@@ -302,9 +303,10 @@ func (dockerRuntime) Teardown(name, level string, cleanState bool, logw io.Write
 		r.Containers = append(r.Containers, name)
 	}
 	if cleanState {
-		vol := agentHomeVolume(name)
-		if _, err := dockerLogged(logw, "volume", "rm", vol); err == nil {
-			r.Volumes = append(r.Volumes, vol)
+		for _, vol := range []string{agentHomeVolume(name), ghConfigVolume(name)} {
+			if _, err := dockerLogged(logw, "volume", "rm", vol); err == nil {
+				r.Volumes = append(r.Volumes, vol)
+			}
 		}
 	}
 	if level == "reset" {
@@ -791,6 +793,17 @@ func agentHomeVolume(container string) string {
 	return container + "-claude"
 }
 
+// ghConfigVolume names the durable gh-credential volume (ADR-0026): mounted at
+// ~/.config/gh so a `gh auth login` token survives `build --force`/`teardown`
+// and `git push` over HTTPS authenticates via the `gh auth git-credential`
+// helper (config/dotfiles/gitconfig). Sibling to agentHomeVolume — the volume
+// model ADR-0015:91-93 deferred to the T15-successor credential ADR. Like the
+// agent-home volume it is removed ONLY by the opt-in `--clean-state` flag, never
+// the volumes/reset tiers: wiping VCS auth must be an explicit choice.
+func ghConfigVolume(container string) string {
+	return container + "-gh"
+}
+
 // containerWorkspace is the fixed in-container mount point for the project repo
 // (T13): /workspace/<project>, matching the devcontainer convention (ADR-0003).
 func containerWorkspace(project string) string {
@@ -805,6 +818,9 @@ func containerWorkspace(project string) string {
 //     own environment; values never enter code/lock/image/logs (RULES).
 //   - agent-home volume at ~/.claude (T14): persists in-container credentials
 //     across rebuilds; only when an agent needing auth is declared.
+//   - gh-config volume at ~/.config/gh (ADR-0026): persists a `gh auth login`
+//     token across rebuilds so `git push` authenticates via the gh credential
+//     helper; only when gh is a declared tool.
 //   - project bind-mount (T13): the repo, RW, host↔container live edits.
 //   - creds mount (-v ...:ro): reuse the host's EXISTING Claude credentials file
 //     when one exists (Linux hosts; macOS keeps creds in the Keychain so this is
@@ -816,6 +832,9 @@ func createRunArgs(spec ContainerSpec, hostCredsPath string, credsPresent bool) 
 	args = append(args, envArgs(spec.Env)...)
 	if hasAgent(spec.Agents, "claude-code") {
 		args = append(args, "-v", agentHomeVolume(spec.Name)+":"+spec.home()+"/.claude")
+	}
+	if hasTool(spec.Tools, "gh") {
+		args = append(args, "-v", ghConfigVolume(spec.Name)+":"+spec.home()+"/.config/gh")
 	}
 	if spec.ProjectDir != "" {
 		args = append(args, "-v", spec.ProjectDir+":"+containerWorkspace(spec.Project))
@@ -1057,6 +1076,18 @@ func credsMount(hostCredsPath string, present bool, agents []AgentInstall, home 
 func hasAgent(agents []AgentInstall, name string) bool {
 	for _, a := range agents {
 		if a.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// hasTool reports whether name is a declared/resolved tool — the parallel of
+// hasAgent for tool-gated container surface (e.g. the gh-config volume mounts
+// only when gh is installed; ADR-0026).
+func hasTool(tools []ToolInstall, name string) bool {
+	for _, t := range tools {
+		if t.Name == name {
 			return true
 		}
 	}
