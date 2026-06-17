@@ -1,6 +1,7 @@
-# ADR-0025 (Proposed) — Author as an ephemeral headless fleet; advisor as the persistent supervisor
+# ADR-0025 (Accepted) — Author as an ephemeral headless fleet; advisor as the persistent supervisor
 
-- **Status:** Proposed (drafted by advisor 2026-06-17; acceptance = human, ALLOW for any frozen-contract touch)
+- **Status:** **Accepted** (human, 2026-06-17, after an independent author re-confer returned AGREE on R1). Acceptance is of the **decision/direction**; the build is gated behind the preconditions in §Consequences (own-worktree, hardened spawn-ledger, reaper) and stays **1:1 until the spawn-ledger is host/append-only**.
+- **Confer record:** ad-hoc ephemeral-author `/confer` → **REBUT** (4 objections) → advisor **R1** revision → re-confer **AGREE** (author verified R1 against the tree: `scripts/spawn-guard:34`, ADR-0020 PARK→resurface). The reject-then-validate cycle is itself the precedent for the R1.2 independence clause. One non-blocking note recorded: the spawn-the-author-to-red-team-the-supervisor recursion lives under the open T32 "where the supervisor runs" question.
 - **Threads:** T33. **Extends:** ADR-0022 (autonomy substrate — ephemeral worker), ADR-0020 (closed loop). **Hard-depends:** ADR-0023 (own-worktree). **Couples:** T27 (wake), T30 (refill), T32 (supervising-box).
 - **Origin:** the cold-floor wake spike of 2026-06-17 — a stopped author was woken by `loom exec → claude -p --permission-mode acceptEdits`, drained its inbox, built the decision-trio (#178/#179), and exited. That run made a latent truth explicit (see Context).
 
