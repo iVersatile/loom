@@ -1074,6 +1074,11 @@ func goModule(tool string) string {
 		return "github.com/zricethezav/gitleaks/v8@latest"
 	case "golangci-lint":
 		return "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+	case "gh":
+		// GitHub CLI via go-install (loom-dev has the Go toolchain). Builds from
+		// source: `gh --version` may report "unknown" (no ldflags version embed),
+		// but auth/api/pr/git-credential — loom's use — function.
+		return "github.com/cli/cli/v2/cmd/gh@latest"
 	default:
 		return ""
 	}

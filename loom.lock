@@ -5,6 +5,10 @@ base_image: debian:bookworm-slim@sha256:96e378d7e6531ac9a15ad505478fcc2e69f371b1
 loom_lock: 1
 resolved_at: "2026-06-15T22:10:07Z"
 tools:
+  gh:
+    intent: latest
+    resolved: ""
+    source: go-install
   git:
     intent: latest
     resolved: git version 2.39.5
