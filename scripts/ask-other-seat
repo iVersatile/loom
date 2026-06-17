@@ -1,0 +1,103 @@
+#!/bin/sh
+# ask-other-seat — decision-trio tool (adv-073/076/077): MECHANIZE "ask the other
+#                  seat." Queue a framed question as a well-formed envelope into the
+#                  OTHER role's inbox, so the "pull in the author/advisor's
+#                  perspective" step of /confer + /zoom-out is a tool call, not a
+#                  discipline the agent must remember to perform.
+# Origin : ADR-0022 decision-trio. The advisor SKIPPED this step on the self-wake
+#          actuator design (built toward a fork without asking the seat that lives
+#          in the box) — exactly the miss this tool removes. A tool = mechanism; an
+#          unenforced "remember to ask" = trust (RULES §5, the session theme).
+# Reuse  : recurring — the framed-question step of /confer and /zoom-out.
+# Runs on: either seat, in-container or host. Its ONLY mutation is appending ONE
+#          envelope to the OTHER seat's inbox file; it never reads/edits its own.
+#
+# ROLE RESOLUTION (mirrors drain-inbox.sh / LL-011): the SELF seat is resolved from
+# LOOM_SESSION_ROLE, then /var/lib/loom/role, then whoami (root@loom-dev = author,
+# anything else = advisor). The TARGET is the OTHER seat — the whole point is to
+# reach across the seam, so a self-addressed envelope is refused.
+#
+# SECURITY: serves + body are DATA, never evaluated. The envelope is written with
+# printf (no eval, no shell expansion of the content). The id is sanitized to
+# [A-Za-z0-9-] so a crafted id cannot forge envelope structure or a verdict token.
+# status is hardcoded QUEUED; kind is sanitized to a short word.
+#
+# Usage : ask-other-seat <serves-one-liner> [body...]
+#         (body may also arrive on stdin; explicit args win if both are given)
+# Env   : LOOM_SESSION_ROLE   self seat override (loom-author | loom-advisor)
+#         LOOM_INBOX_DIR      inbox dir (default <root>/.scratch/inbox)
+#         LOOM_ASK_ID         id override (default q-<epoch>; tests pin it)
+#         LOOM_ASK_KIND       envelope kind (default question)
+#         LOOM_ASK_FROM_NOTE  optional parenthetical appended to the from: line
+#         LOOM_NOW            epoch for the default id (default `date +%s`)
+set -eu
+
+serves="${1:-}"
+if [ -z "$serves" ]; then
+	echo "usage: ask-other-seat <serves-one-liner> [body...]" >&2
+	exit 2
+fi
+shift || true
+
+ROOT="${LOOM_ROOT:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
+INBOX_DIR="${LOOM_INBOX_DIR:-$ROOT/.scratch/inbox}"
+
+# SELF role (LL-011 resolution order).
+role="${LOOM_SESSION_ROLE:-}"
+if [ -z "$role" ] && [ -r /var/lib/loom/role ]; then
+	role=$(cat /var/lib/loom/role 2>/dev/null || echo "")
+fi
+if [ -z "$role" ]; then
+	case "$(whoami 2>/dev/null)" in
+	root) role=loom-author ;;
+	*) role=loom-advisor ;;
+	esac
+fi
+
+# TARGET = the other seat.
+case "$role" in
+loom-author) target=loom-advisor ;;
+loom-advisor) target=loom-author ;;
+*)
+	echo "ask-other-seat: unknown self role '$role' (set LOOM_SESSION_ROLE)" >&2
+	exit 2
+	;;
+esac
+
+inbox="$INBOX_DIR/$target.md"
+if [ ! -w "$inbox" ] && [ ! -w "$INBOX_DIR" ]; then
+	echo "ask-other-seat: cannot write target inbox $inbox" >&2
+	exit 1
+fi
+
+# Body: explicit args win; else stdin (if any); else empty.
+if [ "$#" -gt 0 ]; then
+	body="$*"
+elif [ ! -t 0 ]; then
+	body=$(cat)
+else
+	body=""
+fi
+
+now="${LOOM_NOW:-$(date +%s)}"
+id=$(printf '%s' "${LOOM_ASK_ID:-q-$now}" | sed 's/[^A-Za-z0-9-]//g')
+[ -n "$id" ] || id="q-$now"
+kind=$(printf '%s' "${LOOM_ASK_KIND:-question}" | sed 's/[^A-Za-z0-9-]//g')
+[ -n "$kind" ] || kind="question"
+fromnote="${LOOM_ASK_FROM_NOTE:-}"
+from="$role"
+[ -n "$fromnote" ] && from="$role ($fromnote)"
+
+# Append the envelope. A leading blank line keeps items separated regardless of how
+# the previous one ended (matches the existing hand-authored inbox format).
+{
+	printf '\n--- id: %s\n' "$id"
+	printf 'from: %s\n' "$from"
+	printf 'serves: %s\n' "$serves"
+	printf 'kind: %s\n' "$kind"
+	printf 'status: QUEUED\n\n'
+	printf '%s\n' "$body"
+} >> "$inbox"
+
+echo "QUEUED to $target.md as $id (from $role)"
+exit 0

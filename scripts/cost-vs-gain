@@ -1,0 +1,88 @@
+#!/bin/sh
+# cost-vs-gain — decision-trio tool (adv-073/077): force the trade-off EXPLICIT.
+#                Reads options scored on a fixed 4-axis rubric and prints a ranked
+#                table — so "weigh cost vs gain" is a structured comparison, not a
+#                narrative the agent can hand-wave or skew toward a foregone answer.
+# Origin : ADR-0022 decision-trio (/zoom-out). The advisor's "all 4 as tools" steel-
+#          man failed for exhaust-options (enumeration is a reasoning act → prose
+#          checklist) but HELD for this one: a ranked options×axes table IS a
+#          mechanical transform of explicit inputs.
+# Reuse  : recurring — the cost-vs-gain step of /zoom-out and /confer.
+# Runs on: either seat, anywhere. PURE: reads stdin (or a file), writes a table to
+#          stdout. No mutation, no network, no eval.
+#
+# RUBRIC (fixed, each axis 1..5; lower is better for cost+risk, higher for the
+# rest, so they are NORMALIZED into a single "higher = more favorable" score):
+#   cost           1=cheap      .. 5=expensive        (favorable when LOW)
+#   gain           1=marginal   .. 5=high             (favorable when HIGH)
+#   risk           1=safe       .. 5=hazardous        (favorable when LOW)
+#   reversibility  1=one-way    .. 5=trivial-to-undo  (favorable when HIGH)
+# score = gain + reversibility - cost - risk   (range -8..+8; higher ranks first).
+# Ties keep input order (stable) so the table is deterministic — gate-testable.
+#
+# INPUT (one option per line; blank lines + lines beginning '#' ignored):
+#   <name>: cost=<n> gain=<n> risk=<n> reversibility=<n>
+# Key order is free; `rev` is accepted as an alias for reversibility. Each value
+# must be an integer 1..5 or the line is rejected (no silent default — an unscored
+# axis is the very hand-wave this tool exists to prevent).
+#
+# SECURITY: input is DATA. Parsing is awk field-matching (no eval); the name is the
+# text before the first colon and is printed verbatim into a DATA column only.
+#
+# Usage : cost-vs-gain [file]      (omit file to read stdin)
+# Exit  : 0 with a ranked table; 1 if no valid option line was found.
+set -eu
+
+INPUT="${1:-/dev/stdin}"
+
+table=$(awk '
+	function favorable(c,g,r,v) { return g + v - c - r }
+	function is15(x) { return (x ~ /^[1-5]$/) }
+	{
+		line=$0
+		sub(/[[:space:]]+$/, "", line)
+		if (line=="" || line ~ /^[[:space:]]*#/) next
+		# name = text up to the first colon.
+		ci=index(line, ":")
+		if (ci==0) { bad++; next }
+		name=substr(line,1,ci-1)
+		rest=substr(line,ci+1)
+		cost=""; gain=""; risk=""; rev=""
+		n=split(rest, toks, /[[:space:]]+/)
+		for (i=1;i<=n;i++) {
+			t=toks[i]
+			ei=index(t,"=")
+			if (ei==0) continue
+			k=substr(t,1,ei-1); val=substr(t,ei+1)
+			if (k=="cost") cost=val
+			else if (k=="gain") gain=val
+			else if (k=="risk") risk=val
+			else if (k=="reversibility" || k=="rev") rev=val
+		}
+		if (!is15(cost) || !is15(gain) || !is15(risk) || !is15(rev)) { bad++; next }
+		order++
+		s=favorable(cost+0,gain+0,risk+0,rev+0)
+		# sortable key: score desc, then input order asc. printf %+03d keeps sign.
+		printf "%03d\t%05d\t%s\t%d\t%d\t%d\t%d\t%d\n", (100-s), order, name, cost, gain, risk, rev, s
+	}
+	END { if (order+0==0) exit 3 }
+' "$INPUT") || {
+	echo "cost-vs-gain: no valid option lines (need '<name>: cost=N gain=N risk=N reversibility=N', each 1..5)" >&2
+	exit 1
+}
+
+# Sort by the composite key (score desc via 100-s asc, then input order), strip the
+# sort keys, number the ranks, and render an aligned table. The top row is RECOMMEND.
+printf '%s\n' "$table" | sort | awk -F'\t' '
+	BEGIN {
+		printf "%-4s %-24s %4s %4s %4s %4s %6s\n", "rank", "option", "cost", "gain", "risk", "rev", "score"
+		printf "%-4s %-24s %4s %4s %4s %4s %6s\n", "----", "------------------------", "----", "----", "----", "----", "------"
+	}
+	{
+		rank++
+		name=$3; cost=$4; gain=$5; risk=$6; rev=$7; score=$8
+		mark=(rank==1)?"  <- RECOMMEND":""
+		printf "%-4d %-24s %4d %4d %4d %4d %+6d%s\n", rank, name, cost, gain, risk, rev, score, mark
+	}
+'
+exit 0

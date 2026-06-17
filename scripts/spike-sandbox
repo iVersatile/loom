@@ -1,0 +1,119 @@
+#!/bin/sh
+# spike-sandbox — decision-trio tool (adv-073/077): MECHANIZE the /spike "run it
+#                 isolated, guaranteed teardown" discipline. Runs a probe command in
+#                 a throwaway sandbox and ALWAYS tears it down — so "never touch
+#                 prod, never wire a spike into a loop, never leave it lying around"
+#                 is a mechanism, not a rule the agent must remember every time.
+# Origin : ADR-0022 decision-trio (/spike). The adv-071 self-wake spike did this by
+#          hand; #170's /spike skill was prose-only. This is the tool that backs it.
+# Reuse  : recurring — the isolated-probe step of /spike.
+# Runs on: either seat, in-container or host. Default sandbox is a scratch DIR
+#          (cheap, no shared-.git churn). --worktree adds a detached git worktree
+#          for probes that need a real checkout; it is removed on teardown.
+#
+# DISCIPLINE ENFORCED:
+#   * Guaranteed teardown — a trap on EXIT/INT/TERM removes the sandbox even if the
+#     probe crashes or the caller ^C's. Opt OUT only with --keep (printed loudly).
+#   * Isolation — the probe runs with the sandbox as its cwd; the dir mode never
+#     touches the repo tree, and the worktree mode is DETACHED (no branch to push,
+#     so it cannot be mistaken for real work — /spike rule: a spike is throwaway).
+#   * No silent loop-wiring — this runs ONE command and exits; it has no daemon /
+#     re-arm path. (Wiring a probe into an autonomous loop is the anti-pattern.)
+#
+# SECURITY: the probe command is run via "$@" (argv, no eval / no shell string), so
+# the sandbox does not introduce an injection surface of its own. topic is sanitized
+# to [A-Za-z0-9._-] before it touches a path.
+#
+# Usage : spike-sandbox [--worktree] [--keep] <topic> -- <command> [args...]
+#         spike-sandbox [--worktree] <topic>            (no command: print path,
+#                                                         register nothing, warn)
+#         spike-sandbox --clean <topic>                 (remove a leftover dir sandbox)
+# Env   : LOOM_ROOT / CLAUDE_PROJECT_DIR  repo root (default: git toplevel | pwd)
+#         LOOM_SPIKE_DIR                   sandbox parent (default <root>/.scratch/spikes)
+# Exit  : the probe's exit code (so a failing spike fails the caller); 2 on usage error.
+set -eu
+
+mode_worktree=0
+keep=0
+clean=0
+topic=""
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	--worktree) mode_worktree=1; shift ;;
+	--keep) keep=1; shift ;;
+	--clean) clean=1; shift ;;
+	--) shift; break ;;
+	-*) echo "spike-sandbox: unknown flag $1" >&2; exit 2 ;;
+	*) topic="$1"; shift; break ;;
+	esac
+done
+# Drop the optional `--` separator between the topic and the probe command, so
+# "$@" is exactly the command (an un-consumed `--` would reach exec and break it).
+[ "${1:-}" = "--" ] && shift || true
+
+if [ -z "$topic" ]; then
+	echo "usage: spike-sandbox [--worktree] [--keep] <topic> -- <command> [args...]" >&2
+	exit 2
+fi
+# Sanitize topic for path safety.
+topic=$(printf '%s' "$topic" | sed 's#[^A-Za-z0-9._-]#_#g')
+[ -n "$topic" ] || { echo "spike-sandbox: empty topic after sanitizing" >&2; exit 2; }
+
+ROOT="${LOOM_ROOT:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
+SPIKE_DIR="${LOOM_SPIKE_DIR:-$ROOT/.scratch/spikes}"
+sandbox="$SPIKE_DIR/$topic.sandbox"
+
+# --clean: remove a leftover dir sandbox (no probe). Idempotent.
+if [ "$clean" -eq 1 ]; then
+	rm -rf "$sandbox"
+	echo "cleaned $sandbox"
+	exit 0
+fi
+
+mkdir -p "$SPIKE_DIR"
+
+teardown() {
+	if [ "$keep" -eq 1 ]; then
+		echo "spike-sandbox: --keep set; sandbox LEFT at $sandbox (clean it: spike-sandbox --clean $topic)" >&2
+		return 0
+	fi
+	if [ "$mode_worktree" -eq 1 ] && [ -d "$sandbox/.git" -o -f "$sandbox/.git" ]; then
+		git -C "$ROOT" worktree remove --force "$sandbox" >/dev/null 2>&1 || true
+	fi
+	rm -rf "$sandbox"
+}
+trap 'teardown' EXIT INT TERM
+
+# Provision the sandbox.
+rm -rf "$sandbox"
+if [ "$mode_worktree" -eq 1 ]; then
+	if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+		echo "spike-sandbox: --worktree needs a git repo; falling back to dir sandbox" >&2
+		mode_worktree=0
+		mkdir -p "$sandbox"
+	elif ! git -C "$ROOT" worktree add --detach "$sandbox" >/dev/null 2>&1; then
+		echo "spike-sandbox: git worktree add failed; falling back to dir sandbox" >&2
+		mode_worktree=0
+		rm -rf "$sandbox"; mkdir -p "$sandbox"
+	fi
+else
+	mkdir -p "$sandbox"
+fi
+
+# No probe command: print the path and warn that teardown is now the caller's job
+# (this is the less-guaranteed mode — prefer the wrapped form). Suppress the EXIT
+# teardown so the path we just printed stays valid.
+if [ "$#" -eq 0 ]; then
+	trap - EXIT INT TERM
+	echo "$sandbox"
+	echo "spike-sandbox: no command given — sandbox NOT auto-torn-down." >&2
+	echo "               prefer: spike-sandbox $topic -- <cmd>   (guaranteed teardown)" >&2
+	echo "               or clean it yourself: spike-sandbox --clean $topic" >&2
+	exit 0
+fi
+
+# Run the probe in the sandbox; teardown fires on exit regardless of its outcome.
+( cd "$sandbox" && exec "$@" )
+rc=$?
+exit "$rc"
