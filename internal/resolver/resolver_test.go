@@ -15,7 +15,7 @@ func (f fakeProbe) Version(binary string) (string, bool) {
 
 func TestResolveSourcesAndPins(t *testing.T) {
 	pb := &playbook.Playbook{
-		Tools:  []string{"go@1.26", "git", "uv", "gopls", "ripgrep", "golangci-lint"},
+		Tools:  []string{"go@1.26", "git", "uv", "gopls", "ripgrep", "golangci-lint", "gh"},
 		Agents: []string{"claude-code"},
 	}
 	vp := fakeProbe{
@@ -26,6 +26,9 @@ func TestResolveSourcesAndPins(t *testing.T) {
 		"rg":            "14.1",  // ripgrep -> rg alias
 		"claude":        "1.2.3", // claude-code -> claude alias
 		"golangci-lint": "2.1.0",
+		// gh is intentionally absent from the probe: a tool not yet installed
+		// resolves to "" (honest until the container can answer) but still pins
+		// its source.
 	}
 	r := Resolve(pb, vp)
 
@@ -36,6 +39,7 @@ func TestResolveSourcesAndPins(t *testing.T) {
 		"gopls":         "go-install",
 		"ripgrep":       "apt",
 		"golangci-lint": "go-install",
+		"gh":            "go-install", // GitHub CLI builds via go install (env-tier, T34)
 	}
 	for tool, src := range wantSource {
 		got, ok := r.Tools[tool]

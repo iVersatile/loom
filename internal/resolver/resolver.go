@@ -29,6 +29,7 @@ var sourcePolicy = map[string]string{
 	"gopls":         "go-install",
 	"gitleaks":      "go-install",
 	"golangci-lint": "go-install",
+	"gh":            "go-install",
 	"uv":            "uv-installer",
 }
 

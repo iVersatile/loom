@@ -14,6 +14,11 @@ tools:
   - ripgrep
   - gitleaks
   - golangci-lint
+  # gh: env-tier git-controller/VCS capability for the seat (advisor-in-loom
+  # T34, Slice B) — backs the `!gh auth git-credential` helper. go-install
+  # source (loom-dev has the Go toolchain); see resolver sourcePolicy +
+  # engine goModule.
+  - gh
 
 rules:
   - common/safety
