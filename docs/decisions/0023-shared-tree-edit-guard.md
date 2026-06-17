@@ -1,12 +1,14 @@
-# Shared-tree edit-guard + own-worktree topology — ADR-0023 proposal (adv-067 TASK 3)
+# Shared-tree edit-guard + own-worktree topology — ADR-0023 (adv-067 TASK 3)
 
-**Status: DRAFT — decision-first artifact (spec before code, RULES §2/ADR-0006).**
-This is the proposal for the prevention mechanism behind [[LL-015]]. The CODE
-(the edit-guard hook, its FR + guard-suite test, the own-worktree session wiring)
-is deliberately DEFERRED until this decision is accepted — and two of its three
-parts are human-gated paths (see *Apply steps*). Drafted by loom-author; human
-accepts the ADR via merge, per the established "agent drafts, human accepts"
-pattern (cf. ADR-0015 §harness, ADR-0018).
+**Status: Accepted (human, 2026-06-17).** Decision accepted; the CODE (edit-guard hook
++ FR + guard test; own-worktree session wiring) is now buildable — advisor-in-loom (T34)
+**Phase 3 Slice C**, with the two human-gated parts (the PreToolUse hook + the own-worktree
+launch shape) applied by the human per *Apply steps*. The amendment (own-worktree generalizes
+per-seat→per-session for advisor + ephemeral authors in one loom-dev) is part of this acceptance.
+
+> Originally drafted by loom-author as a decision-first proposal behind [[LL-015]] (spec before
+> code, RULES §2/ADR-0006); accepted via the established "agent drafts, human accepts" pattern
+> (cf. ADR-0015 §harness, ADR-0018).
 
 ## Problem (the recurrence, LL-015)
 Both seats — the host advisor and the in-container Writer — edit code in `main`'s
