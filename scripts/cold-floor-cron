@@ -1,0 +1,51 @@
+#!/bin/sh
+# cold-floor-cron — ADR-0022 cold-start floor (option B, 7-day trial): the host-cron
+# ACTUATOR GLUE. Hourly, the host-cron calls THIS. It asks scripts/cold-check for a
+# verdict and, ONLY on a NUDGE, runs the operator-supplied inject command.
+#
+# BOUNDARY (cold-floor-trial.md §7): the DECISION (cold-check) lives in-repo and is
+# tested. The actual wake mechanism is deliberately NOT in the repo — it is whatever
+# the operator sets in $LOOM_COLD_NUDGE_CMD (a tmux send-keys, a `loom` invocation, a
+# headless resume — host/topology specific). This script is only the configurable
+# dispatch skeleton; the crontab install + the inject command are HUMAN-APPLIED, like
+# a trust bit. No wake tool is baked in (spike-before-hardcode).
+#
+# SECURITY: $LOOM_COLD_NUDGE_CMD is OPERATOR config — it comes from the crontab env
+# the human writes, the same trust class as the cron line itself, NEVER from inbox or
+# any agent-writable data. cold-check owns the injection-proof verdict parse and is
+# HALT-first, so a HALTed seat yields HALT-blocked (never NUDGE) and the inject cannot
+# run; the inject fires only on the literal leading token NUDGE.
+#
+# Env:
+#   LOOM_REPO            (required) host path to the loom checkout.
+#   LOOM_COLD_NUDGE_CMD  the wake command. EMPTY => DRY-RUN: cold-check still logs the
+#                        verdict, but nothing is injected (use it to watch verdicts
+#                        before arming the actuator).
+#   LOOM_COLD_CHECK      override the verdict source (default $LOOM_REPO/scripts/
+#                        cold-check) — a test / non-default-layout seam.
+# Exit: always 0 — a cron actuator must never wedge the crontab on a transient.
+set -eu
+
+REPO="${LOOM_REPO:?cold-floor-cron: set LOOM_REPO to the host path of the loom checkout}"
+CHECK="${LOOM_COLD_CHECK:-$REPO/scripts/cold-check}"
+
+# Ask the drain's own decision (cold-check reuses resurface-decide as the single
+# deliverable-truth, so this floor cannot drift from the drain). cold-check appends
+# the trial evidence line itself (its $4 arg); this script only dispatches.
+verdict=$(sh "$CHECK" \
+	"$REPO/.scratch/inbox/loom-author.md" \
+	"$REPO/.scratch/inbox/.merged-prs" \
+	"$REPO/.scratch/inbox/HALT" \
+	"$REPO/.scratch/inbox/.cold-floor-log") || exit 0
+
+case "$verdict" in
+NUDGE*)
+	if [ -n "${LOOM_COLD_NUDGE_CMD:-}" ]; then
+		# Operator-supplied wake command; never wedge the cron if it fails.
+		sh -c "$LOOM_COLD_NUDGE_CMD" || true
+	fi
+	;;
+*)
+	: ;;   # NO-OP / HALT-blocked => do nothing
+esac
+exit 0

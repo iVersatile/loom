@@ -77,7 +77,24 @@ human-only.
 
 ## 7. Human action
 
-Wire the hourly host-cron (`0 * * * *`) to run `scripts/cold-check` against the
-loom-dev seat paths and, on a `NUDGE` verdict, inject the auto-nudge to the
-Writer session. Host-side/topology — like a trust bit. The trial clock starts
-at that wiring.
+Wire the hourly host-cron (`0 * * * *`) to run the actuator glue
+`scripts/cold-floor-cron`, which asks `scripts/cold-check` for a verdict and, on
+`NUDGE`, runs the operator-supplied inject. Host-side/topology — like a trust bit.
+The trial clock starts at that wiring.
+
+```
+0 * * * * LOOM_REPO=<host path to the loom checkout> \
+  LOOM_COLD_NUDGE_CMD='<your host wake command>' \
+  <host path>/scripts/cold-floor-cron
+```
+
+- `LOOM_COLD_NUDGE_CMD` is the wake mechanism — a tmux `send-keys`, a `loom`
+  invocation, a headless resume; whatever this host uses to wake the Writer
+  session. It is **operator config** (this crontab env), never inbox/agent data,
+  and no tool is baked into the repo (spike-before-hardcode).
+- **Empty `LOOM_COLD_NUDGE_CMD` ⇒ dry-run:** `cold-check` still logs every verdict
+  but nothing is injected — use it to observe verdicts before arming the actuator.
+  For the real trial it must be non-empty (else the evidence shows `nudged=yes`
+  while nothing actually woke).
+- `cold-floor-cron` is HALT-safe transitively (`cold-check` is HALT-first: a HALTed
+  seat yields `HALT-blocked`, never `NUDGE`, so the inject cannot run).
