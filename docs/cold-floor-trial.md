@@ -77,10 +77,17 @@ human-only.
 
 ## 7. Human action
 
-Wire the hourly host-cron (`0 * * * *`) to run the actuator glue
-`scripts/cold-floor-cron`, which asks `scripts/cold-check` for a verdict and, on
-`NUDGE`, runs the operator-supplied inject. Host-side/topology — like a trust bit.
-The trial clock starts at that wiring.
+**Not a host action: getting latest.** The host has no git; `main` is kept current
+in the shared-mounted `/workspace/loom` by the advisor's git-controller-hat (a
+container-level op). The host cron just reads that tree. (Why a host cron at all:
+the cold-floor must fire when *all* sessions are cold — incl. the advisor session —
+so its pulse needs an always-on runner outside any session. Whether that runner
+should be a supervising container rather than a host crontab is open design — T32.)
+
+The single human/host step: install the hourly cron (`0 * * * *`) that runs the
+actuator glue `scripts/cold-floor-cron`, which asks `scripts/cold-check` for a
+verdict and, on `NUDGE`, runs the operator-supplied inject. The wake inject +
+crontab are host/topology — like a trust bit. The trial clock starts at that wiring.
 
 ```
 0 * * * * LOOM_REPO=<host path to the loom checkout> \
