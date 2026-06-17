@@ -1,0 +1,93 @@
+#!/bin/sh
+# cold-check — ADR-0022 cold-start floor (adv-078; human-decided option B, run as a
+#              7-DAY TRIAL with logging): the OFFLINE "should the host nudge the
+#              idle Writer now?" decision + the trial's append-only evidence log.
+# Origin : ADR-0022 (autonomy substrate) cold-floor; advisor envelopes adv-077/078.
+# Reuse  : recurring — the decision an HOURLY HOST-CRON (`0 * * * *`, human-applied,
+#          host-side/topology) runs to drain ALREADY-QUEUED inbox work when the
+#          Writer is cold-idle. verb-candidate (relocates under config/hooks/ + a
+#          host/append-only log when load-bearing — same carry-forward class as the
+#          spawn-ledger and merged-refs external-truth files).
+# Runs on: loom-dev's HOST (the cron seat). READS the inbox + merged-refs + HALT
+#          sentinel (via resurface-decide); its ONLY mutation is appending ONE
+#          evidence line to the trial log.
+#
+# WHY (the cold-start floor, T27-A's residual): self-wake shape A (#172/#173) makes
+# a LIVE /loop re-arm itself, but a FULLY-STOPPED session fires no Stop and runs no
+# /loop tick — nothing re-wakes it when new queued work lands. The hourly host-cron
+# is the external pulse that covers that cold case (worst-case cold idle < 1h). On
+# each pulse this decides whether there is queued work worth waking the seat for.
+#
+# OPTION B, SAFE SCOPE (adv-078, load-bearing): the empty-LOOM_AUTOPULL_CLASSES
+# floor STILL HOLDS. This NUDGEs only on work ALREADY QUEUED in the inbox (exactly
+# what the drain would deliver); it does NOT promote / self-select backlog (that
+# stays CONFIRM-REQUIRED, owned by promote-next / spawn-loop). The trial tests
+# "auto-nudge to drain queued work," NOT "decide what to work on."
+#
+# COLD-IDLE — why no separate liveness probe (design call, flagged for /confer):
+# "deliverable QUEUED work exists" IS the idle-with-pending-work signal — a LIVE
+# draining session would not leave QUEUED work sitting (its own Stop-hook drain
+# clears it). So "cold-idle AND deliverable QUEUED work" collapses to "deliverable
+# QUEUED work", and the hourly cron supplies the <1h "cold" cadence. A redundant
+# nudge to a still-live session is harmless (the drain is idempotent: TAKEN +
+# .drain-count) and bounded/observable (trial watch-item: nudge volume / no thrash).
+#
+# EMIT-ONLY (adv-078 split): this DECIDES + LOGS + PRINTS the verdict. It does NOT
+# itself nudge. The host-cron reads a NUDGE verdict and performs the option-B
+# auto-nudge (host-side inject) — that wiring is HUMAN-APPLIED (host/topology, like
+# a trust bit). Build = this offline decision + log + test; cron + inject = flagged.
+#
+# DECISION (reuses config/hooks/resurface-decide as the SINGLE deliverable-truth
+# home — no duplicated inbox parsing, so this floor cannot drift from the drain):
+#   HALT-blocked  HALT sentinel present. Checked FIRST, before any inbox read
+#                 (T23 HALT-before-AUTOPILOT). A HALTed seat is never nudged.
+#   NUDGE         HALT absent AND resurface-decide reports >= 1 DELIVER/RESURFACE
+#                 item (status QUEUED, or a PARKED dep that just cleared = now
+#                 deliverable). ESCALATE is excluded — that is a human-surface case.
+#   NO-OP         HALT absent AND zero deliverable items — never wake on nothing
+#                 (the trial's core safety property: zero spurious nudges).
+#
+# SECURITY: the three verdict tokens are hardcoded constants — nothing from the
+# inbox is echoed into a verdict. resurface-decide owns the injection-proof parse
+# (fixed predicate vocab, no eval); here the deliverable item ids are sanitized to
+# [A-Za-z0-9-] before they enter the (trailing, non-token) log/summary DATA.
+#
+# Args: $1 = inbox file, $2 = merged-refs file, $3 = HALT sentinel,
+#       $4 = trial log file (append-only evidence; optional — omit to skip logging).
+# Env : LOOM_NOW (epoch; default `date +%s`; for the log stamp + resurface-decide
+#       determinism), LOOM_MAX_PARK_AGE (passthrough to resurface-decide).
+INBOX="$1"; MERGED="$2"; HALT="$3"; LOG="$4"
+NOW="${LOOM_NOW:-$(date +%s)}"
+SELF_DIR=$(dirname "$0")
+
+# append-only evidence line (adv-078 item 2): epoch | verdict | summary | nudged
+log_line() {
+	[ -n "$LOG" ] && printf '%s | %s | %s | nudged=%s\n' "$NOW" "$1" "$2" "$3" >> "$LOG" 2>/dev/null
+}
+
+# 1. HALT FIRST — fail-safe, before any inbox read (T23). A HALTed seat is never nudged.
+if [ -e "$HALT" ]; then
+	echo "HALT-blocked (HALT sentinel present — nudge nothing)"
+	log_line "HALT-blocked" "(halted)" "no"
+	exit 0
+fi
+
+# 2. Ask the drain's OWN decision what it would deliver. Count DELIVER/RESURFACE
+#    verdicts and collect their (sanitized) ids for the evidence summary.
+decide=$(sh "$SELF_DIR/../config/hooks/resurface-decide" "$INBOX" "$MERGED" 2>/dev/null)
+n=$(printf '%s\n' "$decide" | grep -cE ': (DELIVER|RESURFACE)([ )]|$)')
+case "$n" in *[!0-9]*|"") n=0 ;; esac   # grep -c always prints an integer; guard anyway
+ids=$(printf '%s\n' "$decide" \
+	| awk '/: (DELIVER|RESURFACE)([ )]|$)/ { print $1 }' \
+	| sed 's/:$//; s/[^A-Za-z0-9-]//g' \
+	| tr '\n' ',' | sed 's/,$//')
+
+# 3. Fixed-vocab verdict. NUDGE only on real deliverable work (zero spurious nudges).
+if [ "$n" -ge 1 ]; then
+	echo "NUDGE ($n deliverable queued; host may wake the idle Writer)"
+	log_line "NUDGE" "$n deliverable: ${ids:-?}" "yes"
+else
+	echo "NO-OP (no deliverable queued work — never wake on nothing)"
+	log_line "NO-OP" "0 deliverable" "no"
+fi
+exit 0
