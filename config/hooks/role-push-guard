@@ -102,4 +102,7 @@ fi
 [ "$role" = "loom-advisor" ] && exit 0
 
 echo "role-push-guard: BLOCKED push/PR op for non-advisor session (role='${role:-unset}', only loom-advisor may push): $raw" >&2
-exit 1
+# exit 2: Claude Code's PreToolUse BLOCK signal. A non-2 non-zero (exit 1) is a
+# NON-blocking error — the tool still runs (empirically confirmed 2026-06-18: an
+# author git push under exit-1 was NOT blocked). Mirrors branch-guard.sh.
+exit 2

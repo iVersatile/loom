@@ -34,7 +34,19 @@ func runRolePushGuard(t *testing.T, role, cmd string) (bool, string) {
 	c := exec.Command("sh", absHook(t, "role-push-guard"), cmd)
 	c.Env = env
 	out, err := c.CombinedOutput()
-	return err != nil, string(out)
+	// A PreToolUse hook BLOCKS the tool call ONLY on exit code 2 (Claude Code's
+	// contract — mirrors branch-guard.sh). A non-2 non-zero (e.g. exit 1) is a
+	// NON-blocking error: the command still runs. So "blocked" must mean exit==2,
+	// not merely non-zero — the old `err != nil` check accepted exit 1 and so
+	// missed the real defect (an author push under exit-1 was NOT blocked,
+	// confirmed in-container 2026-06-18). A regression to exit 1 fails here.
+	code := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	} else if err != nil {
+		code = -1
+	}
+	return code == 2, string(out)
 }
 
 // TestRolePushGuardBlocksNonAdvisor: an author session is blocked on every

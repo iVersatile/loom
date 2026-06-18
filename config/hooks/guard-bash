@@ -45,7 +45,7 @@ lower="$(printf '%s' "$cmd" | tr 'A-Z' 'a-z')"
 case "$lower" in
 *"core.hookspath"*)
 	echo "guard-bash: BLOCKED hook-path redirect (defeats commit-time guards): $raw" >&2
-	exit 1
+	exit 2
 	;;
 esac
 
@@ -110,7 +110,7 @@ if segs=$(split_segments "$cmd"); then
 	for seg in $segs; do
 		if deny_legacy "$seg" || deny_anchored "$seg"; then
 			echo "guard-bash: BLOCKED dangerous command (segment: $seg): $raw" >&2
-			exit 1
+			exit 2
 		fi
 	done
 	set +f
@@ -120,14 +120,14 @@ if segs=$(split_segments "$cmd"); then
 	# mark it (046 amendment 5): these traces are pattern-fix evidence.
 	if deny_legacy "$cmd"; then
 		echo "guard-bash: BLOCKED (CROSS-SEGMENT match — T29 trace marker; candidate for pattern re-anchoring): $raw" >&2
-		exit 1
+		exit 2
 	fi
 else
 	# Uncertain parse: one segment = the whole line (today's behavior), both
 	# pattern sets.
 	if deny_legacy "$cmd" || deny_anchored "$cmd"; then
 		echo "guard-bash: BLOCKED dangerous command: $raw" >&2
-		exit 1
+		exit 2
 	fi
 fi
 
@@ -144,7 +144,7 @@ if indirection_taint "$cmd"; then
 		case "$cmd" in
 		*"--force"* | *" -f "* | *" -f")
 			echo "guard-bash: BLOCKED force-push via variable indirection (assignment + expansion): $raw" >&2
-			exit 1
+			exit 2
 			;;
 		esac
 		;;
