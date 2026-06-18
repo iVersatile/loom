@@ -1,0 +1,110 @@
+#!/bin/sh
+# segment-split — THE shared segment splitter for command-line guard hooks
+# (T29, envelope 046 amendment 5: one splitter; two splitters drift).
+# Sourced (`.`) by guard-bash; allow-compound.sh adopts it via a proposed
+# human-applied diff (trust-config path). Not an executable hook by itself —
+# the executable bit only satisfies the doctor present+executable claim.
+#
+# Contract (fail-closed by shape, T29 design point 2):
+#
+#   split_segments CMD
+#     Certain split  -> prints one segment per line (trimmed), returns 0.
+#     ANY uncertainty -> prints nothing, returns 1; the CALLER must treat the
+#     whole line as ONE segment (today's whole-line behavior). Uncertainty =
+#     quoting, substitution/expansion braces, subshell/grouping, redirection,
+#     heredocs, comments, embedded newlines — anything where connector
+#     characters may not be top-level. Comments are never stripped (envelope
+#     046 test list: no strip; uncertainty = one segment).
+#
+#   indirection_taint CMD
+#     Returns 0 when the line carries an assignment AND an expansion —
+#     variable indirection can assemble a blocked token across segments
+#     (FLAG=--force; git push $FLAG), so per-segment precision must not be
+#     trusted (T29 design point 3; amendment 4 broadens to ANY assignment +
+#     ANY expansion, which also covers concatenation like F=--for; F=$F"ce"
+#     more conservatively than token-matching assignments would).
+#
+#   read_tool_command [ARGS...]
+#     THE shared PreToolUse input extractor. A Claude Code PreToolUse(Bash)
+#     hook receives its tool call as a JSON object on STDIN —
+#     {"tool_name":"Bash","tool_input":{"command":"git push"}} — NOT as argv.
+#     The guards historically read `raw="$*"; [ -n "$raw" ] || cat`, so in
+#     production `raw` became the whole JSON blob: space-bounded token rules
+#     (` gh `, ` claude `) NEVER matched (the binary is preceded by `"` in
+#     JSON, not a space), so role-push-guard's gh rule (#189/#192) and
+#     spawn-guard's claude rule (#194) were INERT; only contiguous substrings
+#     (`git push`) matched, and only by luck. This returns the ACTUAL command
+#     string so every guard matches the same text a human `<hook> <cmd>`
+#     invocation produces. Resolution, fail-SAFE (never silently allow):
+#       args present     -> "$*"   (human / test invocation: argv wins)
+#       else read stdin:
+#         JSON ('{'…)     -> jq -r '.tool_input.command // empty' when jq parses
+#         jq absent / bad -> the raw bytes (so substring deny rules still fire)
+#         non-JSON stdin  -> the raw bytes (legacy direct-pipe behavior)
+#
+# POSIX sh + awk only for the splitter; read_tool_command additionally uses jq
+# when present (graceful raw-byte fallback when absent) — both ship in every
+# loom topology.
+
+split_segments() {
+	_ss_cmd=$1
+
+	case "$_ss_cmd" in
+	*"'"* | *'"'* | *'$'* | *'`'*) return 1 ;; # quoting / expansion / substitution
+	*'('* | *')'* | *'{'* | *'}'*) return 1 ;; # subshell / grouping / brace exp
+	*'<'* | *'>'*) return 1 ;;                 # redirection / heredoc / process subst
+	*'#'*) return 1 ;;                         # comment — never stripped
+	esac
+	_ss_nl=$(printf '\nx')
+	_ss_nl=${_ss_nl%x}
+	case "$_ss_cmd" in *"$_ss_nl"*) return 1 ;; esac
+
+	# Connectors are now top-level by construction: && || ; | & each end a
+	# logical command (leftmost-longest, so && wins over &).
+	printf '%s\n' "$_ss_cmd" \
+		| awk '{ gsub(/&&|\|\||[;|&]/, "\n"); print }' \
+		| sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+		| grep -v '^$' || true
+	return 0
+}
+
+indirection_taint() {
+	case "$1" in
+	*=*) case "$1" in *'$'*) return 0 ;; esac ;;
+	esac
+	return 1
+}
+
+read_tool_command() {
+	# argv wins: a human / test invocation passes the command as args, exactly
+	# as the guards' historic `raw="$*"` did. Empty single arg falls through.
+	if [ "$#" -gt 0 ] && [ -n "$*" ]; then
+		printf '%s' "$*"
+		return 0
+	fi
+	_rtc_in=$(cat 2>/dev/null || true)
+	# Nothing on stdin -> nothing to guard (matches the old empty-cat result).
+	[ -n "$_rtc_in" ] || return 0
+	case "$_rtc_in" in
+	'{'*)
+		# The real PreToolUse path: JSON on stdin. jq -r yields the command
+		# ('' when .tool_input.command is absent — a non-Bash call with nothing
+		# to guard) on a clean parse; jq exits non-zero on MALFORMED JSON, which
+		# falls through to the raw-byte fallback so a deny rule still sees text.
+		if command -v jq >/dev/null 2>&1; then
+			if _rtc_cmd=$(printf '%s' "$_rtc_in" | jq -r '.tool_input.command // empty' 2>/dev/null); then
+				printf '%s' "$_rtc_cmd"
+				return 0
+			fi
+		fi
+		# jq absent OR malformed JSON -> FAIL-SAFE: hand back the raw blob so
+		# contiguous substring deny rules (e.g. `git push`) still fire. Never
+		# silently allow by returning empty here.
+		printf '%s' "$_rtc_in"
+		return 0
+		;;
+	esac
+	# Non-JSON stdin (a direct `… | <hook>` pipe) -> raw passthrough, the
+	# legacy behavior unchanged.
+	printf '%s' "$_rtc_in"
+}

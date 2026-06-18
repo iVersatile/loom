@@ -1,0 +1,112 @@
+#!/bin/sh
+# role-push-guard — PreToolUse(Bash) deny-override: only a loom-advisor session
+# may push / open a PR (advisor-in-loom T34, Slice A). Exit non-zero = blocked.
+#
+# WHY A DENY-OVERRIDE, NOT A ROLE-CONDITIONAL ALLOW (the load-bearing correction):
+# push is GRANTED by the role-blind permission allowlist (settings.json
+# permissions.allow), which the engine consults BEFORE any role logic. A
+# role-conditional allow is cosmetic — the allow layer cannot see role. The ONLY
+# thing that narrows a role-blind allow is a PreToolUse deny (deny beats allow in
+# Claude Code). So this hook rides on top of the union allow and BLOCKS the op for
+# any non-advisor session. (Spike + /confer convergence, 2026-06-18:
+# .scratch/spikes/advisor-push-enforcement.md.)
+#
+# ⚠️ DEFENSE-IN-DEPTH, NOT A GUARANTEE, until Slice D. This hook reads role from
+# the LAUNCH-BOUND env (LOOM_SESSION_ROLE) / root marker, which a running session
+# cannot mutate (confer Q2, empirically confirmed in-container). The SOLE residual
+# hole is spawn-time re-exec: an author running
+#   LOOM_SESSION_ROLE=loom-advisor claude -p "push it"
+# starts a NEW session whose env says advisor, so its copy of this hook allows the
+# push. The hook CANNOT close that — only Slice D (gating `claude -p` out of the
+# author allowlist) does. Until D lands, "authors cannot push" is FALSE; this is
+# belt-and-suspenders. See docs/HARNESS.md (permission stack).
+#
+# Role read mirrors drain-inbox.sh:22-25 (env first, root-marker fallback) but
+# INVERTS the default: drain defaults to author-acts; push defaults to DENY — only
+# an exact loom-advisor role is exempt, everything else (incl. unset) is blocked.
+# Command parsing REUSES guard-bash's normalization + the shared segment-split, so
+# env-prefix (LOOM_SESSION_ROLE=loom-advisor git push), whitespace, and chain
+# shapes are caught without a hand-rolled case.
+set -eu
+
+. "$(dirname "$0")/segment-split"
+
+# PreToolUse delivers the tool call as JSON on STDIN, not argv. read_tool_command
+# (segment-split) extracts .tool_input.command so the ` gh ` token rule below
+# actually fires in production — it matched the whole JSON blob before, where
+# `gh` is preceded by `"` not a space, so the rule was INERT (#189/#192). args
+# still win for a human / test invocation.
+raw="$(read_tool_command "$@")"
+
+# Normalize as guard-bash does: tabs/newlines/CRs -> spaces, runs collapse, so
+# `git  push` or a tab-separated `gh\tpr` cannot slip a fixed-substring pattern.
+cmd="$(printf '%s' "$raw" | tr '\t\n\r' '   ' | tr -s ' ')"
+
+# is_push_op SEG — is this a push / PR-opening op? Deny BROADLY (confer Q4): any
+# `git push` (raw push over the shared ~/.config/gh helper, force or not) and any
+# `gh ` invocation (covers `gh pr` AND the `gh api -X POST .../pulls` PR vector).
+# The space-padding tokenizes `gh` so `VAR=x gh pr` (env-prefix) and `... && gh`
+# match while a path like /usr/bin/gh does not.
+is_push_op() {
+	case "$1" in
+	*"git push"*) return 0 ;;
+	esac
+	case " $1 " in
+	*" gh "*) return 0 ;;
+	esac
+	return 1
+}
+
+# Detect, fail-closed: per-segment when the split is CERTAIN, AND whole-line
+# always (the deny floor never shrinks for adversarial input). Substring matching
+# makes whole-line a superset, but the segment pass mirrors guard-bash and keeps
+# the structure recognizably parallel.
+push_capable=0
+if segs=$(split_segments "$cmd"); then
+	oldifs=$IFS
+	IFS='
+'
+	set -f
+	for seg in $segs; do
+		if is_push_op "$seg"; then push_capable=1; fi
+	done
+	set +f
+	IFS=$oldifs
+fi
+if is_push_op "$cmd"; then push_capable=1; fi
+
+# Indirection (guard-bash parity — reuses segment-split's indirection_taint): an
+# inline assignment + expansion can assemble the push SUBCOMMAND across a variable
+# (`p=push; git $p origin`), so "git push" never appears literally and is_push_op
+# misses it. Under taint, treat a git-subcommand-via-expansion (`git $…`) as
+# push-capable — fail-closed. (`gh $…` is already caught by the ` gh ` token rule;
+# `git log $ref` is NOT matched — the expansion isn't in subcommand position.)
+# Accepted residual, same class guard-bash leaves: command-indirection where git
+# itself is the variable (`g=git; $g push`) stays outside substring reach.
+if indirection_taint "$cmd"; then
+	case "$cmd" in
+	*"git "'$'*) push_capable=1 ;;
+	esac
+fi
+
+# Not a push/PR op — nothing for this guard to enforce; let other guards proceed.
+[ "$push_capable" = 1 ] || exit 0
+
+# Resolve session-role from the launch-bound env, root-marker as fallback (mirror
+# drain-inbox.sh:22-25; marker path overridable as in statusline.sh:125, default
+# unchanged). Both sources are launch-bound — a running session cannot mutate what
+# its own hook inherits (confer Q2). FAIL-CLOSED: only an exact loom-advisor role
+# is exempt; unset / any other value is treated as NOT advisor and blocked.
+role="${LOOM_SESSION_ROLE:-}"
+marker="${LOOM_ROLE_MARKER:-/var/lib/loom/role}"
+if [ -z "$role" ] && [ -r "$marker" ]; then
+	role=$(cat "$marker" 2>/dev/null || true)
+fi
+
+[ "$role" = "loom-advisor" ] && exit 0
+
+echo "role-push-guard: BLOCKED push/PR op for non-advisor session (role='${role:-unset}', only loom-advisor may push): $raw" >&2
+# exit 2: Claude Code's PreToolUse BLOCK signal. A non-2 non-zero (exit 1) is a
+# NON-blocking error — the tool still runs (empirically confirmed 2026-06-18: an
+# author git push under exit-1 was NOT blocked). Mirrors branch-guard.sh.
+exit 2
