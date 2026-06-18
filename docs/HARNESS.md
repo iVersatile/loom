@@ -111,9 +111,9 @@ config, `settings.local.json` is state.
   guard hooks in ~/.claude       LIVE (PR 2)   the semantic layer — intent,
    (guard-bash; session hooks                  not just command names
    parked, judgment-trial C4)
-  role-push-guard                DEFENSE-      git push / gh for any non-advisor
-   (deny-override on the          until-D       session (advisor-in-loom T34,
-   union push allow)                            Slice A) — see note below
+  role-push-guard + spawn-guard  LIVE          git push / gh / claude spawn for
+   (deny-overrides on the         (T34 A1+D1)   any non-advisor session (advisor-
+   union push/spawn allows)                     in-loom T34) — see note below
   container egress restriction   MISSING-T20   allowed go test/go build run
    (networking: or proxy                       arbitrary code incl. network
    sidecar; in-container                       I/O — harness rules cannot
@@ -124,22 +124,24 @@ Full-auto clearance is event-gated on this stack completing: the queue row
 "re-run auto-mode evaluation" unblocks when T16 hooks + T10 non-root + T20
 land. The row is the schedule.
 
-**role-push-guard is DEFENSE-IN-DEPTH, not a guarantee, until Slice D.** In a
+**"authors cannot push" is now a GUARANTEE — Slice D landed.** In a
 multi-role-per-container loom-dev (ADR-0021 Option A), the advisor and the
 ephemeral author fleet share one `~/.claude/settings.json` carrying the UNION
-push allow (`git push`, `gh pr …`). That allow is role-blind — the engine
-consults it BEFORE any role logic — so the narrowing is `role-push-guard`, a
-PreToolUse deny-override that blocks `git push` + `gh` for any session whose
+push/spawn allow (`git push`, `gh pr …`, `claude`). That allow is role-blind —
+the engine consults it BEFORE any role logic — so the narrowing is a pair of
+PreToolUse deny-overrides: `role-push-guard` blocks `git push` + `gh`, and
+`spawn-guard` (Slice D, #194) blocks a `claude` spawn, for any session whose
 launch-bound `LOOM_SESSION_ROLE` (root-marker fallback) is not `loom-advisor`
-(deny beats allow). A running session cannot mutate what its own hook sees
-(confer Q2, empirically confirmed). The SOLE residual hole is spawn-time
-re-exec — an author running `LOOM_SESSION_ROLE=loom-advisor claude -p "push"`
-starts a NEW advisor-env session that bypasses this hook. Closing it requires
-**Slice D** — `spawn-guard`, a sibling PreToolUse deny-override that blocks a
-`claude` spawn for any non-advisor session (same launch-bound role check, exit 2).
-Once spawn-guard lands + is validated in-container, role-push-guard's residual is
-closed and "authors cannot push" becomes a guarantee. Until then it is FALSE; no
-doc/ADR may claim it as settled.
+(deny beats allow, exit 2). A running session cannot mutate what its own hook
+sees (confer Q2, empirically confirmed). The one-time residual hole was spawn-time
+re-exec — an author running `LOOM_SESSION_ROLE=loom-advisor claude -p "push"` to
+start a NEW advisor-env session — and `spawn-guard` closes it by denying the
+`claude` spawn itself: the hook reads its OWN launch role, so the inline
+`LOOM_SESSION_ROLE=` in the command text is inert to it. Both guards parse the
+PreToolUse tool-input JSON on stdin (`.tool_input.command`, LL-017) and are
+proven end-to-end by the docker-backed `FR-GUARD-E2E` gate
+(`engine.TestE2EGuardsBlockByRole`, #197) — author BLOCKED on push/gh/claude,
+advisor ALLOWED, on every CI run. The residual is closed; the guarantee holds.
 
 **INVARIANT — a role-scoped capability is a union ALLOW *plus* a role DENY-hook,
 and they are CO-DEPENDENT.** The pattern (A1/role-push-guard, D1/spawn-guard) is:
