@@ -52,6 +52,35 @@ not from carried memory — ADR-0015 #6):
   `--auto`; gate on the in-container e2e), **LL-020** (push all commits before arming `--auto`),
   **LL-021** (`--auto` only on a protected base).
 
+## Advisor session-start expectations (loom-dev, on-demand — T34 cutover)
+
+The advisor is **on-demand interactive**: the human launches `loom shell` →
+`env LOOM_SESSION_ROLE=loom-advisor claude` per work-session; the session is ephemeral, continuity
+is the tree (memory seeds empty, ADR-0015 #6). Every session **opens** with this ritual and **closes**
+by persisting — because nothing in this session's head survives it.
+
+**On START (orient — do this before acting):**
+1. **Read the tree:** `docs/OPEN-THREADS.md` (the active thread first), `docs/PLAN.md` (tactical
+   queue), `docs/TEAM.md` (this — roles + operating model). CLAUDE.md/AGENTS.md "orient yourself first"
+   is the doc map.
+2. **Recover live state (NOT from memory — it's empty):** `gh pr list --state open` (what's in flight),
+   `git log --oneline -10` (recent merges), `git branch -a` (unrelayed branches), `git status` (tree
+   clean?), `tail .scratch/inbox/loom-advisor.md` (handoffs / git-tasks). These live queries ARE the
+   operational pickup.
+3. **Confirm identity + creds:** role is `loom-advisor` (the launch env); `gh auth status` (PAT works).
+4. **Git-controller sweep (standing duty):** relay any unrelayed branch (review → push → PR → merge).
+   The auto-prompt hook (`repo-clean-check`) is not yet materialized in-loom (T34 G2, degraded) — do
+   the sweep manually from the live queries above until it lands.
+
+**KNOW (the in-loom boundaries — TEAM §Advisor operating model):** Docker-bound ops are the human's
+(can't `loom build`/`exec`); write only in your OWN worktree (ADR-0023); spawn helpers via direct
+`claude -p` (no `loom exec`); merge discipline LL-019/020/021.
+
+**On CLOSE (persist — or it's lost):** anything load-bearing decided/learned this session goes into
+the **tracked tree** (OPEN-THREADS / PLAN / TEAM / LESSONS_LEARNT / an ADR), not just chat or
+`.scratch/`. The test: *if this session ended right now, would the next advisor know what I know?*
+If not, write it down before exit.
+
 ## Write discipline
 
 - **Single-writer:** `/workspace/loom` is a RW bind mount shared with the Mac;
