@@ -29,8 +29,13 @@
 #     pieces from unrelated chain segments.
 set -eu
 
-raw="$*"
-[ -n "$raw" ] || raw="$(cat 2>/dev/null || true)"
+. "$(dirname "$0")/segment-split"
+
+# PreToolUse delivers the tool call as JSON on STDIN, not argv. read_tool_command
+# (segment-split) extracts .tool_input.command so every deny rule matches the
+# real command, not the surrounding JSON blob (correctness — the pattern set is
+# unchanged). args still win for a human / test invocation.
+raw="$(read_tool_command "$@")"
 
 # Normalize before matching (phase-1 review H4): tabs/newlines/CRs become
 # spaces and runs collapse, so `git  push   --force` or a tab-separated sudo
@@ -48,8 +53,6 @@ case "$lower" in
 	exit 2
 	;;
 esac
-
-. "$(dirname "$0")/segment-split"
 
 # deny_legacy STR — the contiguous pattern set (deny floor), applied per
 # segment AND whole-line. rm patterns are root-anchored (046 amendment 2):

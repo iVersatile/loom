@@ -1,12 +1,31 @@
 package guard
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// preToolUseJSON builds the exact envelope Claude Code pipes to a PreToolUse
+// hook on STDIN — {"tool_name":"Bash","tool_input":{"command":CMD}}. The guards
+// run with NO argv in production, so a test that passes the command as an arg
+// exercises a path the engine never takes; piping this JSON is the real path
+// (and the one under which the ` gh `/` claude ` token rules were INERT until
+// read_tool_command landed). json.Marshal escapes CMD correctly.
+func preToolUseJSON(t *testing.T, cmd string) string {
+	t.Helper()
+	out, err := json.Marshal(map[string]any{
+		"tool_name":  "Bash",
+		"tool_input": map[string]any{"command": cmd},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
 
 // These tests exercise the actual guardrail SHELL scripts (mechanism, ADR-0005),
 // proving Phase 1 exit criterion "guardrails block a destructive test" — and the

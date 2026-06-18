@@ -135,8 +135,26 @@ launch-bound `LOOM_SESSION_ROLE` (root-marker fallback) is not `loom-advisor`
 (confer Q2, empirically confirmed). The SOLE residual hole is spawn-time
 re-exec — an author running `LOOM_SESSION_ROLE=loom-advisor claude -p "push"`
 starts a NEW advisor-env session that bypasses this hook. Closing it requires
-**Slice D** (gating `claude -p` out of the author allowlist). Until D lands,
-"authors cannot push" is FALSE; no doc/ADR may claim it as settled.
+**Slice D** — `spawn-guard`, a sibling PreToolUse deny-override that blocks a
+`claude` spawn for any non-advisor session (same launch-bound role check, exit 2).
+Once spawn-guard lands + is validated in-container, role-push-guard's residual is
+closed and "authors cannot push" becomes a guarantee. Until then it is FALSE; no
+doc/ADR may claim it as settled.
+
+**INVARIANT — a role-scoped capability is a union ALLOW *plus* a role DENY-hook,
+and they are CO-DEPENDENT.** The pattern (A1/role-push-guard, D1/spawn-guard) is:
+the command sits in `permissions.allow` for ALL sessions (role-blind), and a
+PreToolUse deny-override (`exit 2`, launch-bound role) narrows it to the privileged
+role. **The command MUST be in the allow** — if it is not:
+  1. the **approval gate masks the hook** — a not-in-allow command halts at
+     "requires approval" *before* the deny surfaces, so you can neither validate
+     nor rely on the deny (this is the LL-016 discriminator trap — it bit the
+     `gh auth status` *and* the D1 `claude --version` tests); and
+  2. the **privileged role cannot act headlessly** — its own call also prompts.
+So `Bash(claude:*)` is in the union allow alongside the deny: the advisor spawns
+headlessly, spawn-guard blocks the author despite the allow (deny beats allow).
+A deny-hook whose command is absent from the allow is untestable and inert in
+headless mode — never ship one without its allow.
 
 ## 4. Convergence mechanics (ADR-0011 pattern, both surfaces — LIVE)
 

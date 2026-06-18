@@ -29,14 +29,18 @@
 # shapes are caught without a hand-rolled case.
 set -eu
 
-raw="$*"
-[ -n "$raw" ] || raw="$(cat 2>/dev/null || true)"
+. "$(dirname "$0")/segment-split"
+
+# PreToolUse delivers the tool call as JSON on STDIN, not argv. read_tool_command
+# (segment-split) extracts .tool_input.command so the ` gh ` token rule below
+# actually fires in production — it matched the whole JSON blob before, where
+# `gh` is preceded by `"` not a space, so the rule was INERT (#189/#192). args
+# still win for a human / test invocation.
+raw="$(read_tool_command "$@")"
 
 # Normalize as guard-bash does: tabs/newlines/CRs -> spaces, runs collapse, so
 # `git  push` or a tab-separated `gh\tpr` cannot slip a fixed-substring pattern.
 cmd="$(printf '%s' "$raw" | tr '\t\n\r' '   ' | tr -s ' ')"
-
-. "$(dirname "$0")/segment-split"
 
 # is_push_op SEG — is this a push / PR-opening op? Deny BROADLY (confer Q4): any
 # `git push` (raw push over the shared ~/.config/gh helper, force or not) and any

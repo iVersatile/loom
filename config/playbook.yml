@@ -70,3 +70,7 @@ harness:
       - role-push-guard # T34 Slice A: settings.json registers it as a PreToolUse
         # hook; it MUST be in this list or it is never materialized into
         # ~/.claude/hooks (A1 #189 defect). Sources segment-split (same dir).
+      - spawn-guard # T34 Slice D: closes role-push-guard's re-exec residual by
+        # denying `claude` (agent spawn) for non-advisor sessions. settings.json
+        # registers it as a PreToolUse hook; it MUST be in this list or it is
+        # never materialized (LL-016 / #190). Sources segment-split (same dir).
