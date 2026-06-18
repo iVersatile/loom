@@ -55,11 +55,13 @@ test:
 	  $(GO) test -timeout 120s ./...; \
 	rc=$$?; rm -rf "$$d"; exit $$rc
 
-# Integration tier is docker-backed (provisions a real container). Budget < 5 min;
-# the timeout is a hang-guard, not the budget. ADR-0012 (baked base image) will
-# cut this from minutes to seconds.
+# Integration tier is docker-backed: each e2e provisions a real container, so the
+# wall-clock scales with the number of e2e tests (the guard e2e, FR-GUARD-E2E, adds
+# another full build). The timeout is a hang-guard, not the budget — keep it well
+# above the cumulative provisioning time. ADR-0012 (baked base image) will cut this
+# from minutes to seconds.
 test-integration:
-	$(GO) test -timeout 600s -tags integration ./...
+	$(GO) test -timeout 1200s -tags integration ./...
 
 # Coverage report (unit tier). Baseline/floor recorded in docs/TESTING.md.
 cover:
