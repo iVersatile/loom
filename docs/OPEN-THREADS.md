@@ -1276,4 +1276,24 @@ Collapse the temporary 2-container scaffold (harness `devenv-dev` + `loom-dev`) 
 - **BINDING trust invariant (from the R1.2 confer):** the trust-marker **ceiling** (advisor) and the absent-signal **floor** (absent `LOOM_SESSION_ROLE` ⇒ resolve to loom-author, *not* the marker) are a **CO-DEPENDENT MATCHED PAIR** — land together in the co-residence slice (D), **never ceiling-first** (a ceiling-only flip turns loom-dev fail-OPEN, a regression on live guards). **No spawned author co-resides in loom-dev until the floor inversion is merged.**
 - **Continuity model (ADR-0015 #6 + ADR-0025 R1.2):** harness memory **seeds empty**; durable design/decision/human-todo state lives in the **tracked tree** (this block + PLAN). Volatile operational pickup (which PR is open, branch, queue head) is **NOT** carried — a fresh advisor-in-loom recovers it on cold-start via **live queries**: `gh pr list`, `git log`, `git branch`, inbox drain (strictly more current than any checkpoint). Orient from: this block → PLAN → live queries — never from imported memory.
 
+**SLICE E — the cutover (advisor moves into loom-dev; human decisions 2026-06-18):**
+- **Advisor session model:** **on-demand interactive NOW** — the human launches `loom shell` →
+  `env LOOM_SESSION_ROLE=loom-advisor claude` per work-session (the proven path, #201); each session
+  cold-starts from this tracked record + live queries (memory seeds empty). **Always-on autonomous
+  is the ULTIMATE goal** once the infrastructure (D2 headless-autonomy + T32 supervising-box daemon)
+  lands — NOT now. The advisor is *ephemeral-session, persistent-via-the-tree*.
+- **One seat at a time:** during the transition the devenv advisor stays primary; switch to loom-dev
+  exclusively only at E4. Don't split work across two live advisors.
+- **Steps:** **E1** declare `roles: [loom-author, loom-advisor]` in loom.yml (done — declarative,
+  marker unchanged) + record this plan. **E2** prove the remaining parity legs IN a loom-dev advisor
+  session: a real **confer** (spawn a helper author via `claude -p` — works now: advisor exempt from
+  spawn-guard + `Bash(claude:*)` allowed) + a real **assign/relay** (git-controller already proven #201).
+  **E3** continuity sweep — promote all load-bearing devenv-checkpoint state into the tree so the
+  loom-dev advisor cold-starts complete (anything not in-tree is LOST once devenv dies). **E4** retire
+  devenv (≤2026-06-24, human act).
+- **Ready-to-switch bar (E4 gate, human-chosen):** the loom-dev advisor does all 3 core jobs ONCE —
+  git ✓(#201) + confer + assign — AND cold-starts clean from the docs. **R1.2:** retiring devenv is
+  THE topology change → an independent author confer gates E4 before the human pulls the (irreversible) trigger.
+- Slice E **closes T32** (supervising-box = loom-dev), modulo the always-on daemon (deferred with D2).
+
 Pointers: T12 (single dev container — T34 closes its residue) · T15 (creds) · T32 (supervising-box — subsumed: the supervisor's home IS loom-dev) · ADR-0021/0023/0025 · ADR-0015 #6 (memory-seeds-empty / continuity-from-docs) · adv-071 (spawn classifier) · `.scratch/advisor-in-loom{.md,-phase3.md}` (checklist + slice plan, working/gitignored) · `.scratch/build-slice-a-cutover.md` (Slice-A spec) · `.scratch/spikes/advisor-gh-cred.md` (spike spec).

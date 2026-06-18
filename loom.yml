@@ -24,6 +24,17 @@ rules:
 # marker instead of the forgeable `id -un==root` guess. Conceptual home: ADR-0021.
 role: loom-author
 
+# Provisioned role set (T34 Slice E / FR-SCHEMA-011, #200) — DECLARATIVE only:
+# loom-dev is provisioned to act as BOTH seats (the supervisor's home is loom-dev,
+# ADR-0025). This does NOT change the trust marker (`role:` above stays the
+# fail-closed default loom-author); the advisor seat still elevates per-session via
+# LOOM_SESSION_ROLE=loom-advisor. The marker ceiling + absent-signal floor are a
+# co-dependent matched pair deferred to the co-residence slice (D) — never set the
+# marker from this list. See OPEN-THREADS T34.
+roles:
+  - loom-author
+  - loom-advisor
+
 # Runtime user (T10/ADR-0019 Model A, PR4 Part 3): loom-dev runs the agent SESSION
 # as the non-root `loom` user (entry verbs `exec -u loom`), making the root-owned
 # /var/lib/loom/role marker TRULY non-forgeable — a non-root agent reads but cannot
