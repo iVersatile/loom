@@ -26,6 +26,7 @@ disagree, the code is wrong. Propose a spec change via PR + ADR; don't drift.
 
 ## Boundaries
 - No commit on main; no secrets in code/logs; no --no-verify/sudo/force-push.
+- Conventional Commits; **never add a `Co-Authored-By:` / Anthropic trailer** to commits.
 - Run the gate before commit; never self-approve a release or a phase completion.
 
 ## Communication (replies to the human)
