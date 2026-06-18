@@ -6,6 +6,62 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud` · `git`
 
+## LL-018 — An ephemeral build inside a loom-dev mounted on a git-WORKTREE dir has no usable in-container git
+- Date: 2026-06-18
+- Tags: `engine` · `git`
+- Symptom: An ephemeral loom-author, launched via `loom exec` to build the JSON-stdin
+  guard fix, reported "`/workspace/loom` has no git repository — `.git` is a stale
+  worktree pointer and the object store is gone", and could not create its own worktree
+  (ADR-0023) or commit. It fell back to plain working-tree edits and could not git-task
+  the advisor. The work looked lost.
+- Root cause: the loom-dev it ran in had been (re)built with
+  `loom build --playbook .claude/worktrees/<wt>/loom.yml` for in-container validation, so
+  the container's `/workspace/loom` was mounted on a **git-worktree directory**. A
+  worktree's `.git` is a *pointer file* (`gitdir: …/.git/worktrees/<wt>`) whose target —
+  the main repo's object store — is NOT inside the mount, so in-container git is inert;
+  the worktree also lacks the main tree's `.scratch/`. The "repo gone" alarm was FALSE:
+  the bind-mount is the host worktree, so the edits **persisted to the host** and the
+  advisor (which has the real `.git`) did the git delivery.
+- Fix: advisor recovered the edits from the host worktree dir, verified them, and did the
+  commit/push/PR (#194). No data lost.
+- Prevention: ephemeral-author **builds** (which must create a worktree + commit) need a
+  loom-dev mounted on a **full-git tree** (main checkout) — NOT a `--playbook <worktree>`
+  container. The worktree-playbook build is for **validation/e2e only** (running the
+  materialized hooks via docker-exec needs no git). Keep the two container roles distinct:
+  rebuild loom-dev from main before launching a build; reserve worktree-playbook builds for
+  the post-build in-container gate. See [[advisor-no-shared-tree-write-while-writer-live]].
+
+## LL-017 — A PreToolUse hook gets tool input as JSON on STDIN, not argv — match `.tool_input.command`, never the raw blob
+- Date: 2026-06-18
+- Tags: `engine` · `ci`
+- Symptom: After A1/#192 fixed the exit code, an in-container probe showed
+  `role-push-guard` STILL let a `loom-author` run `gh pr create` / `gh api` (exit 0), and
+  D1 `spawn-guard` never blocked `claude` — while the SAME guards correctly blocked
+  `git push`. Unit tests and CI were green. Two role-narrowing guards merged inert.
+- Root cause: Claude Code delivers the tool call to a PreToolUse hook as **JSON on
+  stdin** (`{…,"tool_input":{"command":"…"}}`), NOT as argv. The guards opened with
+  `raw="$*"; [ -n "$raw" ] || raw="$(cat)"`, so `raw` became the whole JSON envelope.
+  Matching that blob, **contiguous substrings fire by luck** (`*"git push"*` is present
+  verbatim) but **space-bounded token rules do NOT** (`" gh "`, `" claude "` — in the JSON
+  the binary is quote-preceded: `"gh`, `"claude`). So every space-bounded vector was
+  silently inert. It shipped green because the unit tests passed the command as an **argv**
+  (`sh hook "git push"`) — a code path the engine never takes — so they validated the
+  wrong input shape. `branch-guard.sh` already had the right pattern (`jq -r
+  '.tool_input.command'`) but the newer guards didn't copy it.
+- Fix (#194): a shared `read_tool_command()` in `config/hooks/segment-split` (already
+  sourced by all three guards and already in both hook lists → no new materialization
+  surface, dodging LL-016/#190): argv wins; else stdin; JSON → `jq -r
+  '.tool_input.command // empty'`; jq-absent/malformed → raw fail-safe (never silently
+  allow). `role-push-guard`, `spawn-guard`, `guard-bash` read through it (guard-bash
+  pattern set byte-identical). Tests now pipe the real PreToolUse JSON envelope on stdin
+  and assert `exit 2`, plus non-JSON/malformed fail-safe regressions.
+- Prevention: a guard must match the **extracted** `.tool_input.command`, never the raw
+  PreToolUse payload — substring-matching the blob is luck that breaks for every
+  space-bounded token. Test guards in the **real JSON-stdin shape** (the argv form is a
+  necessary-but-not-sufficient convenience). This is also a CI-gate lesson: a green gate
+  over the wrong input shape is no signal — pair it with the in-container e2e (LL-016).
+  See [[gates-must-carry-signal]].
+
 ## LL-016 — A PreToolUse hook blocks ONLY on exit 2; and a guard is proven only in-container, never by unit tests or CI
 - Date: 2026-06-18
 - Tags: `engine` · `ci`
