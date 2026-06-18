@@ -111,6 +111,9 @@ config, `settings.local.json` is state.
   guard hooks in ~/.claude       LIVE (PR 2)   the semantic layer — intent,
    (guard-bash; session hooks                  not just command names
    parked, judgment-trial C4)
+  role-push-guard                DEFENSE-      git push / gh for any non-advisor
+   (deny-override on the          until-D       session (advisor-in-loom T34,
+   union push allow)                            Slice A) — see note below
   container egress restriction   MISSING-T20   allowed go test/go build run
    (networking: or proxy                       arbitrary code incl. network
    sidecar; in-container                       I/O — harness rules cannot
@@ -120,6 +123,20 @@ config, `settings.local.json` is state.
 Full-auto clearance is event-gated on this stack completing: the queue row
 "re-run auto-mode evaluation" unblocks when T16 hooks + T10 non-root + T20
 land. The row is the schedule.
+
+**role-push-guard is DEFENSE-IN-DEPTH, not a guarantee, until Slice D.** In a
+multi-role-per-container loom-dev (ADR-0021 Option A), the advisor and the
+ephemeral author fleet share one `~/.claude/settings.json` carrying the UNION
+push allow (`git push`, `gh pr …`). That allow is role-blind — the engine
+consults it BEFORE any role logic — so the narrowing is `role-push-guard`, a
+PreToolUse deny-override that blocks `git push` + `gh` for any session whose
+launch-bound `LOOM_SESSION_ROLE` (root-marker fallback) is not `loom-advisor`
+(deny beats allow). A running session cannot mutate what its own hook sees
+(confer Q2, empirically confirmed). The SOLE residual hole is spawn-time
+re-exec — an author running `LOOM_SESSION_ROLE=loom-advisor claude -p "push"`
+starts a NEW advisor-env session that bypasses this hook. Closing it requires
+**Slice D** (gating `claude -p` out of the author allowlist). Until D lands,
+"authors cannot push" is FALSE; no doc/ADR may claim it as settled.
 
 ## 4. Convergence mechanics (ADR-0011 pattern, both surfaces — LIVE)
 
