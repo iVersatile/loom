@@ -27,14 +27,18 @@
 # it matches a `claude` spawn token instead of `git push` / `gh`.
 set -eu
 
-raw="$*"
-[ -n "$raw" ] || raw="$(cat 2>/dev/null || true)"
+. "$(dirname "$0")/segment-split"
+
+# PreToolUse delivers the tool call as JSON on STDIN, not argv. read_tool_command
+# (segment-split) extracts .tool_input.command so the ` claude ` token rule below
+# actually fires in production — it matched the whole JSON blob before, where
+# `claude` is preceded by `"` not a space, so the rule was INERT (#194). args
+# still win for a human / test invocation.
+raw="$(read_tool_command "$@")"
 
 # Normalize as guard-bash does: tabs/newlines/CRs -> spaces, runs collapse, so a
 # tab-separated `claude\t-p` cannot slip the space-padded token rule.
 cmd="$(printf '%s' "$raw" | tr '\t\n\r' '   ' | tr -s ' ')"
-
-. "$(dirname "$0")/segment-split"
 
 # is_spawn_op SEG — is this an agent spawn? Space-padding tokenizes `claude` so
 # `env X=y claude`, `... && claude`, and `claude -p` match while a mere path

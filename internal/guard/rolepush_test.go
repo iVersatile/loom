@@ -31,8 +31,13 @@ func runRolePushGuard(t *testing.T, role, cmd string) (bool, string) {
 	if role != "" {
 		env = append(env, "LOOM_SESSION_ROLE="+role)
 	}
-	c := exec.Command("sh", absHook(t, "role-push-guard"), cmd)
+	// Drive the PRODUCTION path: no argv, the command piped as PreToolUse JSON
+	// on STDIN. The old helper passed cmd as an arg, exercising a path the
+	// engine never takes — which is exactly why the ` gh ` token rule looked
+	// green here while being INERT in production (#189/#192).
+	c := exec.Command("sh", absHook(t, "role-push-guard"))
 	c.Env = env
+	c.Stdin = strings.NewReader(preToolUseJSON(t, cmd))
 	out, err := c.CombinedOutput()
 	// A PreToolUse hook BLOCKS the tool call ONLY on exit code 2 (Claude Code's
 	// contract — mirrors branch-guard.sh). A non-2 non-zero (e.g. exit 1) is a
@@ -121,6 +126,76 @@ func TestRolePushGuardIgnoresNonPush(t *testing.T) {
 	} {
 		if blocked, out := runRolePushGuard(t, "loom-author", cmd); blocked {
 			t.Errorf("non-push must be ALLOWED on %q\n%s", cmd, out)
+		}
+	}
+}
+
+// runRolePushRaw runs the hook with NO argv, piping rawStdin verbatim (not the
+// preToolUseJSON envelope) — for the fail-safe paths where the stdin is not a
+// well-formed JSON envelope. Returns (blocked == exit 2, output).
+func runRolePushRaw(t *testing.T, role, rawStdin string) (bool, string) {
+	t.Helper()
+	var env []string
+	for _, kv := range hermeticEnv() {
+		if strings.HasPrefix(kv, "LOOM_SESSION_ROLE=") || strings.HasPrefix(kv, "LOOM_ROLE_MARKER=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, "LOOM_ROLE_MARKER="+filepath.Join(t.TempDir(), "no-such-role"))
+	if role != "" {
+		env = append(env, "LOOM_SESSION_ROLE="+role)
+	}
+	c := exec.Command("sh", absHook(t, "role-push-guard"))
+	c.Env = env
+	c.Stdin = strings.NewReader(rawStdin)
+	out, err := c.CombinedOutput()
+	code := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	} else if err != nil {
+		code = -1
+	}
+	return code == 2, string(out)
+}
+
+// TestRolePushGuardArgvPathStillBlocks: a human (or test) that invokes the hook
+// with the command as ARGV must still block — read_tool_command keeps argv
+// winning over stdin, so the human-invocation path is unbroken.
+func TestRolePushGuardArgvPathStillBlocks(t *testing.T) {
+	for _, cmd := range []string{"git push", "gh pr create --fill"} {
+		c := exec.Command("sh", absHook(t, "role-push-guard"), cmd)
+		var env []string
+		for _, kv := range hermeticEnv() {
+			if strings.HasPrefix(kv, "LOOM_SESSION_ROLE=") || strings.HasPrefix(kv, "LOOM_ROLE_MARKER=") {
+				continue
+			}
+			env = append(env, kv)
+		}
+		env = append(env, "LOOM_ROLE_MARKER="+filepath.Join(t.TempDir(), "no-such-role"), "LOOM_SESSION_ROLE=loom-author")
+		c.Env = env
+		out, err := c.CombinedOutput()
+		code := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		}
+		if code != 2 {
+			t.Errorf("argv path must still BLOCK %q with exit 2, got %d\n%s", cmd, code, out)
+		}
+	}
+}
+
+// TestRolePushGuardFailSafeStdin: the extractor must NEVER silently allow on a
+// stdin it cannot cleanly parse. A non-JSON pipe and a MALFORMED JSON blob both
+// fall back to the raw bytes, where the contiguous `git push` substring still
+// fires — fail-safe (jq-absence takes the same raw-fallback branch).
+func TestRolePushGuardFailSafeStdin(t *testing.T) {
+	for _, raw := range []string{
+		"git push origin main",                       // non-JSON direct pipe -> raw passthrough
+		`{"tool_input":{"command":"git push origin"`, // malformed JSON (unterminated) -> jq fails -> raw fallback; the contiguous `git push` still fires
+	} {
+		if blocked, out := runRolePushRaw(t, "loom-author", raw); !blocked {
+			t.Errorf("fail-safe: author must be BLOCKED on raw stdin %q\n%s", raw, out)
 		}
 	}
 }

@@ -34,8 +34,13 @@ func runSpawnHookGuard(t *testing.T, role, cmd string) (bool, string) {
 	if role != "" {
 		env = append(env, "LOOM_SESSION_ROLE="+role)
 	}
-	c := exec.Command("sh", absHook(t, "spawn-guard"), cmd)
+	// Drive the PRODUCTION path: no argv, the command piped as PreToolUse JSON
+	// on STDIN. The old helper passed cmd as an arg, exercising a path the
+	// engine never takes — which is exactly why the ` claude ` token rule looked
+	// green here while being INERT in production (#194).
+	c := exec.Command("sh", absHook(t, "spawn-guard"))
 	c.Env = env
+	c.Stdin = strings.NewReader(preToolUseJSON(t, cmd))
 	out, err := c.CombinedOutput()
 	// A PreToolUse hook BLOCKS the tool call ONLY on exit code 2 (Claude Code's
 	// contract — mirrors branch-guard.sh / the fixed role-push-guard). A non-2
@@ -119,5 +124,60 @@ func TestSpawnGuardIgnoresNonSpawn(t *testing.T) {
 		if blocked, out := runSpawnHookGuard(t, "loom-author", cmd); blocked {
 			t.Errorf("non-spawn must be ALLOWED on %q\n%s", cmd, out)
 		}
+	}
+}
+
+// TestSpawnGuardArgvPathStillBlocks: invoking the hook with the command as ARGV
+// (human / test) must still block — read_tool_command keeps argv winning.
+func TestSpawnGuardArgvPathStillBlocks(t *testing.T) {
+	for _, cmd := range []string{"claude -p x", "claude"} {
+		c := exec.Command("sh", absHook(t, "spawn-guard"), cmd)
+		var env []string
+		for _, kv := range hermeticEnv() {
+			if strings.HasPrefix(kv, "LOOM_SESSION_ROLE=") || strings.HasPrefix(kv, "LOOM_ROLE_MARKER=") {
+				continue
+			}
+			env = append(env, kv)
+		}
+		env = append(env, "LOOM_ROLE_MARKER="+filepath.Join(t.TempDir(), "no-such-role"), "LOOM_SESSION_ROLE=loom-author")
+		c.Env = env
+		out, err := c.CombinedOutput()
+		code := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		}
+		if code != 2 {
+			t.Errorf("argv path must still BLOCK %q with exit 2, got %d\n%s", cmd, code, out)
+		}
+	}
+}
+
+// TestSpawnGuardFailSafeNonJSONStdin: a direct (non-JSON) pipe of a spawn command
+// must still block via the raw-passthrough branch of read_tool_command — the
+// extractor never silently allows a command it received on a non-JSON stdin.
+// (A MALFORMED JSON blob is deliberately NOT asserted here: spawn-guard's token
+// rule is space-bounded ` claude `, which cannot substring-match a JSON blob;
+// that by-luck gap is the very defect this fix removes for the WELL-FORMED path,
+// and jq is pinned in loom.lock so the jq-absent raw-blob case does not occur in
+// any loom topology.)
+func TestSpawnGuardFailSafeNonJSONStdin(t *testing.T) {
+	c := exec.Command("sh", absHook(t, "spawn-guard"))
+	var env []string
+	for _, kv := range hermeticEnv() {
+		if strings.HasPrefix(kv, "LOOM_SESSION_ROLE=") || strings.HasPrefix(kv, "LOOM_ROLE_MARKER=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, "LOOM_ROLE_MARKER="+filepath.Join(t.TempDir(), "no-such-role"), "LOOM_SESSION_ROLE=loom-author")
+	c.Env = env
+	c.Stdin = strings.NewReader("claude -p x")
+	out, err := c.CombinedOutput()
+	code := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	}
+	if code != 2 {
+		t.Errorf("non-JSON stdin spawn must BLOCK with exit 2, got %d\n%s", code, out)
 	}
 }
