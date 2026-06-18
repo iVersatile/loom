@@ -67,3 +67,6 @@ harness:
       - guard-bash
       - checkpoint-inject
       - segment-split # must land NEXT TO guard-bash (dirname-relative source)
+      - role-push-guard # T34 Slice A: settings.json registers it as a PreToolUse
+        # hook; it MUST be in this list or it is never materialized into
+        # ~/.claude/hooks (A1 #189 defect). Sources segment-split (same dir).
