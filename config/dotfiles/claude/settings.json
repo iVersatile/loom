@@ -4,6 +4,13 @@
     "command": "~/.claude/statusline.sh"
   },
   "permissions": {
+    "allow": [
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr merge --auto:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr checks:*)"
+    ],
     "deny": [
       "Read(~/.claude/.credentials.json)",
       "Read(./.env)",
@@ -40,6 +47,10 @@
           {
             "type": "command",
             "command": "sh ~/.claude/hooks/guard-bash"
+          },
+          {
+            "type": "command",
+            "command": "sh ~/.claude/hooks/role-push-guard"
           }
         ]
       }
