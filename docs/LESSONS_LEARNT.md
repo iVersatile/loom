@@ -6,6 +6,42 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud` · `git`
 
+## LL-021 — `gh pr merge --auto` needs a PROTECTED base, or it merges immediately, bypassing CI
+- Date: 2026-06-18
+- Tags: `git` · `ci`
+- Symptom: arming `gh pr merge --auto` on a stacked PR whose base was an unprotected feature branch
+  merged it **immediately**, bypassing CI — #165 went red into the feature branch (2026-06-16).
+- Root cause: `--auto` waits only for the base branch's **required status checks**; those exist only
+  on a **protected** branch. A PR based on an unprotected branch has no required checks → "auto" has
+  nothing to wait for → it merges at once.
+- Fix/Prevention: only arm `--auto` when the PR's base is `main` (or another protected branch). For a
+  stacked PR, wait until the base lands on main, then arm. Never assume `--auto` == "merge when green."
+
+## LL-020 — Push ALL commits before arming auto-merge; arming-then-pushing races
+- Date: 2026-06-18
+- Tags: `git`
+- Symptom: arming `--auto`, then pushing a follow-up revision, merged the PR on the **earlier** state
+  and orphaned the later commit — cost us ADR-0021 on #137.
+- Root cause: `--auto` fires the moment the **current head's** required checks are green; a push that
+  lands a new head after arming can race the merge — the merge may already be committed to the prior
+  commit before the new push registers as the head.
+- Fix/Prevention: finish the branch first — push **all** commits, confirm the head — **then** arm
+  `--auto`. Treat arming as "this exact commit is final."
+
+## LL-019 — The advisor may BUILD a small trust-config fix, but must CARD it (never self-arm `--auto`); the gate is the in-container e2e
+- Date: 2026-06-18
+- Tags: `ci` · `git`
+- Symptom: the advisor auto-armed merge on solo-built trust-config (a guard/settings/ADR change) twice
+  (#192 and a build-fix, 2026-06-18); the merge classifier correctly DENIED both.
+- Root cause: trust-config (`config/hooks/**`, `settings.json`, `config/playbook.yml harness`,
+  `docs/decisions/**`) carries human-acceptance weight and its real proof is the in-container e2e — an
+  advisor self-arming `--auto` on its own trust change bypasses both the human gate and the e2e gate.
+  Green unit tests / CI are necessary but **not sufficient** for a guard (LL-016).
+- Fix/Prevention: the advisor may DRAFT/BUILD a small trust-config fix directly, but must **CARD** it
+  (open the PR, do NOT `--auto`) for human authorization, and gate the merge on the **in-container
+  e2e** (the real PreToolUse path), not CI alone. Ordinary code (tests/docs/engine, author≠advisor)
+  may auto-merge on green; trust-config may not.
+
 ## LL-018 — An ephemeral build inside a loom-dev mounted on a git-WORKTREE dir has no usable in-container git
 - Date: 2026-06-18
 - Tags: `engine` · `git`

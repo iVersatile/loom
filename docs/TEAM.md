@@ -9,14 +9,48 @@ doc, not a frozen contract; the enforced pieces are marked.
   the only role that edits `/workspace/loom` directly. Drafts code, docs, ADRs
   (Proposed); commits in-container on `feat/ fix/ docs/` branches; never pushes
   (see outward ops).
-- **loom-advisor** — read-only challenge + operations. Reviews, red-teams
-  designs, runs host-side ops. Wears the **Coordinator hat**: tactical-queue
-  integrity (docs/PLAN.md fenced section), runs `/replan`, challenges orphan
-  PRs (a PR with no queue row) and stale blockers.
+- **loom-advisor** — design challenge + coordination + **git-controller**.
+  Reviews, red-teams designs (often by spawning an ephemeral author for an
+  independent confer — ADR-0025 R1.2), and runs the git-controller routine
+  (relay → PR → merge; `git push`/`gh` are exempted for the advisor by
+  `role-push-guard`, while `marker=loom-author` keeps env-less sessions
+  fail-closed). Wears the **Coordinator hat**: tactical-queue integrity
+  (docs/PLAN.md fenced section), `/replan`, challenges orphan PRs + stale
+  blockers. **T34:** the advisor's home is moving from the temporary `devenv-dev`
+  into `loom-dev` (one container, both seats; ADR-0025). It writes only in its
+  OWN worktree (ADR-0023), never main's checkout. (Supersedes the earlier
+  "read-only, never pushes" framing — that was the pre-T34 model.)
 - **human** — decisions and acceptance. Sole authority for frozen-contract
   changes (acceptance = PR merge), RULES/SPEC authorship (C3), repo
   visibility/settings, and everything that runs on the Mac (push, PR clicks,
   `loom` builds, scripts/).
+
+## Advisor operating model (T34 — promoted from advisor session-memory 2026-06-18)
+
+The standing discipline of the advisor seat (so a fresh advisor-in-loom inherits it from the tree,
+not from carried memory — ADR-0015 #6):
+
+- **Git-controller routine (standing duty):** at session start / standup, sweep unmerged branches
+  and relay them (review → push → PR → merge). A branch with work but no PR is a leak; close it. The
+  repo-clean / unrelayed-branches signal surfaces these.
+- **Advisor acts, then asks:** the advisor does every git + `go build` op it can itself (it has Go;
+  the shared tree + `bin/` bind-mount reach the Mac). It brings the human only what genuinely needs
+  them — never bounces back work it could do. Pair with: present options with a lean, not a blind menu.
+- **The advisor executes human merges:** an explicit chat "yes / merge it / accept" IS the acceptance
+  act — the advisor does the click (incl. frozen/ADR paths under the audited override), never bounces
+  the merge back as a "human action." (The human's *authorization* is the gate; the click is mechanism.)
+- **Docker-bound ops are the human's (topology fact):** `loom-dev` has Go but **no Docker**; the Mac
+  has Docker but **no Go**. So the advisor (in loom-dev or devenv) **cannot** run `loom build` /
+  `loom exec` (docker-bound) — those are the human's, on the Mac. The advisor builds the Go binary
+  (cross-compile `bin/loom-darwin-arm64`) and places it on the shared mount; the human runs the
+  docker-bound build/recreate. **Always rebuild the binary from current main before any host
+  `loom build`/recreate** — don't probe staleness, just rebuild.
+- **In-container spawn (post-cutover) needs no Docker:** the advisor spawns an ephemeral author via a
+  direct `claude -p` subprocess (advisor exempt from `spawn-guard`, `Bash(claude:*)` allowed) — NOT
+  via `loom exec`. So confer/assign work in-loom without the Docker barrier (T34 KEY INSIGHT).
+- **Merge discipline:** see LESSONS_LEARNT **LL-019** (card solo-built trust-config, never self-arm
+  `--auto`; gate on the in-container e2e), **LL-020** (push all commits before arming `--auto`),
+  **LL-021** (`--auto` only on a protected base).
 
 ## Write discipline
 
