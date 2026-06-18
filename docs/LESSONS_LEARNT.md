@@ -6,6 +6,37 @@ the relevant tag; cite `Applying LL-NNN` in the commit body.
 ## Tag registry
 - `schema` · `resolver` · `engine` · `detect` · `cli` · `ci` · `compat` · `cloud` · `git`
 
+## LL-016 — A PreToolUse hook blocks ONLY on exit 2; and a guard is proven only in-container, never by unit tests or CI
+- Date: 2026-06-18
+- Tags: `engine` · `ci`
+- Symptom: After A1 (#189) shipped `role-push-guard` "green" (unit tests + CI pass,
+  ADR-blessed), an in-container test found a `loom-author` session could still
+  `git push` — the deny-override never fired. The same defect class meant
+  `guard-bash` was silently NOT blocking `rm -rf /`, `/dev/tcp` reverse shells, and
+  `core.hooksPath` redirects (none of which are in the `permissions.deny` floor, so
+  `guard-bash` was their ONLY enforcement). Both guards looked correct and tested.
+- Root cause: Claude Code blocks a tool call from a PreToolUse hook **only on exit
+  code 2**; a non-2 non-zero (`exit 1`) is a NON-blocking error — the command still
+  runs. `role-push-guard` and `guard-bash` denied with `exit 1` (only `branch-guard.sh`
+  used `exit 2`). It shipped undetected because TWO test layers were blind to it:
+  (a) the unit test asserted blocking via `err != nil` (any non-zero), which accepts
+  `exit 1`; (b) running `sh hook` and checking its exit code does not exercise Claude
+  Code's PreToolUse machinery at all — it proves the script's exit value, not that the
+  harness blocks. A sibling defect (#190): a hook registered in `settings.json`
+  PreToolUse but absent from `harness.claude.hooks` is never materialized into
+  `~/.claude/hooks` — the unit test invoked it by repo path and missed that too.
+- Fix: `exit 1 → exit 2` in both hooks (#192); harden tests to assert `exit == 2`
+  (not merely non-zero); add `harness_dogfood_test.go` assertion that every
+  settings-referenced hook materializes (#190). Empirically re-validated in-container:
+  author `git push` now returns `PreToolUse:Bash hook error … BLOCKED`, advisor runs.
+- Prevention: a guard is NOT proven by green unit tests or CI — it is proven only by
+  exercising the real PreToolUse path **in-container** (the deny actually blocks the
+  tool). For a deny-hook, the test command must be IN `permissions.allow` (else it
+  halts at the approval gate before the hook, masking the result). Assert the exact
+  block code (`exit 2`), never `err != nil`. Treat "external doc unverifiable"
+  (a sub-agent that can't fetch the source and reasons circularly from our own code)
+  as INCONCLUSIVE, not authoritative.
+
 ## LL-015 — An unenforced convention is not a guardrail; "use a worktree" must be a mechanism on every seat
 - Date: 2026-06-16
 - Tags: `git`
