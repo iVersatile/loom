@@ -1289,11 +1289,20 @@ Collapse the temporary 2-container scaffold (harness `devenv-dev` + `loom-dev`) 
   session: a real **confer** (spawn a helper author via `claude -p` — works now: advisor exempt from
   spawn-guard + `Bash(claude:*)` allowed) + a real **assign/relay** (git-controller already proven #201).
   **E3** continuity sweep — promote all load-bearing devenv-checkpoint state into the tree so the
-  loom-dev advisor cold-starts complete (anything not in-tree is LOST once devenv dies). **E4** retire
-  devenv (≤2026-06-24, human act).
-- **Ready-to-switch bar (E4 gate, human-chosen):** the loom-dev advisor does all 3 core jobs ONCE —
-  git ✓(#201) + confer + assign — AND cold-starts clean from the docs. **R1.2:** retiring devenv is
-  THE topology change → an independent author confer gates E4 before the human pulls the (irreversible) trigger.
+  loom-dev advisor cold-starts complete (anything not in-tree is LOST once devenv dies) — DONE (#202
+  plan, #203 operating-model→TEAM.md + LL-019..021, #205 the G1 no-Co-Authored-By residual). **E4**
+  retire devenv (human act) — **QUARANTINE, NOT DELETE** (human, 2026-06-18): after a confidence
+  session, **move devenv to `/workspace/_old-bundle-quarantine/`** (reversible/recoverable fallback,
+  not `rm`). ≤2026-06-24.
+- **STATUS 2026-06-18:** **E1 ✓** (#200/#202) · **E2 ✓ PROVEN** — confer + assign run from a loom-dev
+  advisor via in-container `claude -p` (#204 the assign relay); git ✓(#201). · **E3 ✓.** The E2 confer
+  doubled as the **R1.2 cutover-readiness audit** → returned 2 gaps: **G1** (memory→tree certification
+  — only the devenv-advisor seat can read both; ran it, single residual = no-Co-Authored-By, closed
+  #205) **CLOSED**; **G2** (`repo-clean-check` hook absent from `config/hooks/` → degraded auto-prompt,
+  manual sweep documented) **ACCEPTED DEGRADED** (human 2026-06-18; hook promotion deferred — not a
+  blocker). **→ cutover PROVEN + CERTIFIED; only the confidence session + the quarantine remain.**
+- **Ready-to-switch bar (E4 gate, human-chosen):** all 3 core jobs ONCE — git ✓(#201) + confer ✓ +
+  assign ✓ — AND a clean cold-start ✓. **MET.** R1.2 satisfied via the E2 confer + G1 closure.
 - Slice E **closes T32** (supervising-box = loom-dev), modulo the always-on daemon (deferred with D2).
 
 Pointers: T12 (single dev container — T34 closes its residue) · T15 (creds) · T32 (supervising-box — subsumed: the supervisor's home IS loom-dev) · ADR-0021/0023/0025 · ADR-0015 #6 (memory-seeds-empty / continuity-from-docs) · adv-071 (spawn classifier) · `.scratch/advisor-in-loom{.md,-phase3.md}` (checklist + slice plan, working/gitignored) · `.scratch/build-slice-a-cutover.md` (Slice-A spec) · `.scratch/spikes/advisor-gh-cred.md` (spike spec).
