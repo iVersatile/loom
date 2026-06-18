@@ -78,6 +78,27 @@ func TestRoleMergeLastWins(t *testing.T) {
 	}
 }
 
+// TestRolesMergeConcatDedup covers FR-SCHEMA-011: the plural roles: declaration
+// merges by the generic list concat/dedup path (like tools/rules/hooks), NOT the
+// last-wins scalar rule that role: uses. A later layer's roles union with the
+// earlier layer's, dedup keeping first occurrence.
+func TestRolesMergeConcatDedup(t *testing.T) {
+	base := &Playbook{Loom: 1, Tier: TierBase, Roles: []string{"loom-author"}}
+	proj := &Playbook{Tier: TierProject, Name: "loom", Roles: []string{"loom-advisor", "loom-author"}}
+	got := Merge(base, proj).Roles
+
+	want := []string{"loom-author", "loom-advisor"} // union, dedup keeps first
+	if !slices.Equal(got, want) {
+		t.Errorf("roles = %v, want %v (concat + dedup)", got, want)
+	}
+
+	// Plural roles: and scalar role: are independent — merging roles must not
+	// touch the marker-default scalar.
+	if r := Merge(base, proj).Role; r != "" {
+		t.Errorf("role scalar = %q, want \"\" (roles: must not derive the scalar marker)", r)
+	}
+}
+
 func TestMergeListsConcatAndDedup(t *testing.T) {
 	a := &Playbook{Tools: []string{"git", "jq"}, Ports: []int{8080}}
 	b := &Playbook{Tools: []string{"jq", "go@1.26"}, Ports: []int{8080, 9090}}
