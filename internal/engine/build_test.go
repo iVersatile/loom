@@ -839,6 +839,66 @@ func TestDoctorGradesGithooksWiring(t *testing.T) {
 	}
 }
 
+// hermeticGit runs git in root with config scopes pinned away from the real
+// machine (LL-006/LL-010) and a fixed identity so commits/worktrees succeed.
+func hermeticGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	c := exec.Command("git", append([]string{"-C", root}, args...)...)
+	c.Env = []string{
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+		"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+	}
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+}
+
+// TestEnsureGithooksSkipsWorktree (D1 confer / LL-016 class): building from a
+// linked worktree (`loom build --playbook <worktree>/loom.yml`) must NOT wire
+// core.hooksPath. A worktree's `git config --local` writes the SHARED common
+// config, so wiring there clobbers the main checkout's hooksPath as a side
+// effect of a worktree build — and the gitdir pointer can be unresolvable from
+// the build host (git exit 128, which used to abort the whole build before the
+// container step). A worktree (`.git` is a pointer FILE, not a dir) => no-op;
+// the main checkout's wiring stays intact.
+func TestEnsureGithooksSkipsWorktree(t *testing.T) {
+	main := t.TempDir()
+	hermeticGit(t, main, "init", "-b", "main")
+	if err := os.MkdirAll(filepath.Join(main, ".githooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hermeticGit(t, main, "commit", "-m", "init", "--allow-empty")
+	// The common config points at an ABSOLUTE hooks dir — the real loom repo's
+	// state (.git/config: core.hooksPath=/workspace/loom/.githooks). A worktree
+	// shares this config, and the literal "!= .githooks" guard would otherwise
+	// see the absolute value and try to re-set it: that write clobbers the
+	// shared config (and risks the exit-128 abort). The fix skips the worktree
+	// before any config call, so this absolute value must survive untouched.
+	absHooks := filepath.Join(main, ".githooks")
+	hermeticGit(t, main, "config", "--local", "core.hooksPath", absHooks)
+
+	wt := filepath.Join(t.TempDir(), "wt")
+	hermeticGit(t, main, "worktree", "add", "-q", wt)
+	if err := os.MkdirAll(filepath.Join(wt, ".githooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Worktree build: a no-op for hooks, and never an error (non-fatal path).
+	wired, err := ensureGithooksPath(wt)
+	if err != nil {
+		t.Fatalf("worktree ensureGithooksPath must not error (build would abort): %v", err)
+	}
+	if wired {
+		t.Error("worktree build must NOT wire core.hooksPath — it clobbers the shared common config")
+	}
+	// The main checkout's absolute wiring is untouched by the worktree build.
+	if got := localHooksPath(t, main); got != absHooks {
+		t.Errorf("main core.hooksPath = %q after worktree build, want %q (shared config clobbered)", got, absHooks)
+	}
+}
+
 // TestBuildSummaryCountsWrites (live-build e2e F-a): the human summary must
 // distinguish "ensured" (full declared set, idempotence) from "written"
 // (what THIS run changed) — it once printed "4 materialized" on a 0-write

@@ -194,8 +194,13 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 	// .githooks gets core.hooksPath converged so the commit-time guards
 	// (branch-guard/protect-paths class) actually run — a declared guard no
 	// commit path invokes is fiction. Idempotent; audited like every mutation.
+	// NON-FATAL: hooks wiring is a host-side convenience, not load-bearing for
+	// the container build (which step 4 produces). A git quirk here — a
+	// permission/topology failure on the config write — must not abort a build
+	// whose lock/home already converged and whose container has not yet been
+	// created; surface it as a warning and press on (FR-BUILD-005 recoverable).
 	if wired, werr := ensureGithooksPath(root); werr != nil {
-		return res, fmt.Errorf("wire githooks: %w", werr)
+		res.Warnings = append(res.Warnings, fmt.Sprintf("githooks wiring skipped (commit-time guards may be inert): %v", werr))
 	} else if wired {
 		changed = true
 		if id, aerr := log.Append(audit.Entry{
@@ -317,12 +322,25 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 // ensureGithooksPath sets repo-local core.hooksPath=.githooks when the project
 // ships a .githooks dir and the config does not already point there. Returns
 // true only when it wrote the config (idempotent: a wired repo is a no-op).
-// Not applicable (no .githooks, not a git repo) is a silent skip, not an error.
+// Not applicable (no .githooks, not a git repo, a linked worktree) is a silent
+// skip, not an error.
 func ensureGithooksPath(root string) (bool, error) {
 	if _, err := os.Stat(filepath.Join(root, ".githooks")); err != nil {
 		return false, nil
 	}
-	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+	gi, err := os.Stat(filepath.Join(root, ".git"))
+	if err != nil {
+		return false, nil
+	}
+	// A linked worktree has a `.git` FILE (a `gitdir:` pointer), not a dir
+	// (LL-016 class — `loom build --playbook <worktree>/loom.yml`). `git config
+	// --local` from a worktree writes the SHARED common config (.git/config of
+	// the main checkout): wiring here would clobber the main checkout's
+	// core.hooksPath as a side effect of building a worktree, and the gitdir
+	// pointer may be unresolvable from this host (exit 128). The worktree
+	// already inherits hooks via that shared config — wiring is the main
+	// checkout's job, so building from a worktree is a no-op for hooks.
+	if !gi.IsDir() {
 		return false, nil
 	}
 	out, _ := exec.Command("git", "-C", root, "config", "--local", "--get", "core.hooksPath").Output()
