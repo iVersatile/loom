@@ -15,3 +15,16 @@ hooks:
   - guard-bash
   - branch-guard
   - protect-paths
+
+# Harness-home declaration (SPEC-playbook#harness, ADR-0015): the role-deny
+# guards must be MATERIALIZED into the agent home (~/.claude/hooks) so the
+# integration-tier e2e (TestE2EGuardsBlockByRole, FR-GUARD-E2E) can drive the
+# REAL materialized guard via the REAL PreToolUse path. These are byte-identical
+# copies of config/hooks/{role-push-guard,spawn-guard,segment-split} — the unit
+# TestGuardFixtureParity pins them so the e2e never tests a stale guard.
+harness:
+  claude:
+    hooks:
+      - segment-split # sourced by the guards (dirname-relative); must land next to them
+      - role-push-guard # T34 Slice A: PreToolUse deny — only loom-advisor may push/PR
+      - spawn-guard # T34 Slice D: PreToolUse deny — only loom-advisor may spawn `claude`

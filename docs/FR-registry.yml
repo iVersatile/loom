@@ -511,6 +511,23 @@ requirements:
     source: [docs/decisions/0020-autonomy-closed-loop.md, config/hooks/resurface-decide]
     tests: { suite: guard.TestResurfaceDecide, patterns: all }
     status: active
+  - id: FR-GUARD-E2E
+    kind: behavioral
+    # The meta-guardrail over the role-deny guards. Every guard defect this
+    # session was caught by hand, in-container, by a human — never by CI:
+    # #190 (registered in settings.json but absent from harness.hooks, so NEVER
+    # materialized), #192/LL-016 (exited 1 not 2 — a non-blocking error, the tool
+    # still ran), #189/#194/LL-017 (PreToolUse delivers tool input as JSON on
+    # STDIN, not argv, so space-bounded token rules matched the JSON blob and were
+    # INERT). Unit tests (`sh hook <arg>`) cannot catch any of these — they never
+    # touch the materialized file, the built container, the JSON-on-stdin shape,
+    # or role resolution. This FR makes the in-container proof a CI GATE, not a
+    # manual step. The fixture guards are byte-pinned to config/hooks/ by
+    # engine.TestGuardFixtureParity so the e2e can never certify a stale guard.
+    statement: Every role-scoped deny guard (role-push-guard, spawn-guard, and any future PreToolUse role-narrowing hook) has an integration-tier (docker-backed, //go:build integration) e2e that drives the MATERIALIZED ~/.claude/hooks/<guard> in the BUILT container via the REAL PreToolUse path — tool-input JSON on STDIN, role from LOOM_SESSION_ROLE/marker — and asserts the denied role is BLOCKED (exit 2) and the privileged role is ALLOWED (exit 0) for every command class the guard narrows, plus that each guard file is materialized executable (the #190 class) and benign commands are not over-blocked. Unit tests that invoke `sh hook <arg>` are necessary but NOT sufficient.
+    source: [RULES.md#§5, config/hooks/role-push-guard, config/hooks/spawn-guard]
+    tests: { suite: engine.TestE2EGuardsBlockByRole + engine.TestGuardFixtureParity, patterns: all }
+    status: active
 
   # --- Behavioral: autonomy closed-loop (ADR-0020) ---
   - id: FR-LOOP-001
