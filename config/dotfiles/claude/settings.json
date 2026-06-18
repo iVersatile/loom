@@ -9,7 +9,8 @@
       "Bash(gh pr create:*)",
       "Bash(gh pr merge --auto:*)",
       "Bash(gh pr view:*)",
-      "Bash(gh pr checks:*)"
+      "Bash(gh pr checks:*)",
+      "Bash(claude:*)"
     ],
     "deny": [
       "Read(~/.claude/.credentials.json)",
