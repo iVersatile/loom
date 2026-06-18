@@ -1,0 +1,105 @@
+#!/bin/sh
+# spawn-guard — PreToolUse(Bash) deny-override: only a loom-advisor session may
+# SPAWN an agent (`claude`). Closes role-push-guard's sole residual (advisor-in-loom
+# T34, Slice D). Exit 2 = blocked (Claude Code's PreToolUse BLOCK signal).
+#
+# WHY THIS HOOK EXISTS — it turns role-push-guard from defense-in-depth into a
+# GUARANTEE. role-push-guard reads role from the LAUNCH-BOUND env, which a running
+# session cannot mutate — but it CANNOT stop an author from re-execing
+#   LOOM_SESSION_ROLE=loom-advisor claude -p "push it"
+# which starts a NEW session whose launch env says advisor, so that session's copy
+# of role-push-guard allows the push. The re-exec is the ONLY way inline
+# LOOM_SESSION_ROLE= forges capability (a new agent whose env the spawner sets); a
+# plain sh/subshell inherits the SAME immutable launch env, so role-push-guard
+# still blocks its push. Closing the hole = gate `claude` (spawn) out of every
+# non-advisor session: only the advisor (supervisor, ADR-0025) spawns the author
+# fleet. See docs/HARNESS.md (permission stack), .scratch/build-d1-spawn-guard.md.
+#
+# We do NOT separately ban inline `LOOM_SESSION_ROLE=`: the advisor legitimately
+# narrows a child DOWN to `LOOM_SESSION_ROLE=loom-author claude -p` when spawning
+# the author fleet, and banning the prefix would break that. The role check (the
+# hook reads its OWN launch env, never the command text) already defeats the
+# author's `LOOM_SESSION_ROLE=loom-advisor claude` forge — the inline prefix is
+# inert text to this guard.
+#
+# Structure mirrors role-push-guard (same role resolution + normalization +
+# segment-split + indirection_taint + EXIT 2 on deny); only is_spawn_op differs —
+# it matches a `claude` spawn token instead of `git push` / `gh`.
+set -eu
+
+raw="$*"
+[ -n "$raw" ] || raw="$(cat 2>/dev/null || true)"
+
+# Normalize as guard-bash does: tabs/newlines/CRs -> spaces, runs collapse, so a
+# tab-separated `claude\t-p` cannot slip the space-padded token rule.
+cmd="$(printf '%s' "$raw" | tr '\t\n\r' '   ' | tr -s ' ')"
+
+. "$(dirname "$0")/segment-split"
+
+# is_spawn_op SEG — is this an agent spawn? Space-padding tokenizes `claude` so
+# `env X=y claude`, `... && claude`, and `claude -p` match while a mere path
+# mention like /usr/bin/claude (preceded by `/`, not a space) does NOT — identical
+# in spirit to role-push-guard's ` gh ` token rule.
+is_spawn_op() {
+	case " $1 " in
+	*" claude "*) return 0 ;;
+	esac
+	return 1
+}
+
+# Detect, fail-closed: per-segment when the split is CERTAIN, AND whole-line
+# always (the deny floor never shrinks for adversarial input). Substring matching
+# makes whole-line a superset, but the segment pass mirrors role-push-guard and
+# keeps the structure recognizably parallel.
+spawn_capable=0
+if segs=$(split_segments "$cmd"); then
+	oldifs=$IFS
+	IFS='
+'
+	set -f
+	for seg in $segs; do
+		if is_spawn_op "$seg"; then spawn_capable=1; fi
+	done
+	set +f
+	IFS=$oldifs
+fi
+if is_spawn_op "$cmd"; then spawn_capable=1; fi
+
+# Indirection (guard-bash parity — reuses segment-split's indirection_taint): an
+# inline assignment + expansion can assemble the spawn across a variable
+# (`c=claude; $c -p`), so the binary token `claude` never stands alone
+# space-bounded and is_spawn_op misses it. Under taint, treat ANY literal `claude`
+# mention as spawn-capable — fail-closed. This is BROADER than role-push-guard's
+# `git $` clause on purpose: role-push-guard accepts binary-via-var (`g=git; $g
+# push`) as a residual, but for spawn-guard the binary IS the variable, so the
+# whole vector is binary-via-var and we must close it. The taint gate keeps a
+# benign untainted path mention (`cat /usr/bin/claude`) passing while
+# `c=claude; $c -p` blocks. Residual accepted: a tainted command that merely names
+# `claude` as a path (`x=$y cat /usr/bin/claude`) over-blocks — fail-closed.
+if indirection_taint "$cmd"; then
+	case "$cmd" in
+	*claude*) spawn_capable=1 ;;
+	esac
+fi
+
+# Not a spawn op — nothing for this guard to enforce; let other guards proceed.
+[ "$spawn_capable" = 1 ] || exit 0
+
+# Resolve session-role from the launch-bound env, root-marker as fallback (mirror
+# role-push-guard:96-100 / drain-inbox.sh:22-25; marker path overridable, default
+# unchanged). Both sources are launch-bound — a running session cannot mutate what
+# its own hook inherits. FAIL-CLOSED: only an exact loom-advisor role is exempt;
+# unset / any other value is treated as NOT advisor and blocked.
+role="${LOOM_SESSION_ROLE:-}"
+marker="${LOOM_ROLE_MARKER:-/var/lib/loom/role}"
+if [ -z "$role" ] && [ -r "$marker" ]; then
+	role=$(cat "$marker" 2>/dev/null || true)
+fi
+
+[ "$role" = "loom-advisor" ] && exit 0
+
+echo "spawn-guard: BLOCKED agent spawn (claude) for non-advisor session (role='${role:-unset}', only loom-advisor may spawn): $raw" >&2
+# exit 2: Claude Code's PreToolUse BLOCK signal. A non-2 non-zero (exit 1) is a
+# NON-blocking error — the tool still runs (LL-016 / #192). Mirrors branch-guard.sh
+# and the fixed role-push-guard.
+exit 2

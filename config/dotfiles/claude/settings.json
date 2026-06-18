@@ -51,6 +51,10 @@
           {
             "type": "command",
             "command": "sh ~/.claude/hooks/role-push-guard"
+          },
+          {
+            "type": "command",
+            "command": "sh ~/.claude/hooks/spawn-guard"
           }
         ]
       }
