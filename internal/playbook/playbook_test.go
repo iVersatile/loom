@@ -1,7 +1,9 @@
 package playbook
 
 import (
+	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -115,6 +117,59 @@ func TestValidateRoleFormat(t *testing.T) {
 		if err := pb.Validate(); err == nil {
 			t.Errorf("%s: expected validation error, got nil", name)
 		}
+	}
+}
+
+// TestValidateRolesDeclaration covers FR-SCHEMA-011: each roles: entry must be a
+// single token (the role: shape) AND a known loom-role. A bare unknown token, a
+// whitespace/slash token, and an otherwise-valid token alongside an unknown one
+// all reject; the known set {loom-author, loom-advisor} validates.
+func TestValidateRolesDeclaration(t *testing.T) {
+	valid := []*Playbook{
+		{Loom: 1, Tier: TierBase},                                                 // unset = no declaration
+		{Loom: 1, Tier: TierBase, Roles: []string{"loom-author"}},                 // single known role
+		{Loom: 1, Tier: TierBase, Roles: []string{"loom-author", "loom-advisor"}}, // the full provisioned set
+		{Loom: 1, Tier: TierProject, Name: "x", Roles: []string{"loom-advisor"}},
+	}
+	for i, pb := range valid {
+		if err := pb.Validate(); err != nil {
+			t.Errorf("valid case %d (roles=%v): %v", i, pb.Roles, err)
+		}
+	}
+
+	invalid := map[string]*Playbook{
+		"unknown role token":     {Loom: 1, Tier: TierBase, Roles: []string{"loom-reviewer"}},
+		"known plus unknown":     {Loom: 1, Tier: TierBase, Roles: []string{"loom-author", "loom-reviewer"}},
+		"roles entry with space": {Loom: 1, Tier: TierBase, Roles: []string{"loom author"}},
+		"roles entry with slash": {Loom: 1, Tier: TierBase, Roles: []string{"loom/author"}},
+		"roles entry with colon": {Loom: 1, Tier: TierBase, Roles: []string{"loom:author"}},
+		"roles entry padded":     {Loom: 1, Tier: TierProject, Name: "x", Roles: []string{" loom-author"}},
+		"empty roles entry":      {Loom: 1, Tier: TierBase, Roles: []string{""}},
+	}
+	for name, pb := range invalid {
+		if err := pb.Validate(); err == nil {
+			t.Errorf("%s: expected validation error, got nil", name)
+		}
+	}
+}
+
+// TestSingleRoleConfigByteIdentical is the C2/ADR-0021 guarantee: adding the
+// plural roles: field must NOT change the wire format of a config that authors
+// only the scalar role:. With roles unset, the omitempty tag elides the key, so
+// the JSON is byte-identical to a pre-Slice-A build — no behavior change, no
+// marker derived from a (here absent) roles ceiling.
+func TestSingleRoleConfigByteIdentical(t *testing.T) {
+	pb := &Playbook{Loom: 1, Tier: TierBase, Role: "loom-author"}
+	got, err := json.Marshal(pb)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	const want = `{"loom":1,"tier":"base","role":"loom-author"}`
+	if string(got) != want {
+		t.Errorf("single-role config JSON =\n  %s\nwant byte-identical (no roles key):\n  %s", got, want)
+	}
+	if strings.Contains(string(got), "roles") {
+		t.Errorf("single-role config leaked a roles key: %s", got)
 	}
 }
 

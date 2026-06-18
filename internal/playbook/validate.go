@@ -63,6 +63,21 @@ func (pb *Playbook) Validate() error {
 		errs = append(errs, fmt.Sprintf("invalid role %q (must be a single token: no whitespace, no / or :)", pb.Role))
 	}
 
+	// roles: (Slice A, T34 cutover) is the DECLARATIVE provisioned role set — a
+	// plural sibling to role:, declaration-only (it does NOT affect the trust
+	// marker). Each entry reuses role:'s single-token shape (no whitespace, no /
+	// or :) AND must name a known loom-role; an unknown token is a hard error so a
+	// typo'd declaration cannot silently widen the provisioned set.
+	for _, r := range pb.Roles {
+		if strings.TrimSpace(r) != r || strings.ContainsAny(r, " \t\r\n/:") {
+			errs = append(errs, fmt.Sprintf("invalid roles entry %q (each must be a single token: no whitespace, no / or :)", r))
+			continue
+		}
+		if !validDeclaredRole(r) {
+			errs = append(errs, fmt.Sprintf("unknown roles entry %q (want %s or %s)", r, RoleAuthor, RoleAdvisor))
+		}
+	}
+
 	for agent, h := range pb.Harness {
 		if agent == "" {
 			errs = append(errs, "harness: agent namespace key must be non-empty")
@@ -107,4 +122,13 @@ func (pb *Playbook) Validate() error {
 		return fmt.Errorf("invalid playbook:\n  - %s", strings.Join(errs, "\n  - "))
 	}
 	return nil
+}
+
+// validDeclaredRole reports whether r names a known loom-role permitted in a
+// `roles:` declaration. It is an allowlist of declaration intent, distinct from
+// the engine's validRole marker-safe charset check (container.go) — the former
+// constrains WHAT may be declared, the latter constrains what is safe to write
+// into the marker file.
+func validDeclaredRole(r string) bool {
+	return r == RoleAuthor || r == RoleAdvisor
 }

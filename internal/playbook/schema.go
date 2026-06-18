@@ -14,6 +14,14 @@ const (
 	TierProject = "project"
 )
 
+// Known loom-roles a `roles:` declaration may name (Slice A, T34 cutover). These
+// are the DECLARATIVE provisioned-role tokens — the trust marker is resolved
+// separately by the engine (the scalar `role:`), never derived from this set.
+const (
+	RoleAuthor  = "loom-author"
+	RoleAdvisor = "loom-advisor"
+)
+
 // Playbook is the union of both tiers' fields; Tier selects which apply, and
 // Validate enforces the tier-appropriate subset. Lists are intent-by-reference
 // (rules/dotfiles/hooks resolve against the config source); Tools are name@version
@@ -47,6 +55,16 @@ type Playbook struct {
 	// (engine `validRole`); the schema only requires the same single-token shape as
 	// `user:`. The conceptual home is the role model (ADR-0021).
 	Role string `json:"role,omitempty"`
+
+	// Roles is the DECLARATIVE set of loom-roles loom-dev is provisioned to act
+	// as (Slice A, T34 cutover) — a plural sibling to the scalar Role, forward-
+	// looking for the co-residence slice. It is declaration-only: it does NOT
+	// derive or affect the trust marker (the scalar `role:` stays the marker
+	// default — ADR-0021 §Alternatives, the C2 fail-closed insight). Merges by
+	// the generic list concat/dedup like the other []string fields; each entry
+	// must be a single role token in {loom-author, loom-advisor}. A single-`role:`
+	// config carries no Roles and stays byte-identical to a pre-Slice-A build.
+	Roles []string `json:"roles,omitempty"`
 
 	Agents   []string `json:"agents,omitempty"`   // agent harnesses
 	Tools    []string `json:"tools,omitempty"`    // name@version intent

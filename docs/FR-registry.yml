@@ -300,6 +300,24 @@ requirements:
     source: SPEC-playbook.md#role
     tests: [playbook.TestRoleMergeLastWins, playbook.TestValidateRoleFormat]
     status: active
+  - id: FR-SCHEMA-011
+    kind: schema
+    # Slice A / T34 cutover (2026-06-18): roles: is the DECLARATIVE plural sibling
+    # to role: — the set loom-dev is provisioned to act as (forward-looking for
+    # co-residence). It is declaration-only: it does NOT derive or affect the
+    # trust marker (the scalar role: stays the marker default — the C2 fail-closed
+    # insight, ADR-0021 §Alternatives). Flipping the marker from the roles ceiling
+    # is forbidden until its matched absent-signal floor lands together (Slice D).
+    # This FR covers only the schema joint — the plural list's merge + per-entry
+    # known-role validation; no engine/marker behavior is added by this slice.
+    # Source shares the `role:` field section (#role): the dedicated `roles:`
+    # spec subsection is a frozen-contract (SPEC-playbook.md) change requiring
+    # human ALLOW_SPEC_CHANGE, deferred out of this ordinary slice (flagged to
+    # the advisor). The role family is documented there until that lands.
+    statement: a `roles:` list declares the container provisioned role set; each entry a single validated token in {loom-author, loom-advisor}; merges by list concat/dedup; declarative-only (does not affect the trust marker), so a single-`role:` config stays byte-identical.
+    source: SPEC-playbook.md#role
+    tests: [playbook.TestRolesMergeConcatDedup, playbook.TestValidateRolesDeclaration, playbook.TestSingleRoleConfigByteIdentical]
+    status: active
 
   # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---
   - id: FR-EXEC-001

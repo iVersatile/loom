@@ -47,6 +47,7 @@ func Merge(layers ...*Playbook) *Playbook {
 			out.ConfigSource = l.ConfigSource
 		}
 		out.Agents = appendDedup(out.Agents, l.Agents)
+		out.Roles = appendDedup(out.Roles, l.Roles)
 		out.Tools = appendDedup(out.Tools, l.Tools)
 		out.Rules = appendDedup(out.Rules, l.Rules)
 		out.Dotfiles = appendDedup(out.Dotfiles, l.Dotfiles)
