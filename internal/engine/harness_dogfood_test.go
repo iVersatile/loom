@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/iVersatile/loom/internal/playbook"
@@ -50,6 +51,30 @@ func TestDogfoodBasePlaybookHarnessMaterializes(t *testing.T) {
 	for _, key := range []string{"hooks", "permissions", "statusLine"} {
 		if _, ok := settings[key]; !ok {
 			t.Errorf("settings.json missing %q — the verify-loom-dev claim would fail", key)
+		}
+	}
+
+	// Every hook the settings.json INVOKES must actually materialize. A hook
+	// registered in settings (e.g. a PreToolUse `sh ~/.claude/hooks/X`) but
+	// absent from harness.claude.hooks is never copied into ~/.claude/hooks, so
+	// in-container it errors on every matching tool call — silently breaking the
+	// guard. This is exactly the role-push-guard defect (A1 #189): registered,
+	// not materialized. Assert each referenced hook is present + executable.
+	refs := regexp.MustCompile(`~/\.claude/hooks/([A-Za-z0-9._-]+)`).FindAllStringSubmatch(string(raw), -1)
+	if len(refs) == 0 {
+		t.Error("settings.json references no ~/.claude/hooks/* hook — expected at least guard-bash")
+	}
+	seen := map[string]bool{}
+	for _, m := range refs {
+		name := m[1]
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		hp := filepath.Join(home, ".claude", "hooks", name)
+		if fi, err := os.Stat(hp); err != nil || fi.Mode()&0o111 == 0 {
+			t.Errorf("settings.json registers hook %q but it is not materialized executable in ~/.claude/hooks "+
+				"(add it to harness.claude.hooks in config/playbook.yml): stat=%v err=%v", name, fi, err)
 		}
 	}
 }
