@@ -1,0 +1,66 @@
+#!/bin/sh
+# coordinate-cron — daily host-cron ACTUATOR GLUE for the /coordinate standup
+# (docs/TEAM.md: "one daily coordinator run under the advisor hat", the 08:00Z/10:00
+# slot). Mirrors scripts/cold-floor-cron's dispatch skeleton: the inject command is
+# OPERATOR-supplied; this script only HALT-gates and dispatches. It runs IN loom-dev
+# (full live state — the .scratch inbox + gate the standup reports on), unlike a
+# cloud routine which sees only the committed tree.
+#
+# ISOLATION FROM THE COLD-START FLOOR (deliberate — shares NO state with
+# scripts/cold-floor-cron, so the floor's NUDGE behaviour is unaffected):
+#   - it does NOT call cold-check / resurface-decide (no decision coupling);
+#   - it does NOT read or write the drain inbox, .merged-prs, or .cold-floor-log;
+#   - it uses its OWN env var (LOOM_COORDINATE_INJECT_CMD) and its OWN log.
+# The ONLY file both touch is the HALT sentinel, READ-only by both. The single
+# real interaction is a same-minute collision (cold-floor is hourly :00, this is
+# 10:00) — serialized in the crontab by a shared `flock` (see the install snippet
+# below), so the two NEVER double-inject. Because cold-floor only nudges an IDLE
+# seat, a 10:00 /coordinate making the seat active leaves cold-floor correct: its
+# next hourly tick simply sees an active seat and NO-OPs, as designed.
+#
+# SECURITY: $LOOM_COORDINATE_INJECT_CMD is OPERATOR config (the crontab the human
+# writes) — the same trust class as the cron line itself, NEVER from inbox or any
+# agent-writable data. HALT-first: a HALTed seat gets NO auto-inject (a standup can
+# always be run by hand). The script reads no agent-controlled data, so nothing from
+# the inbox can become an injected command.
+#
+# Install (HUMAN-APPLIED, host crontab — like the cold-floor cron). The shared
+# flock is what guarantees the two never double-inject at 10:00:
+#   # daily standup, 10:00 UTC
+#   0 10 * * *  LOOM_REPO=/workspace/loom LOOM_COORDINATE_INJECT_CMD='<inject /coordinate>' \
+#               flock -n /tmp/loom-inject.lock sh /workspace/loom/scripts/coordinate-cron
+#   # cold-start floor, hourly — wrap the SAME lock (script itself unchanged)
+#   0 *  * * *  LOOM_REPO=/workspace/loom LOOM_COLD_NUDGE_CMD='<nudge>' \
+#               flock -n /tmp/loom-inject.lock sh /workspace/loom/scripts/cold-floor-cron
+#
+# Env:
+#   LOOM_REPO                   (required) host path to the loom checkout.
+#   LOOM_COORDINATE_INJECT_CMD  the inject command (e.g. a tmux send-keys of
+#                               `/coordinate`). EMPTY => DRY-RUN: log only, inject
+#                               nothing (watch the log before arming the actuator).
+#   LOOM_HALT                   override the HALT sentinel path (test seam; default
+#                               $LOOM_REPO/.scratch/inbox/HALT).
+#   LOOM_COORDINATE_LOG         override the log path (test seam; default
+#                               $LOOM_REPO/.scratch/inbox/.coordinate-log).
+# Exit: always 0 — a cron actuator must never wedge the crontab on a transient.
+set -eu
+
+REPO="${LOOM_REPO:?coordinate-cron: set LOOM_REPO to the host path of the loom checkout}"
+HALT="${LOOM_HALT:-$REPO/.scratch/inbox/HALT}"
+LOG="${LOOM_COORDINATE_LOG:-$REPO/.scratch/inbox/.coordinate-log}"
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+
+# HALT-first — a HALTed seat freezes auto-injects (mirrors cold-floor / the drain).
+if [ -e "$HALT" ]; then
+	printf '%s HALT-blocked (no standup inject)\n' "$now" >> "$LOG" 2>/dev/null || true
+	exit 0
+fi
+
+if [ -n "${LOOM_COORDINATE_INJECT_CMD:-}" ]; then
+	printf '%s COORDINATE (inject)\n' "$now" >> "$LOG" 2>/dev/null || true
+	# Operator-supplied inject; never wedge the cron if it fails.
+	sh -c "$LOOM_COORDINATE_INJECT_CMD" || true
+else
+	printf '%s COORDINATE (dry-run — no inject cmd set)\n' "$now" >> "$LOG" 2>/dev/null || true
+fi
+exit 0
