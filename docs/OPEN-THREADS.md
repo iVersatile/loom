@@ -1308,3 +1308,22 @@ Collapse the temporary 2-container scaffold (harness `devenv-dev` + `loom-dev`) 
 - Slice E **closes T32** (supervising-box = loom-dev), modulo the always-on daemon (deferred with D2).
 
 Pointers: T12 (single dev container — T34 closes its residue) · T15 (creds) · T32 (supervising-box — subsumed: the supervisor's home IS loom-dev) · ADR-0021/0023/0025 · ADR-0015 #6 (memory-seeds-empty / continuity-from-docs) · adv-071 (spawn classifier) · `.scratch/advisor-in-loom{.md,-phase3.md}` (checklist + slice plan, working/gitignored) · `.scratch/build-slice-a-cutover.md` (Slice-A spec) · `.scratch/spikes/advisor-gh-cred.md` (spike spec).
+
+---
+
+## T36 — The Run: the first guided-installer slice (charter Goal 1, scenario 1)   🟡 open — SCOPING (advisor, 2026-06-19; human direction needed before a SPEC clause)
+Surfaced 2026-06-19 from the workstream coverage map (`docs/WORKSTREAMS.md`): **The Run** (onboarding/installer) is charter **Goal 1** + scenarios 1–2, yet holds **ADRs (decided) and ZERO FRs (unbuilt)** — the deep Spine (46 FRs) is a front-door-less engine. The thin-vertical-slice doctrine says the next slice completes a SCENARIO end-to-end; **scenario 1** — *"fresh machine → working AI-capable env in ONE guided run, minimal edits, no terminal expertise"* — is the target, and it is the highest-leverage *product* move on the board (vs. more depth on the already-deep Spine/AI-First).
+
+**What already exists (the foundation):** `entry: bootstrap` (`loom-bootstrap.sh`: detect-situation → ensure-engine-present → exec-engine, the pre-trust surface) + the `detect` / `plan` / `build` verbs. So situation-detect + the reconcile path are built; what is missing is the **guided, menu-driven front door** that wraps them into "one run" for a non-technical human.
+
+**Thin-slice proposal (smallest end-to-end scenario 1):** a guided entry that (1) detects the situation, (2) prompts ONLY for the minimal human inputs (stack choice + keys), (3) runs detect→plan→build, (4) reports "you're ready" with clear next steps — a working env in one run. Scenario 2 (established-machine clean reset + **credential carry-forward**, decided in ADR-0014/0026) is a SEPARATE later slice.
+
+**Open design questions (human direction needed — new product surface; RULES §2 wants a SPEC clause before code):**
+1. **Verb / shape:** a new `init`/`setup` verb? enrich `bootstrap`? a top-level menu when `loom` runs with no args? (Charter: *"single, menu-driven, situation-detecting entry point."*)
+2. **Menu vs flags:** the non-technical audience wants a guided menu; the technical/AI audience wants flags + `--json`. One entry, two interfaces — how thin can the first slice be (menu-only, or both day one)?
+3. **Slice boundary:** scenario 1 only (new machine → working env), deferring the scenario-2 cred-reset? *(advisor lean: YES — smallest end-to-end first.)*
+4. **"Working env" bar (done-definition):** the existing FR-BUILD-008 clean-machine proxy + a guided-run e2e? a stranger-path test (`docs/guided-run.md`)?
+5. **FRs to extract:** ADR-0014 (in-container cred login) + ADR-0026 (gh cred volume) already decide the cred handling — extract **FR-RUN-\*** from them for the cred step; plus new FR-RUN-\* for the guided flow + a frozen "one run" success contract.
+
+**Path (spec-before-code):** this thread → human picks Q1–Q4 → a SPEC-verbs clause for the entry (human-authored/accepted, like the entry-verb clause C3) → FR-RUN-\* extraction → build (loom-author) → guided-run e2e. Advisor drafts the SPEC-clause proposal once the shape (Q1) is chosen.
+Pointers: CHARTER Goal 1 + scenarios 1–2 · `SPEC-verbs#entry: bootstrap` · ADR-0014/0026 (cred handling) · FR-BUILD-008 (clean-machine proxy) · `docs/guided-run.md` (stranger-path) · `docs/WORKSTREAMS.md` "The Run" (0 FRs — the gap this closes).
