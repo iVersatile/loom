@@ -38,10 +38,21 @@
 # This slice builds the COUNTING logic correctly; tamper-resistance is the human
 # hardening. Also relocates under config/hooks/ behind protect-paths (slice 5).
 #
+# EXTERNAL-TRUTH INTEGRITY (opt-in, NON-breaking; default OFF — same doctrine as
+# readiness-decide). When LOOM_EXTERNAL_TRUTH_STRICT=1, REFUSE to trust a ledger
+# the running process can WRITE (an agent could rewrite/delete it to reset the
+# count and defeat the bound). A host-owned/append-only ledger the agent cannot
+# write ⇒ passes; an agent-writable existing ledger ⇒ DENY-RATE (treat as at-limit,
+# the existing fail-closed token — no new vocab). Checked AFTER HALT-first (T23),
+# before any rate logic or grant append. The OPERATOR flips this ON (slice-5 host
+# checklist) once the ledger is host/append-only.
+#
 # Args: $1 = spawn-ledger file (one epoch-seconds integer per granted spawn;
 #            missing = no prior spawns), $2 = HALT sentinel path.
 # Env:  LOOM_SPAWN_MAX (default 3), LOOM_SPAWN_WINDOW (seconds, default 3600 = 1h),
-#       LOOM_NOW (epoch; default `date +%s`; injected by tests for determinism).
+#       LOOM_NOW (epoch; default `date +%s`; injected by tests for determinism),
+#       LOOM_EXTERNAL_TRUTH_STRICT (default unset/0 ⇒ current behavior; =1 ⇒ the
+#       integrity check above).
 LEDGER="$1"; HALT="$2"
 NOW="${LOOM_NOW:-$(date +%s)}"
 MAX="${LOOM_SPAWN_MAX:-3}"
@@ -50,6 +61,13 @@ WINDOW="${LOOM_SPAWN_WINDOW:-3600}"
 # 1. HALT FIRST — short-circuit before any rate logic (T23).
 if [ -e "$HALT" ]; then
 	echo "DENY-HALT (HALT sentinel present — spawn nothing)"
+	exit 0
+fi
+
+# 1b. External-truth integrity (opt-in; default off). An existing ledger the
+#     running process can WRITE is agent-forgeable ⇒ fail-closed (treat at-limit).
+if [ "${LOOM_EXTERNAL_TRUTH_STRICT:-0}" = 1 ] && [ -e "$LEDGER" ] && [ -w "$LEDGER" ]; then
+	echo "DENY-RATE (ledger agent-writable — strict, fail-closed, treated at-limit)"
 	exit 0
 fi
 
