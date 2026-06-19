@@ -136,3 +136,63 @@ func TestSpawnGuard(t *testing.T) {
 		}
 	})
 }
+
+// TestSpawnGuardExternalTruthStrict pins the OPT-IN external-truth integrity check
+// on the rate ledger (the "external truth has two halves" doctrine the spawn-guard
+// header carries forward; slice-5 hardening, consumer half). Default OFF so the
+// verified self-wake loop is untouched until the host half makes the ledger
+// host/append-only.
+//
+//   - strict + AGENT-WRITABLE ledger ⇒ fail-closed DENY-RATE (the running process
+//     can rewrite/delete it to reset the count), recording NO grant.
+//   - strict + READ-ONLY ledger (the host-owned analog) ⇒ trusted ⇒ the integrity
+//     gate does NOT fire and the normal rate verdict stands (here DENY-RATE for the
+//     RATE reason, not the strict reason). Skipped as root, where -w ignores mode.
+//   - env UNSET ⇒ unchanged: an under-limit ledger ALLOWs and appends one grant.
+func TestSpawnGuardExternalTruthStrict(t *testing.T) {
+	base := []string{"LOOM_NOW=10000", "LOOM_SPAWN_MAX=3", "LOOM_SPAWN_WINDOW=3600"}
+	strict := append([]string{"LOOM_EXTERNAL_TRUTH_STRICT=1"}, base...)
+	noHalt := filepath.Join(t.TempDir(), "no-such-halt")
+
+	t.Run("strict + agent-writable ledger ⇒ fail-closed, no append", func(t *testing.T) {
+		dir := t.TempDir()
+		ledger := writeFixture(t, dir, "ledger", "9000\n") // 1 in-window ⇒ would ALLOW
+		out := runSpawnGuard(t, strict, ledger, noHalt)
+		if !strings.Contains(out, "DENY-RATE") || !strings.Contains(out, "strict") {
+			t.Fatalf("strict + writable ledger must fail closed to DENY-RATE (strict), got: %s", out)
+		}
+		if n := countLines(t, ledger); n != 1 {
+			t.Errorf("strict fail-closed must NOT append a grant: got %d lines, want 1", n)
+		}
+	})
+
+	t.Run("strict + read-only ledger ⇒ trusted, normal rate verdict", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("running as root: chmod a-w does not remove write access; -w stays true")
+		}
+		dir := t.TempDir()
+		ledger := writeFixture(t, dir, "ledger", "9000\n9500\n9900\n") // 3 in-window == max
+		if err := os.Chmod(ledger, 0o444); err != nil {
+			t.Fatal(err)
+		}
+		out := runSpawnGuard(t, strict, ledger, noHalt)
+		if strings.Contains(out, "strict") {
+			t.Errorf("a read-only ledger must PASS the integrity gate (not the strict path): %s", out)
+		}
+		if !strings.Contains(out, "DENY-RATE") || !strings.Contains(out, "spawns in") {
+			t.Errorf("the trusted read-only ledger must yield the normal RATE verdict, got: %s", out)
+		}
+	})
+
+	t.Run("strict UNSET ⇒ unchanged (ALLOW + one append)", func(t *testing.T) {
+		dir := t.TempDir()
+		ledger := writeFixture(t, dir, "ledger", "9000\n")
+		out := runSpawnGuard(t, base, ledger, noHalt)
+		if !strings.Contains(out, "ALLOW") {
+			t.Fatalf("strict unset under limit must ALLOW (regression guard), got: %s", out)
+		}
+		if n := countLines(t, ledger); n != 2 {
+			t.Errorf("ALLOW must append exactly one grant: got %d lines, want 2", n)
+		}
+	})
+}

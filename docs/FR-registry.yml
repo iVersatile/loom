@@ -559,6 +559,61 @@ requirements:
     tests: [guard.TestResurfaceDecide, guard.TestPullNextNoPriorityInversion]
     status: active
 
+  # --- Behavioral: autonomy substrate (ADR-0022 slices 1-4 + ADR-0025 reaper) ---
+  # T34 slice-5 wiring: the offline substrate decision scripts (scripts/) HAD guard
+  # tests but no FR row tying each to its ADR clause. These close the spec->FR->test
+  # joint over the substrate so make fr-verify covers it. Ordinary code this slice
+  # (scripts stay in scripts/); relocation under config/hooks/ behind protect-paths
+  # is the HUMAN trust-path half. Each also pins the opt-in external-truth integrity
+  # check (LOOM_EXTERNAL_TRUTH_STRICT) where it is security-load-bearing.
+  - id: FR-LOOP-002
+    kind: behavioral
+    # ADR-0022 amendments 2 + 3 / Decision 3: the offline READINESS-RUNNER. Deps by
+    # EXTERNAL TRUTH only (never agent-forgeable commit subjects — the S1 blocker);
+    # exec-readiness by a structured tag, not a heuristic; injection-proof fixed vocab.
+    statement: readiness-decide resolves a queued candidate row's deps ONLY against the external-truth merged-refs file ($2) — a PR cited in row prose but absent from that file yields BLOCKED-DEPS (agent-forgeable commit subjects are never consulted) — gates exec-readiness on the structured [class:exec] tag (absent ⇒ NOT-EXEC-READY), emits only hardcoded fixed-vocab verdicts with row text never reaching a shell, and under LOOM_EXTERNAL_TRUTH_STRICT=1 fails closed to BLOCKED-DEPS when the merged-refs file is writable by the running process (default unset ⇒ unchanged).
+    source: [docs/decisions/0022-autonomy-substrate-ephemeral-worker-backlog-pull.md, scripts/readiness-decide]
+    tests: [guard.TestReadinessDecide, guard.TestReadinessDecideMissingMergedFile, guard.TestReadinessDecideExternalTruthStrict]
+    status: active
+  - id: FR-LOOP-003
+    kind: behavioral
+    # ADR-0022 slice 2 / amendment 5 (Decision 3e): the backlog->inbox REFILL
+    # actuator. Self-selection floor (LOOM_AUTOPULL_CLASSES) distinct from the
+    # never-auto permission floor; supersede-aware; idempotent; rehydration-safe body.
+    statement: promote-next mints at most one parser-valid inbox envelope for the single READY backlog row — idempotently (a second run no-ops) and supersede-aware (a SUPERSEDED row never mints) — where the self-selection floor is the LOOM_AUTOPULL_CLASSES allow-list (a row whose class is off it, default empty, mints status CONFIRM-REQUIRED for the human tier; on it mints QUEUED), and the minted body is a fixed template that never echoes raw row prose as an instruction.
+    source: [docs/decisions/0022-autonomy-substrate-ephemeral-worker-backlog-pull.md, scripts/promote-next]
+    tests: [guard.TestPromoteNextOnlyReadyMints, guard.TestPromoteNextSelfSelectionFloor, guard.TestPromoteNextIdempotent, guard.TestPromoteNextSupersededNeverMints, guard.TestPromoteNextInjectionProof, guard.TestPromoteNextFullKeyServes]
+    status: active
+  - id: FR-LOOP-004
+    kind: behavioral
+    # ADR-0022 slice 4 (adv-074 self-wake re-frame): the OFFLINE WAKE ORCHESTRATOR
+    # + its self-wake-tick wrapper. HALT-first; refill->guard chain; bounded
+    # self-poll (give-up after K empty ticks); cadence clamp [60,3600]; fixed vocab.
+    statement: the self-wake orchestrator is HALT-first (a HALT sentinel ⇒ NO-WAKE, refilling/recording/ticking nothing), else runs the readiness-decide→promote-next→spawn-guard chain and emits one fixed-vocab verdict (WAKE / WAKE-POLL / WAKE-BACKOFF / IDLE-STOP / NO-WAKE); the self-poll is bounded — it gives up (IDLE-STOP, no re-arm) after LOOM_WAKE_MAX_EMPTY consecutive empty ticks and clamps every emitted delay into [60,3600]s — and self-wake-tick wraps it with the seat's standard paths, surfacing the verdict verbatim.
+    source: [docs/decisions/0022-autonomy-substrate-ephemeral-worker-backlog-pull.md, scripts/spawn-loop, scripts/self-wake-tick]
+    tests: [guard.TestSpawnLoop, guard.TestSpawnLoopCadenceClamp, guard.TestSpawnLoopFixedVocab, guard.TestSelfWakeTick]
+    status: active
+  - id: FR-GUARD-SPAWN-RATE
+    kind: behavioral
+    # ADR-0022 slice 3 (Decision 4, amendment 1): the DURABLE cross-spawn rate
+    # ledger + HALT-before-spawn. NOTE: this is scripts/spawn-guard (the rate
+    # ledger), DISTINCT from config/hooks/spawn-guard (the role-deny PreToolUse hook
+    # covered by FR-GUARD-E2E). Behavioral (a decision-helper), so FR-GUARD-* / kind
+    # behavioral, like FR-GUARD-E2E.
+    statement: the ADR-0022 slice-3 cross-spawn rate ledger (scripts/spawn-guard, distinct from the role-deny PreToolUse hook of the same name) grants ALLOW and records exactly one ledger line only when HALT is absent and in-window grants are under LOOM_SPAWN_MAX; it is HALT-first (DENY-HALT, no append) and fails closed to DENY-RATE with no append at/over the limit or on a malformed/unreadable ledger; under LOOM_EXTERNAL_TRUTH_STRICT=1 it also fails closed to DENY-RATE when the ledger is writable by the running process (default unset ⇒ unchanged).
+    source: [docs/decisions/0022-autonomy-substrate-ephemeral-worker-backlog-pull.md, scripts/spawn-guard]
+    tests: [guard.TestSpawnGuard, guard.TestSpawnGuardExternalTruthStrict]
+    status: active
+  - id: FR-GUARD-REAP
+    kind: behavioral
+    # ADR-0025 §reaper / Slice D1: the dead-worker cleanup decision. The INVERSION
+    # of spawn-guard — it fails SAFE (ambiguity ⇒ SKIP, never a destructive reap).
+    # PARK linkage to resurface-decide is ADR-0020 (worker-died: never auto-clears).
+    statement: reap-workers decides per dead worker REAP-CLEAN (no claim ⇒ tombstone) or REAP-REQUEUE (held claim ⇒ a parser-valid PARK envelope resurface-decide surfaces to a human, never silently re-run), is HALT-first and idempotent (an existing reap-marker ⇒ SKIP-REAPED), and fails SAFE — every ambiguity (live/only-stale heartbeat, no ledger start, not past max-age, malformed worker-id or claim) resolves to SKIP and never to a destructive reap — with fixed-vocab verdicts and validated ids keeping worktree names out of any shell.
+    source: [docs/decisions/0025-author-ephemeral-fleet.md#reaper, docs/decisions/0020-autonomy-closed-loop.md, scripts/reap-workers]
+    tests: [guard.TestReapSkipHalt, guard.TestReapSkipLive, guard.TestReapClean, guard.TestReapRequeue, guard.TestReapIdempotent, guard.TestReapFailSafe, guard.TestReapInjection]
+    status: active
+
   # --- Schema / resolution (SPEC-playbook; one per merge/resolution rule) ---
   - id: FR-SCHEMA-001
     kind: schema

@@ -63,9 +63,26 @@
 # 1-based position among candidates ("row N", queue order). Columns (FS=`|`):
 # $2 task · $3 depends-on · $4 serves · $5 owner · $6 status · $7 PR.
 #
+# EXTERNAL-TRUTH INTEGRITY (opt-in, NON-breaking — ADR-0022 amendment 2 "two
+# halves"; default OFF so the verified loop keeps working until the host half
+# lands). When LOOM_EXTERNAL_TRUTH_STRICT=1, this consumer REFUSES to trust a
+# merged-refs file ($2) the running process can WRITE — an agent-forgeable source
+# defeats amendment 2 one level up (rewrite the deps file, not the script). A
+# host/root-owned 0644 file is NOT agent-writable (uid 1000) ⇒ passes; an agent-
+# writable file ⇒ every queued candidate fails closed to BLOCKED-DEPS (the existing
+# fail-closed token, no new vocab). The OPERATOR flips this ON (slice-5 host
+# checklist) once the producer half — host-written .merged-prs — lands.
+#
 # Args: $1 = docs/PLAN.md, $2 = external-truth merged-refs file (PR# per line;
 #       a missing/empty file ⇒ no PR is merged ⇒ PR-deps fail closed).
-awk -F'|' -v merged="$2" '
+# Env:  LOOM_EXTERNAL_TRUTH_STRICT (default unset/0 ⇒ current behavior; =1 ⇒ the
+#       integrity check above).
+sfail=0
+if [ "${LOOM_EXTERNAL_TRUTH_STRICT:-0}" = 1 ] && [ -e "$2" ] && [ -w "$2" ]; then
+	sfail=1
+fi
+
+awk -F'|' -v merged="$2" -v sfail="$sfail" '
 function trim(s){ gsub(/^[[:space:]]+|[[:space:]]+$/,"",s); return s }
 function first_word(s,  a){ s=trim(s); split(s,a,/[[:space:]]+/); return tolower(a[1]) }
 # deps_cleared: external-truth ONLY. empty/dash ⇒ no deps (cleared). Otherwise
@@ -92,7 +109,8 @@ BEGIN{
 infence && /^\|/ {
   if (first_word($6) != "queued") next             # not a live candidate row
   n++
-  if ($0 ~ /\[superseded/)          pv[n]="SUPERSEDED (explicit supersede tag)"
+  if (sfail==1)                     pv[n]="BLOCKED-DEPS (external-truth file agent-writable — strict, fail-closed)"
+  else if ($0 ~ /\[superseded/)     pv[n]="SUPERSEDED (explicit supersede tag)"
   else if ($0 !~ /\[class:exec\]/)  pv[n]="NOT-EXEC-READY (no [class:exec] tag — not auto-pullable)"
   else if (!deps_cleared($3))       pv[n]="BLOCKED-DEPS (external-truth dep uncleared)"
   else                              pv[n]="ELIGIBLE"

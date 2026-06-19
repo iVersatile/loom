@@ -119,3 +119,55 @@ func TestReadinessDecideMissingMergedFile(t *testing.T) {
 		t.Errorf("missing external-truth file must fail closed to BLOCKED-DEPS:\n%s", out)
 	}
 }
+
+// TestReadinessDecideExternalTruthStrict pins the OPT-IN external-truth integrity
+// check (ADR-0022 amendment 2, "external truth has two halves" — the source AND a
+// writer the agent cannot forge; slice-5 hardening, consumer half). Default OFF, so
+// the verified loop is untouched until the host half lands.
+//
+//   - strict + AGENT-WRITABLE merged file ⇒ a row that would be READY fails closed
+//     to BLOCKED-DEPS (a file the running process can write is forgeable, so the
+//     deps it asserts cannot be trusted — amendment 2 one level up).
+//   - strict + READ-ONLY merged file (the host-owned 0644 analog) ⇒ trusted ⇒ the
+//     normal verdict stands (READY). Skipped as root, where mode bits don't bind -w.
+//   - env UNSET ⇒ byte-for-byte current behavior (the regression guard).
+func TestReadinessDecideExternalTruthStrict(t *testing.T) {
+	dir := t.TempDir()
+	// A single eligible row with no deps ⇒ READY in normal mode.
+	plan := writeFixture(t, dir, "PLAN.md", "<!-- BEGIN TACTICAL QUEUE -->\n"+
+		"| task | depends-on | serves | owner | status | PR |\n"+
+		"| --- | --- | --- | --- | --- | --- |\n"+
+		"| **ready row** [class:exec] | — | k | loom-author | queued | — |\n"+
+		"<!-- END TACTICAL QUEUE -->\n")
+	merged := writeFixture(t, dir, "merged.txt", "149\n")
+
+	// strict + agent-writable ⇒ fail-closed: the READY row becomes BLOCKED-DEPS.
+	out := runReadiness(t, []string{"LOOM_EXTERNAL_TRUTH_STRICT=1"}, plan, merged)
+	if !strings.Contains(out, "BLOCKED-DEPS") {
+		t.Errorf("strict + agent-writable merged file must fail closed to BLOCKED-DEPS:\n%s", out)
+	}
+	if strings.Contains(out, ": READY") {
+		t.Errorf("strict + writable must leave NO row READY:\n%s", out)
+	}
+
+	// strict + read-only (host-owned analog) ⇒ trusted ⇒ the normal READY stands.
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod a-w does not remove write access; -w stays true")
+	}
+	if err := os.Chmod(merged, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	out = runReadiness(t, []string{"LOOM_EXTERNAL_TRUTH_STRICT=1"}, plan, merged)
+	if !strings.Contains(out, ": READY") {
+		t.Errorf("strict + read-only (host-owned analog) merged file must be trusted ⇒ READY:\n%s", out)
+	}
+
+	// env unset ⇒ unchanged behavior (regression guard): READY on the writable file.
+	if err := os.Chmod(merged, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = runReadiness(t, nil, plan, merged)
+	if !strings.Contains(out, ": READY") {
+		t.Errorf("strict UNSET must preserve current behavior (READY):\n%s", out)
+	}
+}
