@@ -1,0 +1,163 @@
+#!/bin/sh
+# loom-cron — host-cron MANAGER for loom's crontab block. DRY's the repeat op of
+# installing / verifying / removing loom's HOST cron lines (the cold-floor hourly
+# floor + the daily /coordinate standup, and future ones). It does NOT actuate
+# anything itself — it installs the cron lines that call the ACTUATORS
+# (scripts/cold-floor-cron, scripts/coordinate-cron). designer≠builder.
+#
+# ORDINARY HOST-OPS CODE — NOT trust-config. No .claude/, no settings.json, no
+# hook. The crontab it writes is operator trust (the human runs `loom-cron set`);
+# this script only renders FIXED templates + operator env into ONE marked block.
+#
+# THE DISCIPLINE (mirrors the actuators):
+#   - Marker-delimited block ONLY. Every mutation strips + re-emits the block
+#     between the markers and PRESERVES every other crontab line verbatim. The
+#     operator's own cron entries are never touched.
+#   - Job lines are FIXED templates (the schedules + actuator paths are hardcoded
+#     here, never derived from agent data). The only operator input is the inject
+#     command, taken from env (LOOM_COLD_NUDGE_CMD / LOOM_COORDINATE_INJECT_CMD) —
+#     the same trust class as the cron line itself. Empty inject ⇒ DRY-RUN (the
+#     actuators already log-only when their inject env is empty).
+#   - Both job lines wrap the SAME `flock -n /tmp/loom-inject.lock`, the isolation
+#     guarantee from #216: the hourly floor and the 10:00 standup serialize on the
+#     one lock and can never double-inject at their same-minute collision.
+#   - No `eval`. The crontab is rebuilt in a buffer and written atomically via
+#     `"$CRONTAB" -`. `crontab -l` with no crontab (empty / "no crontab for …")
+#     is treated as an EMPTY crontab, never an error.
+#
+# Subcommands:
+#   list    — print the loom-managed block from the current crontab (empty if none).
+#   verify  — exit 0 iff the block exists AND every declared job line is present;
+#             else print what's missing and exit non-zero. Pure read, no mutation.
+#   set     — (re)write the block IDEMPOTENTLY: strip any existing block, append a
+#             freshly-rendered one, write back. Twice ⇒ exactly ONE block.
+#   remove  — strip the loom block only; leave everything else.
+#
+# Config (env — all have a default; the test drives the seams):
+#   LOOM_CONTAINER          (default loom-dev)         docker exec target.
+#   LOOM_REPO_IN_CONTAINER  (default /workspace/loom)  actuator path inside it.
+#   LOOM_COLD_NUDGE_CMD                                cold-floor inject (default "" ⇒ dry-run).
+#   LOOM_COORDINATE_INJECT_CMD                         coordinate inject (default "" ⇒ dry-run).
+#   LOOM_CRONTAB            (default crontab)          TEST SEAM: the crontab binary.
+#   LOOM_DOCKER             (default docker)           reserved; kept offline-safe.
+# Exit: 0 on success; 1 on a verify miss or a usage error.
+set -eu
+
+CRONTAB="${LOOM_CRONTAB:-crontab}"
+CONTAINER="${LOOM_CONTAINER:-loom-dev}"
+REPO="${LOOM_REPO_IN_CONTAINER:-/workspace/loom}"
+# shellcheck disable=SC2034  # reserved seam; verify stays offline-safe by not using it.
+DOCKER="${LOOM_DOCKER:-docker}"
+
+BEGIN='# >>> loom-cron (managed by scripts/loom-cron — do not edit between markers) >>>'
+END='# <<< loom-cron <<<'
+
+# read_crontab — emit the current crontab on stdout. An absent crontab (`crontab -l`
+# exits non-zero with a "no crontab for …" notice) is an EMPTY crontab, not an error.
+read_crontab() {
+	"$CRONTAB" -l 2>/dev/null || true
+}
+
+# strip_block — filter the loom block (markers inclusive) out of stdin, passing every
+# other line through verbatim. awk, no eval; markers matched as fixed full lines.
+strip_block() {
+	awk -v b="$BEGIN" -v e="$END" '
+		$0 == b { inblock = 1; next }
+		$0 == e { inblock = 0; next }
+		!inblock { print }
+	'
+}
+
+# job_line — render ONE fixed job-template line. $1 schedule, $2 actuator, $3 inject
+# env assignment (e.g. LOOM_COLD_NUDGE_CMD='…' or empty for dry-run). The inject is
+# the ONLY operator-supplied piece; schedule/actuator/lock/path are hardcoded.
+job_line() {
+	schedule=$1
+	actuator=$2
+	inject=$3
+	# Inner command run inside the container: optional inject env, the shared flock,
+	# then the actuator. Quoted for `docker exec … sh -c "…"`.
+	inner="LOOM_REPO=$REPO ${inject:+$inject }flock -n /tmp/loom-inject.lock sh $REPO/scripts/$actuator"
+	printf '%s  docker exec %s sh -c "%s"\n' "$schedule" "$CONTAINER" "$inner"
+}
+
+# render_block — emit the full marked block (markers + PATH + both job lines). The
+# inject env vars default to empty ⇒ a safe dry-run install.
+render_block() {
+	printf '%s\n' "$BEGIN"
+	printf 'PATH=/usr/local/bin:/usr/bin:/bin\n'
+	cold_inject=""
+	if [ -n "${LOOM_COLD_NUDGE_CMD:-}" ]; then
+		cold_inject="LOOM_COLD_NUDGE_CMD='${LOOM_COLD_NUDGE_CMD}'"
+	fi
+	coord_inject=""
+	if [ -n "${LOOM_COORDINATE_INJECT_CMD:-}" ]; then
+		coord_inject="LOOM_COORDINATE_INJECT_CMD='${LOOM_COORDINATE_INJECT_CMD}'"
+	fi
+	job_line '0 * * * *'  cold-floor-cron "$cold_inject"
+	job_line '0 10 * * *' coordinate-cron "$coord_inject"
+	printf '%s\n' "$END"
+}
+
+# has_block — 0 iff the begin marker is present in the current crontab.
+has_block() {
+	read_crontab | grep -qF "$BEGIN"
+}
+
+cmd_list() {
+	read_crontab | awk -v b="$BEGIN" -v e="$END" '
+		$0 == b { inblock = 1 }
+		inblock { print }
+		$0 == e { inblock = 0 }
+	'
+}
+
+cmd_set() {
+	# Strip any existing block, append a freshly-rendered one, write the whole buffer
+	# back atomically. Idempotent: a prior block (if any) is removed before re-adding.
+	buf=$( { read_crontab | strip_block; render_block; } )
+	printf '%s\n' "$buf" | "$CRONTAB" -
+	echo "loom-cron: set — loom block written (cold-floor 0 * * * *, coordinate 0 10 * * *)"
+}
+
+cmd_remove() {
+	if ! has_block; then
+		echo "loom-cron: remove — no loom block present (nothing to do)"
+		return 0
+	fi
+	buf=$(read_crontab | strip_block)
+	printf '%s\n' "$buf" | "$CRONTAB" -
+	echo "loom-cron: remove — loom block stripped (other cron lines preserved)"
+}
+
+cmd_verify() {
+	if ! has_block; then
+		echo "loom-cron: verify — FAIL: loom block absent"
+		return 1
+	fi
+	current=$(read_crontab)
+	rc=0
+	for actuator in cold-floor-cron coordinate-cron; do
+		if ! printf '%s\n' "$current" | grep -qF "scripts/$actuator"; then
+			echo "loom-cron: verify — FAIL: job line for $actuator missing"
+			rc=1
+		fi
+	done
+	if [ "$rc" -eq 0 ]; then
+		echo "loom-cron: verify — OK: loom block present with both job lines"
+	fi
+	return $rc
+}
+
+usage() {
+	echo "usage: loom-cron {list|verify|set|remove}" >&2
+	return 1
+}
+
+case "${1:-}" in
+list)   cmd_list ;;
+verify) cmd_verify ;;
+set)    cmd_set ;;
+remove) cmd_remove ;;
+*)      usage ;;
+esac
