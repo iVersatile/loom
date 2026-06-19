@@ -172,6 +172,51 @@ auditable by construction (ADR-0008).
   the windows-dev topology activates; (b) prebuilt-binary fetch — an
   amendment explicitly **gated on T20** (egress thread).
 
+## start  (guided onboarding entry — menu-driven, situation-detecting; Phase 2 / charter Goal 1, scenario 1; added 2026-06-19, human-decided — C3 via ALLOW_SPEC_CHANGE)
+
+The one guided run: bring a machine from nothing to a working, AI-capable env in a
+single pass. The **bring-up** verb, symmetric with `teardown`. It **orchestrates** the
+existing reconcile verbs — it adds guidance, not new reconcile logic.
+
+- Flow: `detect` (situation) → minimal guided inputs → `plan` → `build` → a "ready"
+  report. Each sub-verb's own contract + guardrails apply unchanged; `start` only sequences.
+- Two interfaces, one verb (charter "three interfaces"): an **interactive menu** for the
+  non-technical human (situation-aware prompts, plain steps) AND a **complete
+  non-interactive `--json`/flag path** for the technical human + AI agent —
+  `loom start --non-interactive --json` (+ `--stack`, key flags/env) runs to completion
+  with zero prompts. The non-interactive path is the e2e-testable surface and is **NOT
+  exempt** from the `--json`-on-every-verb convention (unlike `exec`/`shell`).
+- Minimal inputs (the only human edits, scenario 1): the **stack** + the required **keys**
+  (e.g. `ANTHROPIC_API_KEY`). Interactive ⇒ prompted; non-interactive ⇒ flags/env.
+  Nothing else is required to reach a working env.
+- **Success contract (frozen, e2e-testable):** ONE run (no restarts) reaches a working
+  env — proven by the FR-BUILD-008 clean-machine proxy + an integration-tier guided-run
+  e2e. "Working" = `build` converged AND a smoke `exec` in the env succeeds.
+- Idempotent + audited (global invariants): re-running converges; the orchestration and
+  each sub-verb mutation are audit + diagnostic logged. Exit codes per convention
+  (`0` ready / `1` error / `2` needs-input-or-changes, so an agent can gate). `start`
+  never mutates outside the verbs it calls.
+- **Scope (this slice — scenario 1 ONLY):** new machine → working env. Scenario 2
+  (established-machine clean reset + **credential carry-forward**) is OUT; cred handling
+  beyond the key prompts rides `detect --emit-playbook/--migrate` + the ADR-0014/0026
+  cred machinery — a SEPARATE later slice. Cloud-rehydrate reuse (`start` as the bring-up
+  hook, see `teardown`) is designed-for but deferred.
+- Composition: `loom-bootstrap.sh` (pre-trust) ensures the engine, then hands to
+  `loom start`; bootstrap is unchanged.
+
+```json
+// loom start --json (shape)
+{ "situation": "fresh-machine",
+  "inputs": { "stack": "go", "keys": ["ANTHROPIC_API_KEY"] },
+  "steps": [ {"verb":"detect","result":"ok"}, {"verb":"plan","result":"ok"},
+             {"verb":"build","result":"created","container":"loom-dev"} ],
+  "ready": true, "next": ["loom shell"] }
+```
+
+FRs: **FR-RUN-\*** (extracted next) pin the orchestration flow, the two-interface
+contract, the minimal-inputs rule, and the frozen one-run success contract. Cred FRs
+from ADR-0014/0026 land with scenario 2.
+
 ## import  (ADR-0003, staged)
 
 Ingest an existing `devcontainer.json` → a Loom project-tier playbook (Stage 1
