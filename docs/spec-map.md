@@ -72,6 +72,28 @@ flowchart LR
   T12["T12 🟢 single dev container"]:::shadow -->|"✕ topology"| build
 ```
 
+## Workstream overlay (see docs/WORKSTREAMS.md)
+The diagram's subgraphs already align with the project workstreams — this overlay
+names the mapping so the spec-map doubles as a per-stream coverage view. Full FR/ADR
+index: `docs/WORKSTREAMS.md`.
+
+- **SV (SPEC-verbs)** → **The Spine** — detect/plan/build/exec/shell/teardown/doctor/
+  bootstrap (+ the red `update`/`import`/`export` backlog). `logs` → **Verification**
+  (observability); `doctor` is a Spine verb that *serves* Verification.
+- **SP (SPEC-playbook)** → **The Spine** — layers/lock/basepb/frozen/harness/shellcfg.
+- **RG (RULES §5 / guardrails)** → `inv` (AI-first invariants) → **AI-First**;
+  `guards` → **Guardrails**.
+- **Threads by stream**: T20/T28 → Guardrails · T10 → Guardrails + The Spine ·
+  T15 → The Run (creds) · T18 → AI-First/Dogfood (multi-agent perms) ·
+  T12 → Target Env (topology).
+- **Invisible here BY DESIGN = the coverage signal**: **The Run** and **Target Env**
+  hold ADRs but **zero FRs** (designed-not-built), and **Dogfood** lives in RULES/TEAM
+  — so they cast no spec shadow. Their absence from this map *is* the gap (see
+  WORKSTREAMS.md "FR/ADR coverage").
+
+⚑ The diagram's FR counts are STALE (e.g. `build` shows 11, registry has 17; `doctor`
+4 vs 6) — a `/specmap` regen is due; the stream overlay above is the durable lens.
+
 ## No spec shadow (by design or gap?)
 
 `T21` transport (mechanism PROVEN live 2026-06-12 — header still says "in

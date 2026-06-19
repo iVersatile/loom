@@ -79,6 +79,40 @@ first runnable slice."*
 - **Audit / reviewable trail** → **Guardrails** + **Verification**.
 - **Playbook / lockfile / reconcile** → **The Spine**.
 
+## FR / ADR → workstream coverage (2026-06-19)
+The mapping is **latent** — FR family prefixes already cluster by concern — so this
+is a lens over the existing registry, not new metadata. (A queryable per-FR
+`workstream:` field is a deferred option; this index is the lightweight version.)
+
+**FRs by workstream** (72 total):
+| Workstream | FR families | ~FRs |
+| --- | --- | --- |
+| The Spine | BUILD 17 · SCHEMA 11 · EXEC 4 · ENTRY 4 · TEARDOWN 4 · PLAN 3 · DETECT 2 · SHELL 1 | **46** (64%) |
+| AI-First | LOOP 4 · INV 5 (the `--json`/idempotent/auditable invariants) | 9 |
+| Guardrails | GUARD 9 (the 3 `role:`/`user:` SCHEMA FRs also lean here) | 9 |
+| Verification | DOCTOR 6 (the verb lives in The Spine; *serves* verification) · LOG 2 (observability) | 8 |
+| **The Run** | — | **0** ⚠ |
+| **Target Env** | — (only touched by BUILD/SCHEMA) | **0 dedicated** ⚠ |
+| **Dogfood** | — (governed by RULES/TEAM, not FRs by nature) | **0** |
+
+**ADRs by workstream** (25 total; listed by *primary* — several are multi-stream):
+| Workstream | ADRs |
+| --- | --- |
+| The Spine | 0001 isolation · 0002 playbook+lockfile · 0004 two-tier config · 0006 engine/policy · 0008 Go · 0011 sentinel · 0012 base image · 0015 harness home · 0016 entry verbs |
+| AI-First | 0005 AI-first user · 0020 closed-loop · 0022 substrate · 0025 fleet/supervisor |
+| Guardrails | 0017 remote trust · 0018 trust flags · 0019 non-root · 0021 role resolution · 0023 edit-guard |
+| Target Env | 0003 devcontainer import · 0007 cloud sandbox |
+| The Run | 0014 in-container cred login · 0026 VCS cred volume |
+| Verification | 0010 audit+diag logs · 0013 FR registry |
+| Dogfood | 0009 dogfood-stack Go |
+*(multi-stream examples: 0016 also Verification (audit); 0017/0021/0023 also Dogfood; 0019 also The Spine; 0014/0026 also AI-First git autonomy.)*
+
+**The coverage signal — sharper than prose:**
+- **The Spine holds ~64% of all FRs** — the requirement mass *is* the product engine.
+- **The Run + Target Env have ADRs (decided) but ZERO FRs (unbuilt)** — they are
+  *designed, not implemented*. That, not "untouched," is the precise gap.
+- **Dogfood = 1 ADR + 0 FRs** — expected: it lives in RULES/TEAM as process.
+
 ## Resolved (human, 2026-06-19)
 - **Operating Model / Dogfood → promoted to stream #7** (governance is a distinct axis).
 - **Observability → folded into Verification (#6)**, cross-referenced from Guardrails
