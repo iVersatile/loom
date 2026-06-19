@@ -1,0 +1,186 @@
+#!/bin/sh
+# reap-workers — ADR-0025 (author ephemeral fleet) reaper / Slice D1: the offline
+#                DEAD-WORKER cleanup decision (the failure-mode counterpart to a
+#                clean self-terminate + advisor relay).
+# Origin : ADR-0025 §"Failure-mode cleanup for ephemeral workers"; T34 Slice D1.
+# Reuse  : recurring — the advisor runs it each git-controller tick (same
+#          discipline class as cold-check / spawn-guard); verb-candidate.
+# Runs on: loom-dev. Reads worktree heartbeats + the spawn-ledger + the HALT
+#          sentinel. Mutations are confined to: a per-worktree reap-marker
+#          tombstone, an appended PARK envelope (REAP-REQUEUE only), and an
+#          appended audit line. It NEVER physically `git worktree remove`s — that
+#          destructive prune stays a human/advisor relay step (ADR-0025: "advisor
+#          prunes the worktree+branch — done manually in the spike"). This helper
+#          DECIDES + tombstones + requeues; it does not delete a tree.
+#
+# INVERSION FROM spawn-guard (the one rule that flips): spawn-guard fails CLOSED
+# (ambiguity ⇒ treat as at-limit, DENY). The reaper fails SAFE = it NEVER reaps on
+# ambiguity. A wrong reap is DESTRUCTIVE (ADR-0025 line 66) — losing a live-but-slow
+# worker, or a claimed item, is worse than leaking a worktree. So every malformed /
+# unreadable / unknown input resolves to SKIP, never REAP.
+#
+# Pure mechanism. Decision-helper shape (no `set -eu`): one fixed-vocab verdict per
+# worktree (HARDCODED constants — nothing from a worktree name or ledger field is
+# ever interpolated into a verdict token):
+#   SKIP-HALT    — the HALT sentinel is present. Checked FIRST, before any per-
+#                  worktree work (a HALTed system freezes the reaper too; mirrors
+#                  spawn-guard's DENY-HALT-first / the drain's HALT-before-AUTOPILOT).
+#   SKIP-REAPED  — a reap-marker is already present ⇒ idempotent no-op.
+#   SKIP-LIVE    — the .worker-heartbeat mtime is within the heartbeat TTL ⇒ the
+#                  worker is alive. NEVER reap a live worker (the conservative crux).
+#   SKIP         — any ambiguity (no worker-id, malformed/unreadable heartbeat, no
+#                  ledger start, not yet past max-age, malformed/held claim). FAIL-SAFE.
+#   REAP-CLEAN   — DEAD and holds NO claimed work-item ⇒ tombstone the worktree.
+#   REAP-REQUEUE — DEAD and holds a claimed item ⇒ mint a parser-valid PARK envelope
+#                  (parked-on: worker-died:<id>, retry:n) that resurface-decide
+#                  surfaces (a non-clearing predicate ⇒ ESCALATE-by-age to a human —
+#                  died work is surfaced, never silently re-run and never dropped),
+#                  write an audit line, tombstone the worktree.
+#
+# DEAD (the liveness crux, ADR-0025): a worker is DEAD only when BOTH hold, never
+# either-or — (1) its heartbeat is absent OR stale (mtime older than the heartbeat
+# TTL) AND (2) its spawn-ledger start is older than the max-age TTL. A fresh
+# heartbeat is conservative LIVE; a stale heartbeat on a only-recently-started
+# worker is still SKIP (give a slow starter its budget).
+#
+# SECURITY: fixed-vocab verdicts are hardcoded constants. A worktree directory name
+# is never echoed into a verdict/audit/envelope token and never reaches a shell: the
+# loop iterates by GLOB (results are not word-split or re-evaluated) and every use is
+# a double-quoted path argument. Identities written into the audit + PARK envelope
+# come ONLY from the per-worktree .worker-id / .worker-claim CONTENT, each validated
+# against ^[A-Za-z0-9-]+$ before use (an unvalidated value ⇒ SKIP). All parsing is
+# awk string-ops; nothing is eval'd. The PARK envelope is minted parser-valid (the
+# same FIXED-template, sanitized-id discipline as promote-next — no raw prose ever
+# becomes a trailing instruction).
+#
+# CARRY-FORWARD (D3, human-applied): the spawn-ledger lives in agent-writable
+# .scratch/ — an agent could rewrite a start epoch to force/forbid a reap. Before
+# the reaper is load-bearing the ledger must go HOST/append-only (the same "external
+# truth has two halves" class as spawn-guard's ledger). This slice builds the
+# DECISION correctly; tamper-resistance + relocation under config/hooks/ are D3.
+#
+# Args: $1 = worktrees root (e.g. .claude/worktrees), $2 = spawn-ledger
+#       (lines "<epoch> <worker-id>"; spawn-guard's bare-epoch lines carry no id and
+#       simply never match a worker), $3 = HALT sentinel, $4 = inbox file (PARK
+#       envelopes appended here / scanned for idempotency), $5 = audit-log file.
+# Env:  LOOM_NOW (epoch; default `date +%s`; injected by tests for determinism),
+#       LOOM_HEARTBEAT_TTL (seconds a heartbeat counts as LIVE; default 300),
+#       LOOM_REAP_MAX_AGE (seconds a ledger start must exceed to be DEAD; default 3600).
+ROOT="$1"; LEDGER="$2"; HALT="$3"; INBOX="$4"; AUDIT="$5"
+NOW="${LOOM_NOW:-$(date +%s)}"
+HB_TTL="${LOOM_HEARTBEAT_TTL:-300}"
+MAX_AGE="${LOOM_REAP_MAX_AGE:-3600}"
+
+# 1. HALT FIRST — freeze the whole reaper before any per-worktree work (T23 order).
+if [ -e "$HALT" ]; then
+	echo "SKIP-HALT (HALT sentinel present — reap nothing)"
+	exit 0
+fi
+
+[ -d "$ROOT" ] || { echo "reap-workers: no worktrees root — nothing to reap"; exit 0; }
+
+# read_field FILE — first line of FILE iff it is a single ^[A-Za-z0-9-]+$ token,
+# else empty. awk string-ops only; the quoted path keeps a metachar dir name out of
+# any shell. Empty result ⇒ caller treats as absent/malformed (fail-safe).
+read_field() {
+	awk 'NR==1 { if ($0 ~ /^[A-Za-z0-9-]+$/) print $0; exit }' "$1" 2>/dev/null
+}
+
+reaped_any=0
+for d in "$ROOT"/*/; do
+	[ -d "$d" ] || continue   # no glob match ⇒ the literal pattern; skip it.
+
+	# Idempotency: an existing reap-marker ⇒ already handled, no-op.
+	if [ -e "${d}.worker-reaped" ]; then
+		echo "SKIP-REAPED (reap-marker present — idempotent no-op)"
+		continue
+	fi
+
+	# Worker identity comes from validated .worker-id CONTENT, never the dir name.
+	wid=$(read_field "${d}.worker-id")
+	if [ -z "$wid" ]; then
+		echo "worker ?: SKIP (no readable/valid .worker-id — fail-safe)"
+		continue
+	fi
+
+	# 2. Liveness. A fresh heartbeat is conservative LIVE — never reaped.
+	hb="${d}.worker-heartbeat"
+	hb_dead=0
+	if [ -e "$hb" ]; then
+		mtime=$(stat -c %Y "$hb" 2>/dev/null)
+		case "$mtime" in
+			''|*[!0-9]*)
+				echo "worker $wid: SKIP (unreadable heartbeat — fail-safe)"
+				continue ;;
+		esac
+		if [ "$((NOW - mtime))" -le "$HB_TTL" ]; then
+			echo "worker $wid: SKIP-LIVE (heartbeat within ${HB_TTL}s)"
+			continue
+		fi
+		hb_dead=1   # exists but stale
+	else
+		hb_dead=1   # absent
+	fi
+
+	# 3. Ledger start. DEAD requires a start older than max-age (AND a dead heartbeat).
+	#    No matching start (unknown worker) or an unreadable ledger ⇒ SKIP (fail-safe).
+	if [ -e "$LEDGER" ] && [ ! -r "$LEDGER" ]; then
+		echo "worker $wid: SKIP (ledger unreadable — fail-safe)"
+		continue
+	fi
+	start=$(awk -v wid="$wid" '
+		$1 ~ /^[0-9]+$/ && $2 == wid { if (s=="" || $1+0 < s) s=$1+0 }
+		END { if (s=="") exit 1; print s }
+	' "$LEDGER" 2>/dev/null)
+	if [ -z "$start" ]; then
+		echo "worker $wid: SKIP (no ledger start — fail-safe)"
+		continue
+	fi
+	if [ "$hb_dead" -ne 1 ] || [ "$((NOW - start))" -le "$MAX_AGE" ]; then
+		echo "worker $wid: SKIP (not past max-age / heartbeat not dead — fail-safe)"
+		continue
+	fi
+
+	# DEAD. 4. Claimed work-item? Absent ⇒ REAP-CLEAN. Held+valid ⇒ REAP-REQUEUE.
+	#         Present-but-malformed ⇒ SKIP (don't lose the claimed work — fail-safe).
+	if [ -e "${d}.worker-claim" ]; then
+		item=$(read_field "${d}.worker-claim")
+		if [ -z "$item" ]; then
+			echo "worker $wid: SKIP (claim present but unreadable/malformed — fail-safe)"
+			continue
+		fi
+		# Idempotency guard on the mint (belt-and-braces with the reap-marker).
+		if ! grep -q "^--- id: reap-${wid}\$" "$INBOX" 2>/dev/null; then
+			retry=$(awk -v it="$item" '$1=="claimed-item:" && $2==it { n++ } END { print n+1 }' "$INBOX" 2>/dev/null)
+			[ -n "$retry" ] || retry=1
+			# Mint a parser-valid PARK envelope (header fields PRECEDE status:, per
+			# the drain/resurface parser contract). Body is a FIXED template; wid +
+			# item are validated [A-Za-z0-9-] so nothing dangerous is interpolated.
+			{
+				printf '\n--- id: reap-%s\n' "$wid"
+				printf 'from: reap-workers (ADR-0025 reaper; worker died mid-item)\n'
+				printf 'kind: task\n'
+				printf 'claimed-item: %s\n' "$item"
+				printf 'parked-on: worker-died:%s\n' "$wid"
+				printf 'parked-at: %s\n' "$NOW"
+				printf 'retry: %s\n' "$retry"
+				printf 'status: PARKED\n'
+				printf '%s\n' "An ephemeral author (id $wid) died holding claimed work-item $item."
+				printf '%s\n' "PARKED by MECHANISM (ADR-0025 reap-workers), not by an agent. The"
+				printf '%s\n' "worker-died: predicate does not auto-clear, so resurface-decide surfaces"
+				printf '%s\n' "this to a human (ESCALATE by age) rather than silently re-running it —"
+				printf '%s\n' "died work is surfaced, never dropped. retry $retry. NO self-merge."
+			} >> "$INBOX"
+		fi
+		printf '%s REAP-REQUEUE %s %s\n' "$NOW" "$wid" "$item" >> "$AUDIT"
+		: > "${d}.worker-reaped"
+		echo "worker $wid: REAP-REQUEUE (dead, held claim $item — PARKed, tombstoned)"
+	else
+		printf '%s REAP-CLEAN %s -\n' "$NOW" "$wid" >> "$AUDIT"
+		: > "${d}.worker-reaped"
+		echo "worker $wid: REAP-CLEAN (dead, no claim — tombstoned)"
+	fi
+	reaped_any=1
+done
+
+[ "$reaped_any" -eq 1 ] || true
