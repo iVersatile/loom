@@ -16,7 +16,8 @@ and thread serves exactly one of these streams. Aliases are human-set (2026-06-1
 | 3 | **The Run** | Onboarding & installer | feature | Goal 1 · scenarios 1–2 | **barely started** |
 | 4 | **Target Env** | Portability & topology | feature | scenario 3 · Phases 4–5 | mac validated; rest declared |
 | 5 | **Guardrails** | Security integrity | cross-cutting + surface | North star ("worst thing") | strong floors; gaps open |
-| 6 | **Verification** | spec→FR→test integrity | cross-cutting | RULES §2 (specs = product) | enforced (gate / fr-verify) |
+| 6 | **Verification** | spec→FR→test integrity + observability | cross-cutting | RULES §2 (specs = product) | enforced (gate / fr-verify) |
+| 7 | **Dogfood** | Operating model — "Loom is built using Loom" | cross-cutting / governance | Success criterion (dogfood) | live operating model |
 
 ---
 
@@ -49,10 +50,23 @@ The north star's *"would the guardrails hold if it tried the worst thing?"*: the
 deny-floor, the trust model, the guard hooks, egress control (T20), harness
 self-defense (T28), the auditable trail. Wraps every verb and every autonomous action.
 
-## 6. Verification — spec→FR→test integrity  *(cross-cutting)*
+## 6. Verification — spec→FR→test integrity + observability  *(cross-cutting)*
 The discipline that keeps **"the specs are the product"** honest: the spec→FR→test
 joints (`make fr-verify`), the spec-map coverage, the gate, the phase-close review
-gates. Every feature stream proves itself here.
+gates. Every feature stream proves itself here. **Includes observability** — the
+audit / reviewable-trail that records what the running system actually did (the north
+star's *"every change leaves a reviewable trail"*). The audit trail is **dual-homed**:
+Verification owns it as *evidence/review*; **Guardrails** relies on it as an
+*accountability mechanism* (a destructive action must be catchable in the trail).
+
+## 7. Dogfood — Operating model ("Loom is built using Loom")  *(cross-cutting / governance)*
+The team + process that build Loom **with** Loom: the seats/roles (advisor ↔ author),
+the gate + phase-close discipline, AUTOPILOT / trust governance, and the
+communication + dev-loop conventions (`RULES.md`, `TEAM.md`). Distinct from its
+neighbours: **AI-First** is the autonomy *mechanism*, **Verification** is correctness
+*proof* — **Dogfood is *who* does the work and *how* the human↔agent collaboration is
+governed.** Charter success criterion: *"Loom is built using Loom, dogfooded from the
+first runnable slice."*
 
 ---
 
@@ -65,12 +79,10 @@ gates. Every feature stream proves itself here.
 - **Audit / reviewable trail** → **Guardrails** + **Verification**.
 - **Playbook / lockfile / reconcile** → **The Spine**.
 
-## Candidate additions (for the human to weigh — not yet streams)
-- **Operating Model / Dogfood** — *"Loom is built using Loom"*: the seats/roles, the
-  gate, phase-close, `TEAM.md`. Today split across AI-First (the loop) + Verification
-  (the gates); promote to its own stream if it grows.
-- **Observability** — the audit/trail as its own thin stream vs. folded into
-  Guardrails + Verification (today: folded).
+## Resolved (human, 2026-06-19)
+- **Operating Model / Dogfood → promoted to stream #7** (governance is a distinct axis).
+- **Observability → folded into Verification (#6)**, cross-referenced from Guardrails
+  (the audit trail is dual-homed: evidence + accountability).
 
 ## Honest status signal (2026-06-19)
 The board is concentrated in **AI-First** (its harness face). **The Spine** (second

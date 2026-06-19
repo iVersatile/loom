@@ -6,7 +6,7 @@ GEMINI.md symlink here. Thin pointer — detail lives in docs/.
 ## Orient yourself first
 1. docs/CHARTER.md — what Loom is, goals, north star, non-goals.
 2. docs/WORKSTREAMS.md — the project-level map (which arc am I in): The Spine ·
-   AI-First · The Run · Target Env · Guardrails · Verification.
+   AI-First · The Run · Target Env · Guardrails · Verification · Dogfood.
 3. docs/decisions/ — why the architecture is the way it is (ADR-0001..0010).
 4. docs/SPEC-playbook.md, docs/SPEC-verbs.md — the contracts you implement against.
 5. docs/RULES.md — how we work here (source of truth).
