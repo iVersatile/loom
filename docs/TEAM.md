@@ -5,10 +5,20 @@ doc, not a frozen contract; the enforced pieces are marked.
 
 ## Roles
 
-- **loom-author** — the agent session inside `loom-dev`. **Sole tree writer**:
-  the only role that edits `/workspace/loom` directly. Drafts code, docs, ADRs
-  (Proposed); commits in-container on `feat/ fix/ docs/` branches; never pushes
-  (see outward ops).
+> **Your seat is `LOOM_SESSION_ROLE` (launch env) resolved against the root-owned
+> `/var/lib/loom/role` marker — a MECHANICAL fact, surfaced at session start, NOT
+> something you infer from the descriptions below.** Post-T34 (advisor-in-loom)
+> **both seats run inside `loom-dev`**, so "the session inside loom-dev" no longer
+> identifies a role. These bullets say what each seat DOES; the env/marker says
+> which one you ARE. (Failure 2026-06-19: a `loom-advisor` session inferred
+> "author" from the old "agent session inside loom-dev" wording — fixed here, and
+> mechanized by the `role-inject` session-start surface so it can't recur.)
+
+- **loom-author** — the build/Writer seat (`LOOM_SESSION_ROLE=loom-author`, or the
+  marker default). **Sole tree writer** for build work: drafts code, docs, ADRs
+  (Proposed); commits in its **own worktree** (ADR-0023) on `feat/ fix/ docs/`
+  branches; **never pushes** (the advisor relays — see outward ops). Runs as an
+  ephemeral worker spawned by the advisor (ADR-0025), or interactively.
 - **loom-advisor** — design challenge + coordination + **git-controller**.
   Reviews, red-teams designs (often by spawning an ephemeral author for an
   independent confer — ADR-0025 R1.2), and runs the git-controller routine
@@ -67,7 +77,9 @@ by persisting — because nothing in this session's head survives it.
    `git log --oneline -10` (recent merges), `git branch -a` (unrelayed branches), `git status` (tree
    clean?), `tail .scratch/inbox/loom-advisor.md` (handoffs / git-tasks). These live queries ARE the
    operational pickup.
-3. **Confirm identity + creds:** role is `loom-advisor` (the launch env); `gh auth status` (PAT works).
+3. **Creds:** `gh auth status` (PAT works). Your **seat is not a thing you confirm by reading** —
+   it is set mechanically by `LOOM_SESSION_ROLE`/marker and surfaced at session start by `role-inject`
+   (do NOT infer it from the Roles prose; that mis-inference is what role-inject exists to prevent).
 4. **Git-controller sweep (standing duty):** relay any unrelayed branch (review → push → PR → merge).
    The auto-prompt hook (`repo-clean-check`) is not yet materialized in-loom (T34 G2, degraded) — do
    the sweep manually from the live queries above until it lands.
