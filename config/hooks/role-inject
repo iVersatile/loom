@@ -1,0 +1,36 @@
+#!/bin/sh
+# role-inject — SessionStart hook: surface the session's SEAT mechanically so the
+# agent reads its role from the launch env / marker, never infers it from docs.
+#
+# Origin (2026-06-19 confidence-session): a loom-advisor session self-IDed as
+# loom-author by inferring from stale TEAM.md wording, and (separately) misread
+# marker!=env as "drift". Both are prevented here — the seat is the env (resolved
+# against the marker), and marker=loom-author is the fail-closed FLOOR by design
+# (ADR-0021), not drift. amendment-c: role-id is MECHANICS, not a prompt to obey.
+#
+# Resolution mirrors statusline.sh + the role guards: LOOM_SESSION_ROLE wins, else
+# the root-owned /var/lib/loom/role marker, else fail-closed loom-author. Gated by
+# the same HALT sentinel as checkpoint-inject. MUST be in config/playbook.yml
+# harness.claude.hooks or it never materializes (LL-016/#190).
+set -eu
+
+[ -e "$HOME/.claude/hooks/HALT-checkpoint" ] && exit 0
+
+marker_file="${LOOM_ROLE_MARKER:-/var/lib/loom/role}"
+marker="$(cat "$marker_file" 2>/dev/null || true)"
+[ -n "$marker" ] || marker="<none>"
+
+if [ -n "${LOOM_SESSION_ROLE:-}" ]; then
+	role="$LOOM_SESSION_ROLE"
+elif [ "$marker" != "<none>" ]; then
+	role="$marker"
+else
+	role="loom-author"
+fi
+
+echo "=== SESSION SEAT (mechanical — this IS your role; never infer it from docs) ==="
+echo "You are: $role   [LOOM_SESSION_ROLE=${LOOM_SESSION_ROLE:-<unset>} wins -> marker=$marker]"
+echo "Both seats run inside loom-dev (T34); your seat is the env/marker above, NOT the container."
+echo "marker=loom-author is the fail-closed FLOOR by design (ADR-0021) — an env-less session is an"
+echo "author (blocked from push); the advisor ELEVATES via the env. So marker != env is EXPECTED, not drift."
+echo "==="

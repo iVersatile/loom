@@ -44,6 +44,7 @@ hooks:
   - branch-guard
   - protect-paths
   - checkpoint-inject
+  - role-inject # SessionStart: surfaces the resolved seat (LOOM_SESSION_ROLE/marker)
   # THE shared segment splitter (T29 amendment 5: one splitter, or they
   # drift) — a sourced library, not an event hook: guard-bash sources it,
   # allow-compound adopts it; listed so doctor verifies it ships next to
@@ -66,6 +67,10 @@ harness:
     hooks:
       - guard-bash
       - checkpoint-inject
+      - role-inject # SessionStart (registered in settings.json alongside
+        # checkpoint-inject): surfaces the resolved seat (LOOM_SESSION_ROLE/marker)
+        # so the agent never infers its role from docs. MUST be in this list or it
+        # is never materialized (LL-016/#190).
       - segment-split # must land NEXT TO guard-bash (dirname-relative source)
       - role-push-guard # T34 Slice A: settings.json registers it as a PreToolUse
         # hook; it MUST be in this list or it is never materialized into
