@@ -12,6 +12,7 @@ overlay: loom
 tools:
   - go@1.26
   - make
+  - lazygit # TUI git client for in-loom interactive git work (go-install)
 
 rules:
   - loom/project

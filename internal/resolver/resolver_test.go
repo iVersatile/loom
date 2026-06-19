@@ -15,7 +15,7 @@ func (f fakeProbe) Version(binary string) (string, bool) {
 
 func TestResolveSourcesAndPins(t *testing.T) {
 	pb := &playbook.Playbook{
-		Tools:  []string{"go@1.26", "git", "uv", "gopls", "ripgrep", "golangci-lint", "gh"},
+		Tools:  []string{"go@1.26", "git", "uv", "gopls", "ripgrep", "golangci-lint", "gh", "lazygit"},
 		Agents: []string{"claude-code"},
 	}
 	vp := fakeProbe{
@@ -40,6 +40,7 @@ func TestResolveSourcesAndPins(t *testing.T) {
 		"ripgrep":       "apt",
 		"golangci-lint": "go-install",
 		"gh":            "go-install", // GitHub CLI builds via go install (env-tier, T34)
+		"lazygit":       "go-install", // lazygit TUI builds via go install (project-tier)
 	}
 	for tool, src := range wantSource {
 		got, ok := r.Tools[tool]

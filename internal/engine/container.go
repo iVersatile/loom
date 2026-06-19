@@ -1110,6 +1110,10 @@ func goModule(tool string) string {
 		// source: `gh --version` may report "unknown" (no ldflags version embed),
 		// but auth/api/pr/git-credential — loom's use — function.
 		return "github.com/cli/cli/v2/cmd/gh@latest"
+	case "lazygit":
+		// lazygit TUI via go-install (project-tier, loom-dev has the Go
+		// toolchain). main package is at the module root.
+		return "github.com/jesseduffield/lazygit@latest"
 	default:
 		return ""
 	}
