@@ -47,12 +47,20 @@ type DetectResult struct {
 	Credentials []Credential `json:"credentials"`
 	Projects    []Project    `json:"projects"`
 	Drift       []Drift      `json:"drift"`
+
+	// Emitted is the draft playbook path written by --emit-playbook (empty
+	// otherwise). json:"-" because detect's --json shape is frozen: the emitted
+	// path rides the human line / stderr, not the JSON document.
+	Emitted string `json:"-"`
 }
 
 func (r DetectResult) Human() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "detect: %d tools, %d agents, %d credentials, %d projects, %d drift",
 		len(r.Tools), len(r.Agents), len(r.Credentials), len(r.Projects), len(r.Drift))
+	if r.Emitted != "" {
+		fmt.Fprintf(&b, ", emitted %s", r.Emitted)
+	}
 	return b.String()
 }
 
