@@ -498,6 +498,43 @@ requirements:
     tests: [cli.TestStartOneRunWorkingEnv]
     status: active
 
+  # --- The Run, scenario 2 (continuity / carry-forward) — detect --emit-playbook ---
+  # The continuity HALF of scenario 2 (established machine -> carried forward): capture
+  # the detected machine as a reviewable draft base playbook (the no-information-loss
+  # bridge, SPEC-verbs#detect "Continuity"). Build-to-frozen-spec — the detect clause
+  # already specs --emit-playbook, so NO ALLOW_SPEC_CHANGE. The credential-MOVE half
+  # (--migrate consolidating values into .env) is a SEPARATE, security-sensitive slice
+  # (ADR-0014 leak thesis) — names are carried here, values never.
+  - id: FR-RUN-005
+    kind: behavioral
+    statement: >-
+      detect --emit-playbook writes a draft BASE playbook representing the detected
+      machine — present tools (each as a name@version intent when a clean version
+      token is recoverable from the prober line, else the bare name), present agents,
+      and detected credential NAMES as env: (names only; never values, never their
+      found-in locations) — which re-parses and validates as a base-tier playbook. It
+      writes a DISTINCT draft file (loom.base.draft.yml), never overwriting the
+      canonical loom.yml, surfaces the written path on stderr (both human and --json
+      modes, so a --json agent can find it), and leaves detect's frozen --json
+      document unchanged.
+    source: SPEC-verbs.md#detect
+    tests: [engine.TestEmitDraftPlaybookRoundTrips, engine.TestEmitDraftPlaybookNamesOnlyNoValues, engine.TestEmitDraftPlaybookVersionBestEffort, engine.TestDetectNoEmitUnchanged, cli.TestDetectEmitPlaybookJSON]
+    status: active
+  - id: FR-RUN-006
+    kind: behavioral
+    # The scenario property, proven end-to-end at the detect verb seam (fast engine
+    # tier, NOT the #75 OOM-flaking docker tier): detected reality -> draft -> reloads
+    # as the same PRESENCE set. Versions are best-effort intent the resolver/lockfile
+    # re-pins at build (the detect/resolve/lock separation), not a carry-forward gap.
+    statement: >-
+      the emitted draft is a lossless carry-forward of the machine's PRESENCE set —
+      parsing it back yields exactly the tools, agents, and credential names the
+      machine detected (exact version pinning is deferred to the resolver/lockfile, as
+      everywhere) — proven through the detect verb on a fixture machine in one pass.
+    source: SPEC-verbs.md#detect
+    tests: [engine.TestDetectEmitPlaybookViaSeam]
+    status: active
+
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
   # start is a mutating verb subject to the invariants (NOT --json-exempt), so it
   # is added to the covers: list of each suite. start's mutation IS its build call,
