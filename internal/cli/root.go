@@ -49,6 +49,7 @@ func newRootCmd() *cobra.Command {
 		newDetectCmd(),
 		newPlanCmd(),
 		newBuildCmd(),
+		newStartCmd(),
 		newTeardownCmd(),
 		newDoctorCmd(),
 		newExecCmd(),
