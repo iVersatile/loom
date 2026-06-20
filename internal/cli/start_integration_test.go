@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,7 +35,18 @@ func TestStartOneRunWorkingEnv(t *testing.T) {
 
 	dir := tempCopy(t, "../playbook/testdata/proj")
 	pb := filepath.Join(dir, "loom.yml")
-	const cname = "loom-dev" // project "loom" + "-dev"
+	// Unique container name: this e2e lives in internal/cli while the engine-package
+	// e2e tests also build "loom-dev", and `go test ./...` runs packages in PARALLEL —
+	// a shared container name races across packages (observed: docker name conflict on
+	// create). Rewrite the fixture's project name to isolate this run.
+	b, e := os.ReadFile(pb)
+	if e != nil {
+		t.Fatalf("read fixture playbook: %v", e)
+	}
+	if e := os.WriteFile(pb, []byte(strings.Replace(string(b), "name: loom", "name: starte2e", 1)), 0o644); e != nil {
+		t.Fatalf("rewrite fixture name: %v", e)
+	}
+	const cname = "starte2e-dev" // project "starte2e" + "-dev" — isolated from the engine-pkg e2e
 
 	// Clean-machine proxy precondition: verified absent, not assumed.
 	_ = exec.Command("docker", "rm", "-f", cname).Run()
