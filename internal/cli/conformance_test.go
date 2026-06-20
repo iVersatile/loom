@@ -33,10 +33,17 @@ func TestSpecConformance(t *testing.T) {
 	// the prober's tool lookups fail immediately; the result JSON is still emitted,
 	// which is all this test asserts. (LL-008)
 	t.Setenv("PATH", t.TempDir())
+	// start's required key is supplied via the environment (the os.Getenv
+	// pass-through path), so the case needs no NAME=VALUE flag literal.
+	t.Setenv("ANTHROPIC_API_KEY", "x")
 	spec := specShapeKeys(t)
 
-	// build and teardown mutate / open the action log — sandbox them in temp copies.
+	// build, start, and teardown mutate / open the action log — sandbox them in
+	// temp copies. start orchestrates build, so it gets its own copy; with an
+	// empty PATH its container step fails fast, but the full --json result is
+	// still emitted (ready:false), which is all this shape check asserts.
 	build := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
+	start := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
 	teardown := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
 	cases := []struct {
 		verb string
@@ -45,6 +52,7 @@ func TestSpecConformance(t *testing.T) {
 		{"detect", []string{"detect", "--json", "-f", fixturePlaybook}},
 		{"plan", []string{"plan", "--json", "-f", fixturePlaybook}},
 		{"build", []string{"build", "--json", "-f", build}},
+		{"start", []string{"start", "--non-interactive", "--json", "--stack", "go", "-f", start}},
 		{"teardown", []string{"teardown", "stop", "--json", "--yes", "-f", teardown}},
 	}
 

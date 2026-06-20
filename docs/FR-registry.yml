@@ -450,24 +450,76 @@ requirements:
     tests: [engine.TestRoleMarkerReminder]
     status: active
 
+  # --- Behavioral: start (SPEC-verbs#start, T36 / The Run scenario 1) ---
+  # The guided bring-up verb: it ORCHESTRATES the existing reconcile verbs (it
+  # adds guidance, not new reconcile logic). FRs land in the build PR with their
+  # tests + the engine wiring (the house pattern, e.g. FR-BUILD-016). Scenario 2
+  # (clean reset + credential carry-forward) is OUT — those ride detect --migrate
+  # + ADR-0014/0026 in a later slice.
+  - id: FR-RUN-001
+    kind: behavioral
+    statement: >-
+      start reaches a working env by INVOKING the existing reconcile verbs in order —
+      detect → (gather minimal inputs) → plan → build — never reimplementing their
+      logic; a non-zero result from any sub-verb aborts the run with that sub-verb's
+      exit code + error and reports ready:false (no partial "ready").
+    source: SPEC-verbs.md#start
+    tests: [cli.TestStartOrchestratesDetectPlanBuild, cli.TestStartAbortsOnSubVerbFailure]
+    status: active
+  - id: FR-RUN-002
+    kind: behavioral
+    statement: >-
+      loom start --non-interactive --json runs to completion with ZERO prompts when
+      the required inputs (stack + keys) are supplied via flags/env, emitting the
+      documented --json shape (situation, inputs, steps[], ready, next); a required input
+      missing in non-interactive mode exits 2 (needs-input), never prompting or hanging.
+      start is NOT --json-exempt (unlike exec/shell).
+    source: SPEC-verbs.md#start
+    tests: [cli.TestStartNonInteractiveJSONShape, cli.TestStartNonInteractiveMissingInputExit2]
+    status: active
+  - id: FR-RUN-003
+    kind: behavioral
+    statement: >-
+      the only inputs start requires to reach a working env (scenario 1) are the stack
+      and the required keys; it solicits no other human input. Interactive mode prompts
+      for exactly these; non-interactive mode reads exactly these from flags/env.
+    source: SPEC-verbs.md#start
+    tests: [cli.TestStartMinimalInputs]
+    status: active
+  - id: FR-RUN-004
+    kind: behavioral
+    # Integration-tier (the #75 OOM-flaking tier) — the guided-run e2e. Reuses the
+    # FR-BUILD-008 clean-machine proxy approach; the fixture is kept minimal.
+    statement: >-
+      from a clean machine, ONE start invocation (no restarts) reaches a working env —
+      build converged AND a smoke exec in the env succeeds — and start reports
+      ready:true ONLY when both hold; otherwise ready:false + non-zero exit.
+    source: SPEC-verbs.md#start
+    tests: [cli.TestStartOneRunWorkingEnv]
+    status: active
+
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
+  # start is a mutating verb subject to the invariants (NOT --json-exempt), so it
+  # is added to the covers: list of each suite. start's mutation IS its build call,
+  # already exercised by the build entries; the orchestration shape is conformance-
+  # checked (TestSpecConformance now runs start) and idempotency rides build's.
   - id: FR-INV-001
     kind: invariant
     statement: every verb emits human plus --json output.
     source: RULES.md#§5
-    tests: { suite: cli.TestSpecConformance, covers: [detect, plan, build, teardown] }
+    tests: { suite: cli.TestSpecConformance, covers: [detect, plan, build, start, teardown] }
     status: active
   - id: FR-INV-002
     kind: invariant
     statement: every mutating verb is audit-logged and diagnostic-logged.
     source: RULES.md#§5
-    tests: { suite: engine.TestMutatingVerbsAreObservable, covers: [build, teardown] }
+    tests: { suite: engine.TestMutatingVerbsAreObservable, covers: [build, teardown, start] }
     status: active
   - id: FR-INV-003
     kind: invariant
     statement: every mutating verb is idempotent; re-running converges.
     source: RULES.md#§5
-    tests: { suite: engine.TestMutatingVerbsIdempotent, covers: [build, teardown] }
+    tests: { suite: engine.TestMutatingVerbsIdempotent, covers: [build, teardown, start] }
     status: active
   - id: FR-INV-004
     kind: invariant
