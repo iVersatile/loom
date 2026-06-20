@@ -13,7 +13,7 @@ and thread serves exactly one of these streams. Aliases are human-set (2026-06-1
 | --- | --- | --- | --- | --- | --- |
 | 1 | **The Spine** | Environment orchestration | feature | Goal 2 · Phase 2 | spine done; **2nd stack open** |
 | 2 | **AI-First** | Agent-autonomy | feature + cross-cutting | North star · Phase 3 | substrate complete + verified |
-| 3 | **The Run** | Onboarding & installer | feature | Goal 1 · scenarios 1–2 | **barely started** |
+| 3 | **The Run** | Onboarding & installer | feature | Goal 1 · scenarios 1–2 | **scenario 1 + s2 continuity shipped** |
 | 4 | **Target Env** | Portability & topology | feature | scenario 3 · Phases 4–5 | mac validated; rest declared |
 | 5 | **Guardrails** | Security integrity | cross-cutting + surface | North star ("worst thing") | strong floors; gaps open |
 | 6 | **Verification** | spec→FR→test integrity + observability | cross-cutting | RULES §2 (specs = product) | enforced (gate / fr-verify) |
@@ -38,7 +38,10 @@ fleet / supervising-box (us building Loom). North star; Phase 3. Substrate compl
 ## 3. The Run — Onboarding & installer  *(feature)*
 The "one guided run": a menu-driven, situation-detecting entry point; new-machine
 comfort (non-technical); established-machine **clean reset with credential
-carry-forward, zero loss**. Charter Goal 1; scenarios 1–2. Barely started.
+carry-forward, zero loss**. Charter Goal 1; scenarios 1–2. Scenario 1 (`loom
+start`, #227) and scenario 2's **continuity half** (`detect --emit-playbook` draft
+carry-forward, #229) shipped; the credential-**move** half (`detect --migrate` into
+`.env`) remains — security-sensitive, ADR-0014/0026.
 
 ## 4. Target Env — Portability & topology  *(feature)*
 Where Loom runs: `mac-dev` (validated), `windows-dev` (declared), devcontainer
@@ -84,14 +87,14 @@ The mapping is **latent** — FR family prefixes already cluster by concern — 
 is a lens over the existing registry, not new metadata. (A queryable per-FR
 `workstream:` field is a deferred option; this index is the lightweight version.)
 
-**FRs by workstream** (72 total):
+**FRs by workstream** (75 total; counts current to #229):
 | Workstream | FR families | ~FRs |
 | --- | --- | --- |
-| The Spine | BUILD 17 · SCHEMA 11 · EXEC 4 · ENTRY 4 · TEARDOWN 4 · PLAN 3 · DETECT 2 · SHELL 1 | **46** (64%) |
+| The Spine | BUILD 16 · SCHEMA 11 · EXEC 4 · ENTRY 4 · TEARDOWN 4 · PLAN 3 · DETECT 2 · SHELL 1 | **45** (60%) |
 | AI-First | LOOP 4 · INV 5 (the `--json`/idempotent/auditable invariants) | 9 |
 | Guardrails | GUARD 9 (the 3 `role:`/`user:` SCHEMA FRs also lean here) | 9 |
 | Verification | DOCTOR 6 (the verb lives in The Spine; *serves* verification) · LOG 2 (observability) | 8 |
-| **The Run** | — | **0** ⚠ |
+| **The Run** | RUN 6 (start scenario-1 · 1–4; detect `--emit-playbook` continuity · 5–6) | **6** |
 | **Target Env** | — (only touched by BUILD/SCHEMA) | **0 dedicated** ⚠ |
 | **Dogfood** | — (governed by RULES/TEAM, not FRs by nature) | **0** |
 
@@ -108,9 +111,11 @@ is a lens over the existing registry, not new metadata. (A queryable per-FR
 *(multi-stream examples: 0016 also Verification (audit); 0017/0021/0023 also Dogfood; 0019 also The Spine; 0014/0026 also AI-First git autonomy.)*
 
 **The coverage signal — sharper than prose:**
-- **The Spine holds ~64% of all FRs** — the requirement mass *is* the product engine.
-- **The Run + Target Env have ADRs (decided) but ZERO FRs (unbuilt)** — they are
-  *designed, not implemented*. That, not "untouched," is the precise gap.
+- **The Spine holds ~60% of all FRs** — the requirement mass *is* the product engine.
+- **The Run now holds 6 FRs** — scenario 1 (`loom start`, #227) + scenario 2's
+  continuity half (`detect --emit-playbook`, #229); the `--migrate` cred-move half
+  remains. **Target Env still has ADRs (decided) but ZERO FRs (unbuilt)** — *designed,
+  not implemented*. That is now the precise remaining gap.
 - **Dogfood = 1 ADR + 0 FRs** — expected: it lives in RULES/TEAM as process.
 
 ## Resolved (human, 2026-06-19)
