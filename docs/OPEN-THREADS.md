@@ -1311,7 +1311,7 @@ Pointers: T12 (single dev container — T34 closes its residue) · T15 (creds) �
 
 ---
 
-## T36 — The Run: implement the `start` verb (menu-driven onboarding, charter scenario 1)   🟢 DECIDED (Q1–Q5, human 2026-06-19) — SPEC-clause draft next
+## T36 — The Run: implement the `start` verb (menu-driven onboarding, charter scenario 1)   🟢 scenario-1 SHIPPED 2026-06-20 (`loom start` merged #227) — scenario-2 (cred carry-forward) is the next slice
 Surfaced 2026-06-19 from the workstream coverage map (`docs/WORKSTREAMS.md`): **The Run** (onboarding/installer) is charter **Goal 1** + scenarios 1–2, yet holds **ADRs (decided) and ZERO FRs (unbuilt)** — the deep Spine (46 FRs) is a front-door-less engine. Thin-vertical-slice doctrine ⇒ the next slice completes a SCENARIO end-to-end; **scenario 1** (*"fresh machine → working AI-capable env in ONE guided run, minimal edits, no terminal expertise"*) is the target — the highest-leverage *product* move on the board.
 
 **NOT a new verb — the design already decided this: `start`.** The Phase-2 roadmap (human-owned) names *"Menu-driven `start` entry (situation detection) for scenario 1/2,"* and `SPEC-verbs` already references `start` as the cloud-rehydrate bring-up hook (§teardown). So this slice **implements the roadmapped `start`**, not a net-new `init`. Rationale for `start` over `init`: **bring-up** semantics (not project-scaffolding), the **`start` ↔ `teardown` lifecycle pair** (teardown is already a verb), and **cloud-rehydrate reuse** (one verb brings up local AND a fresh VM). *(The initial Q1 answer `init` was revised after this design check — human, 2026-06-19.)*
