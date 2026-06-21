@@ -1342,7 +1342,7 @@ Surfaced 2026-06-21 from the workstream coverage map: **Target Env** (portabilit
 
 **DECISIONS (human, 2026-06-21):**
 - **Slice = `import` Stage-1** (confirmed over windows-validation / cloud-rehydrate).
-- **Scope = schema-homed fields only NOW** (`image→base_image`, `forwardPorts`/`appPort→ports`, `containerEnv`/`remoteEnv→env` NAMES-only); **AI enrich skill = LATER** (ADR-0003 Stage-3, its own slice); `features`/`commands` deferred (no schema home → would need a 2nd human gate on SPEC-playbook).
+- **Scope = schema-homed fields only NOW** (`forwardPorts`/`appPort→ports`, `containerEnv`/`remoteEnv→env` NAMES-only). **`image` is REPORTED, not mapped** — base_image is an engine-level floor (`LOOM_BASE_IMAGE`/default, ADR-0012), NOT a playbook field; loom enriches with its own base, never degrades-to the devcontainer image (ADR-0003). **AI enrich skill = LATER** (ADR-0003 Stage-3); `features`/`commands` deferred (no schema home → a 2nd human gate on SPEC-playbook). *(Caught pre-merge: the first clause draft wrongly listed `image→base_image` as schema-homed; corrected on the #233 branch before acceptance.)*
 - **`import` is a NEW top-level verb** (reads a FILE, not the machine — distinct from `detect`); output = a non-clobbering draft (`loom.imported.yml`); FR family = **`FR-IMPORT-*`** (→ Target Env in WORKSTREAMS).
 
 **Path (spec-before-code, mirrors T36 `start`):** SPEC-verbs `## import` clause refined (Stage-1 contract + `--json` shape) — **human ALLOW_SPEC_CHANGE go-ahead given 2026-06-21**, advisor drafted, landing as a clause PR (like `start` #226) → `FR-IMPORT-*` extraction → build (sibling of the emit-playbook draft-writer) → engine-seam + CLI e2e (no docker; a `devcontainer.json` fixture → import → draft validates + feeds `plan`).

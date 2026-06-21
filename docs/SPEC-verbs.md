@@ -224,13 +224,16 @@ playbook — the "devcontainer is an input we import and enrich, never degrade t
 floor (ADR-0003). It reads a FILE (not the machine, unlike `detect`) and writes a
 draft; it never mutates the environment.
 
-- Stage-1 (this slice) = deterministic core. Maps only the mechanical fields that
-  have a playbook home: `image → base_image`, `forwardPorts`/`appPort → ports`,
-  `containerEnv`/`remoteEnv → env` (NAMES only — values stay in `.env`/secret store,
-  per the playbook's names-only env model). `features` and `commands` are DEFERRED
-  (no schema home yet — a later slice with the schema growth) and REPORTED, not
-  silently dropped. Intent inference for awkward fields via an AI skill is DEFERRED
-  (ADR-0003 Stage-3; flagged optional).
+- Stage-1 (this slice) = deterministic core. Maps the fields that have a playbook
+  home: `forwardPorts`/`appPort → ports` and `containerEnv`/`remoteEnv → env` (NAMES
+  only — values stay in `.env`/secret store, per the playbook's names-only env model).
+  The devcontainer `image` is **REPORTED, not mapped**: loom enriches with its own
+  engine-level base (ADR-0012 — `LOOM_BASE_IMAGE`/default, NOT a per-project playbook
+  field), it does not "degrade to" the devcontainer's image (ADR-0003); the import
+  surfaces the image + names `LOOM_BASE_IMAGE` as the override path. `features` and
+  `commands` are DEFERRED (no schema home yet — a later slice with the schema growth).
+  Every non-mapped field is REPORTED, never silently dropped. Intent inference for
+  awkward fields via an AI skill is DEFERRED (ADR-0003 Stage-3; flagged optional).
 - Output is a draft, review-then-commit. Writes a DISTINCT draft file
   (`loom.imported.yml`), never overwriting an authored `loom.yml`. The draft re-parses
   and validates as a project-tier playbook (Stage-1 "runs as a plain devcontainer":
@@ -248,8 +251,8 @@ draft; it never mutates the environment.
 ```json
 // loom import --json (shape)
 { "source": ".devcontainer/devcontainer.json",
-  "mapped": { "base_image": "mcr.microsoft.com/devcontainers/go:1.22",
-              "ports": [3000], "env": ["NODE_ENV"] },
+  "mapped": { "ports": [3000], "env": ["NODE_ENV"] },
+  "reported": { "image": "mcr.microsoft.com/devcontainers/go:1.22" },
   "deferred": ["features", "commands"],
   "draft": "loom.imported.yml" }
 ```
