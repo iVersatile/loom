@@ -23,21 +23,21 @@ confidence.
 
 ## What to enrich
 
-### 1. `features` → `tools`
-Devcontainer features are OCI refs like `ghcr.io/devcontainers/features/go:1` or
-`ghcr.io/devcontainers/features/node:20`. Map each to a loom `tools:` entry
-(`name@version` intent; the resolver/lockfile pins the exact build):
-- The tool **name** is the last path segment before the `:` (`.../features/<name>:<ver>`).
-- The **version** is the tag (`:1`, `:20`, `:latest`); use `name@<tag>` when the tag
-  is a clean version, else the bare name (the same rule `import` uses for tool versions).
-- Common official features (high confidence):
-  `go`→`go`, `node`→`node`, `python`→`python`, `rust`→`rust`, `ruby`→`ruby`,
-  `java`→`java`, `dotnet`→`dotnet`, `php`→`php`, `docker-in-docker`→(skip; loom is
-  container-per-project, not DinD), `github-cli`→`gh`, `aws-cli`→`awscli`,
-  `terraform`→`terraform`, `kubectl-helm-minikube`→`kubectl`+`helm`.
-- A **custom / unknown / non-`ghcr.io/devcontainers/features` ref** is low confidence:
-  do NOT guess a tool name — leave it in a `# REVIEW:` comment naming the ref and what
-  it appears to install, for the human to decide.
+### 1. `reported.unmapped_features` → `tools` (judgment)
+`import` ALREADY mapped the **recognized official** features (`ghcr.io/devcontainers/
+features/<name>`) deterministically into `tools:` — you do not redo those. Your job is
+the leftovers: the refs `import` surfaced in **`reported.unmapped_features`** (custom,
+third-party, or official-but-unlisted), which it deliberately did NOT guess.
+For each unmapped ref:
+- If you can confidently identify the tool it installs (its name/docs make it obvious),
+  add a `tools:` entry (`name@version` intent; the resolver/lockfile pins the build) and
+  say why. Take a version from the feature's `version` OPTION when present, else bare name.
+- Officially-named but loom-inappropriate features (e.g. `docker-in-docker` — loom is
+  container-per-project, not DinD; `common-utils` — a meta feature) → a `# REVIEW:` note,
+  not a tool.
+- **Anything you are not confident about → a `# REVIEW:` comment** naming the ref and
+  what it appears to install. Never guess a tool name (the deterministic mapper already
+  declined to — don't override its caution).
 
 ### 2. infer the `stack`
 Loom's `stack:` selects a `stacks/<lang>` overlay. Infer it from the strongest signal,
