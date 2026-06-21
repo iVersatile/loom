@@ -1,9 +1,8 @@
 # ADR-0027 — Per-project credential convention (all agents + gh); resolver deferred
 
-**Date:** 2026-06-21   **Status: PROPOSED** (advisor draft for human acceptance — T15-successor).
+**Date:** 2026-06-21   **Status: Accepted** (human, 2026-06-21 — "commit the convention now, defer the resolver"; via advisor after 3 spikes + 2 confers; T15-successor).
 
-> "Agent drafts, human accepts" (RULES §5/C3). **ON ACCEPT:** move to `docs/decisions/0027-…`, flip to
-> **Accepted**, commit with `ALLOW_SPEC_CHANGE=1`. Confer + analysis:
+> "Agent drafts, human accepts" (RULES §5/C3). Confer + analysis:
 > `.scratch/spikes/t15-credential-framework-shape.md` (+ `…/t15-per-project-credentials.md`,
 > `…/t15-apikeyhelper-credential-acquisition.md`); probe `…/probe-apikeyhelper.sh`.
 > **Rev 4 (2026-06-21):** after a 3-agent confer on a *unified framework* — re-aimed from "claude
