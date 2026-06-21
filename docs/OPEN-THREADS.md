@@ -676,7 +676,25 @@ Pointers: #19 (tool) · #17 (claims) · #22 (lock) · LL-010-adjacent stale-bina
 
 ---
 
-## T20 — container-level egress restriction: the allowlist's arbitrary-code escape hatch   🟡 open
+## T20 — container-level egress restriction: the allowlist's arbitrary-code escape hatch   🟡 SCOPED 2026-06-21 (spike + scope, human "yes") — NEXT = S1 mechanism proof (`--network none` + canary, autonomous) → ADR (networking policy) → S2 provision-then-restrict → unblocks the ADR-0027 credential build
+
+**SCOPED 2026-06-21 (spike `.scratch/spikes/t20-egress-control.md`).** Today egress = 100% harness
+deny-list (TRUST) — an agent that runs code (`go test`, `python3`/`/dev/tcp`) routes around it; the
+engine sets NO `--network`/firewall (default bridge = full outbound). The fix is container-level
+MECHANISM. Options: (a) deny-by-default docker network + allowlist [create-time conflict: provisioning
+needs broad egress] · (b) egress proxy sidecar [policy hot-editable, more parts] · (c) in-container
+iptables [REJECTED — agent is root, can undo]. SLICES: **S1** mechanism proof — internal
+`ContainerSpec.NoEgress` → `--network none` + an integration **canary** proving a `python3`/`/dev/tcp`
+exfil FAILS (**autonomous**: engine-only, no schema/ADR; refutes the bypass; de-risks before the policy
+ADR) · **S2** deny-by-default custom network + **provision-then-restrict** (the first useful policy; the
+shape the credential build needs) · **S3** proxy sidecar (durable end state). PATH: S1 (autonomous) →
+**ADR** (networking policy: network-vs-proxy · the create-time trade provision-then-restrict-vs-recreate ·
+the `networking:` schema [SPEC-playbook freeze, ALLOW_SPEC_CHANGE] · the load-bearing allowlist — the
+MODEL API + cred helper MUST stay reachable) → S2 → then the ADR-0027 credential build. Hardest unknowns:
+don't brick the agent (model endpoint must stay reachable) · DNS (IP-vs-hostname; `--network none`
+sidesteps it) · allowlist maintenance (broad-at-provision, narrow-at-runtime). Cross-platform: docker-
+native (mac linuxkit / windows WSL2 identical) — favors S1/S2/S3 over iptables. Folds: T28 (worst-thing),
+T15/ADR-0027 (the exfil prize), bootstrap fetch (SPEC-verbs gated on T20).
 Gate registered here (2026-06-11): the bootstrap prebuilt-binary-fetch
 amendment (SPEC-verbs "entry: bootstrap", future amendment b) is explicitly
 GATED ON this thread's resolution — bootstrap stays network-free until T20
