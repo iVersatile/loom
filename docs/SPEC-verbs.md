@@ -217,13 +217,47 @@ FRs: **FR-RUN-\*** (extracted next) pin the orchestration flow, the two-interfac
 contract, the minimal-inputs rule, and the frozen one-run success contract. Cred FRs
 from ADR-0014/0026 land with scenario 2.
 
-## import  (ADR-0003, staged)
+## import  (devcontainer ingest — ADR-0003; Stage-1 deterministic core; added 2026-06-21, human-decided — C3 via ALLOW_SPEC_CHANGE)
 
-Ingest an existing `devcontainer.json` → a Loom project-tier playbook (Stage 1
-compatible), ready to be enriched with base/overlay/rules (Stages 2–3).
+Ingest an existing `devcontainer.json` into a reviewable DRAFT Loom project-tier
+playbook — the "devcontainer is an input we import and enrich, never degrade to"
+floor (ADR-0003). It reads a FILE (not the machine, unlike `detect`) and writes a
+draft; it never mutates the environment.
 
-- Deterministic for the mechanical fields (image, features, ports, env, commands).
-- Intent inference for awkward fields may use an AI skill (flagged, optional).
+- Stage-1 (this slice) = deterministic core. Maps only the mechanical fields that
+  have a playbook home: `image → base_image`, `forwardPorts`/`appPort → ports`,
+  `containerEnv`/`remoteEnv → env` (NAMES only — values stay in `.env`/secret store,
+  per the playbook's names-only env model). `features` and `commands` are DEFERRED
+  (no schema home yet — a later slice with the schema growth) and REPORTED, not
+  silently dropped. Intent inference for awkward fields via an AI skill is DEFERRED
+  (ADR-0003 Stage-3; flagged optional).
+- Output is a draft, review-then-commit. Writes a DISTINCT draft file
+  (`loom.imported.yml`), never overwriting an authored `loom.yml`. The draft re-parses
+  and validates as a project-tier playbook (Stage-1 "runs as a plain devcontainer":
+  `base_image`+`ports`+`env` are honored by `build` unchanged).
+- Enrichment is the existing reconcile path, not new logic (Stages 2–3): the imported
+  project playbook is layered with the env-wide base + overlay + rules/hooks by the
+  existing merge. `import` produces the project tier; it adds no reconcile logic.
+- Human + `--json` (NOT exempt). `loom import <path> --json` emits the documented shape
+  (source, mapped fields, deferred fields, draft path). Idempotent (re-importing the
+  same file yields the same draft); never mutates outside writing the draft. Exit codes
+  per convention (`0` ok / `1` error / `2` needs-input).
+- Scope (this slice): Stage-1 deterministic import → draft. OUT: `features`/`commands`
+  mapping (needs schema), the AI enrich skill (Stage-3), and `export` (later, lossy).
+
+```json
+// loom import --json (shape)
+{ "source": ".devcontainer/devcontainer.json",
+  "mapped": { "base_image": "mcr.microsoft.com/devcontainers/go:1.22",
+              "ports": [3000], "env": ["NODE_ENV"] },
+  "deferred": ["features", "commands"],
+  "draft": "loom.imported.yml" }
+```
+
+FRs: **FR-IMPORT-\*** (extracted next) pin the deterministic field mapping, the
+names-only env rule, the draft-not-clobber output, and the e2e round-trip
+(devcontainer.json → draft → validates + feeds `plan`). AI-enrich + features/commands
+FRs land with their later slices.
 
 ## export  (later, lossy)
 
