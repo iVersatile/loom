@@ -29,6 +29,8 @@ choices.
 - ADR-0021 — Role resolution under multi-role-per-container (Proposed)
 - ADR-0022 — Autonomy substrate: ephemeral worker + backlog-ready pull (Proposed)
 - ADR-0026 — VCS credential volume: sibling `~/.config/gh` volume + gh credential helper (Accepted)
+- ADR-0027 — Per-project credential convention (all agents + gh); resolver deferred (Accepted)
+- ADR-0028 — Container networking policy: deny-by-default egress, declared hostname allowlist, provision-then-restrict (Accepted)
 
 ## Template
 
