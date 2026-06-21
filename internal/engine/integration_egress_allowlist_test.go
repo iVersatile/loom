@@ -74,8 +74,16 @@ func curlCodeInApp(t *testing.T, app string, curlArgs ...string) (code string, e
 // HAS internet (the provision phase of provision-then-restrict).
 func installCurl(t *testing.T, name string) {
 	t.Helper()
-	dockerOK(t, "exec", name,
-		"sh", "-c",
+	// Provision with DIRECT egress: clear any proxy env for THIS exec so apt uses
+	// the bridge's real internet, never the gatekeeper. The app container carries
+	// http_proxy=<gatekeeper> as its runtime env (set at `docker run`, the realistic
+	// shape), but the gatekeeper name is not resolvable until the container joins the
+	// internal network — so provisioning (apt) MUST bypass the proxy. This is the
+	// "provision" half of provision-then-restrict: broad egress during setup, the
+	// gatekeeper-only route only after the cut-over below.
+	dockerOK(t, "exec",
+		"-e", "http_proxy=", "-e", "https_proxy=", "-e", "HTTP_PROXY=", "-e", "HTTPS_PROXY=",
+		name, "sh", "-c",
 		"apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates >/dev/null")
 }
 
