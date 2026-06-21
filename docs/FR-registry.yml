@@ -576,6 +576,49 @@ requirements:
     tests: [engine.TestMigratePassesThroughReferencesUnredacted]
     status: active
 
+  # --- Target Env, devcontainer import (charter scenario 3 / Phase 4, ADR-0003) ---
+  # FR-IMPORT-* opens the Target Env workstream (was 0 FRs). Stage-1 deterministic
+  # core: ingest devcontainer.json -> a reviewable DRAFT project playbook, reusing the
+  # detect --emit-playbook draft-writer pattern (#229). image is REPORTED not mapped
+  # (base_image is an engine-level floor, ADR-0012; loom enriches, never degrades-to);
+  # features/commands + the AI enrich skill are deferred to later slices.
+  - id: FR-IMPORT-001
+    kind: behavioral
+    statement: >-
+      loom import <devcontainer.json> deterministically maps the schema-homed fields into
+      a draft project playbook — forwardPorts/appPort -> ports, containerEnv/remoteEnv ->
+      env (NAMES only, deduped) — and REPORTS the devcontainer image (loom enriches with
+      its own engine-level base per ADR-0012/0003, never mapping image to the playbook)
+      while DEFERRING features and commands; every non-mapped field is reported, never
+      silently dropped.
+    source: SPEC-verbs.md#import
+    tests: [engine.TestImportMapsPortsAndEnv, engine.TestImportReportsImageDefersFeaturesCommands, engine.TestImportSanitizesName]
+    status: active
+  - id: FR-IMPORT-002
+    kind: behavioral
+    # The scenario property, proven at the import verb seam + CLI tier (no docker):
+    # external devcontainer file -> reviewable draft -> validates + feeds plan/build.
+    statement: >-
+      import writes a DISTINCT draft file (loom.imported.yml in the project root), never
+      overwriting an authored loom.yml, that re-parses and validates as a project-tier
+      playbook (so build/plan consume it unchanged) — proven through the import verb on a
+      devcontainer.json fixture in one pass; import emits human + the documented --json
+      shape (source, mapped, reported, deferred, draft) and never mutates beyond the draft.
+    source: SPEC-verbs.md#import
+    tests: [engine.TestImportDraftValidatesNoClobber, cli.TestImportCLIJSONShape]
+    status: active
+  - id: FR-IMPORT-003
+    kind: behavioral
+    # devcontainer.json is canonically JSONC; the parser must tolerate comments +
+    # trailing commas WITHOUT the //-inside-a-string footgun (URLs, values).
+    statement: >-
+      import parses devcontainer.json as JSONC — tolerating // line comments, /* */ block
+      comments, and trailing commas — without mis-stripping comment-like sequences inside
+      string values (e.g. a URL's //), so the mapping is correct on real devcontainer files.
+    source: SPEC-verbs.md#import
+    tests: [engine.TestImportStripsJSONCCommentsRespectingStrings]
+    status: active
+
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
   # start is a mutating verb subject to the invariants (NOT --json-exempt), so it
   # is added to the covers: list of each suite. start's mutation IS its build call,

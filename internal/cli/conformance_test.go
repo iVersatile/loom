@@ -45,6 +45,9 @@ func TestSpecConformance(t *testing.T) {
 	build := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
 	start := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
 	teardown := tempCopy(t, "../playbook/testdata/proj") + "/loom.yml"
+	// import reads a FILE and writes its draft into the same dir — write a
+	// minimal valid devcontainer.json into a temp dir so the case stays hermetic.
+	imp := tempDevcontainer(t)
 	cases := []struct {
 		verb string
 		args []string
@@ -54,6 +57,7 @@ func TestSpecConformance(t *testing.T) {
 		{"build", []string{"build", "--json", "-f", build}},
 		{"start", []string{"start", "--non-interactive", "--json", "--stack", "go", "-f", start}},
 		{"teardown", []string{"teardown", "stop", "--json", "--yes", "-f", teardown}},
+		{"import", []string{"import", imp, "--json"}},
 	}
 
 	for _, c := range cases {
@@ -70,6 +74,19 @@ func TestSpecConformance(t *testing.T) {
 			t.Errorf("%s --json keys = %v, but SPEC-verbs.md documents %v", c.verb, got, want)
 		}
 	}
+}
+
+// tempDevcontainer writes a minimal valid devcontainer.json into a fresh temp
+// dir and returns its path, so the import conformance case is hermetic (its
+// draft is written next to the fixture, never into the repo tree).
+func tempDevcontainer(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := dir + "/devcontainer.json"
+	if err := os.WriteFile(path, []byte(`{"name":"conformance","forwardPorts":[3000]}`), 0o644); err != nil {
+		t.Fatalf("write devcontainer fixture: %v", err)
+	}
+	return path
 }
 
 // tempCopy copies a directory tree into a fresh temp dir so a verb that mutates
