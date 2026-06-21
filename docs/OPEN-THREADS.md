@@ -676,7 +676,21 @@ Pointers: #19 (tool) · #17 (claims) · #22 (lock) · LL-010-adjacent stale-bina
 
 ---
 
-## T20 — container-level egress restriction: the allowlist's arbitrary-code escape hatch   🟡 SCOPED 2026-06-21 (spike + scope, human "yes") — NEXT = S1 mechanism proof (`--network none` + canary, autonomous) → ADR (networking policy) → S2 provision-then-restrict → unblocks the ADR-0027 credential build
+## T20 — container-level egress restriction: the allowlist's arbitrary-code escape hatch   🟢 IN PROGRESS — S1 ✅ (#246) · ADR-0028 ACCEPTED (#247) · S2a ✅ (#248, declarative `networking:` field + `egress: none`) — NEXT = S2b (the `egress: allowlist` mechanism: deny-by-default custom network + provision-then-restrict; **needs its own mechanism spike** — per-IP firewall on the Docker Desktop VM is uncertain/CDN-fragile) → unblocks the ADR-0027 credential build
+
+**PROGRESS (2026-06-21):** **S1** (#246) internal `ContainerSpec.NoEgress` → `--network none` +
+integration canary (proof primitive). **ADR-0028** (#247, Accepted, ALLOW_SPEC_CHANGE) = the networking
+policy (deny-by-default custom network first / proxy end-state; provision-then-restrict; declared
+hostname allowlist; the load-bearing model-API+cred-helper+VCS hosts). **S2a** (#248) = the docker-native,
+de-risked half: the declarative `networking:` field (`egress: off`(default)/`none`/`allowlist`;
+schema/merge/validate like `user:`/`role:`) wiring `egress: none` to the S1 cut + a `container:egress`
+doctor claim + `FR-NET-001`/`FR-SCHEMA-012`. `egress: allowlist` is **fail-closed** (validate hard-rejects
+it as unimplemented — never silently runs open). **S2b** = the allowlist mechanism (custom network +
+per-IP firewall + provision-then-restrict + `FR-NET-002/003/004`); scope it with a mechanism spike first.
+**Hardening follow-up (adversarial review LOW-2, bears on T28):** the playbook YAML decoder tolerates
+unknown keys (`sigs.k8s.io/yaml`, repo-wide), so a typo'd security field (`egres: none`) silently parses
+to full egress — strict decoding (or a doctor realized-vs-declared surfacing) is its own slice; flagged,
+not built here.
 
 **SCOPED 2026-06-21 (spike `.scratch/spikes/t20-egress-control.md`).** Today egress = 100% harness
 deny-list (TRUST) — an agent that runs code (`go test`, `python3`/`/dev/tcp`) routes around it; the
