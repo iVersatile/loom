@@ -50,6 +50,14 @@ type ContainerSpec struct {
 	Force      bool           // rebuild from scratch even if the container exists
 	LogW       io.Writer      // diagnostic log sink for raw docker/provision output
 
+	// NoEgress runs the container with `--network none` — a MECHANISM-level egress
+	// cut (T20 S1): no network interface but loopback, so an in-container process
+	// cannot reach any host, refuting the harness command-deny-list bypass. This is
+	// the proof primitive; the user-facing networking policy (a playbook field +
+	// provision-then-restrict) is the T20 ADR / slice S2. Not yet wired to any
+	// playbook/CLI surface — set internally / by tests only.
+	NoEgress bool
+
 	// User is the configured container runtime user (T10/ADR-0019, from playbook
 	// user:); "" or "root" means root. Home is the resolved in-container $HOME
 	// for User (homeForUser); "" defaults to containerHome. PR 2 populates both
@@ -829,6 +837,9 @@ func containerWorkspace(project string) string {
 func createRunArgs(spec ContainerSpec, hostCredsPath string, credsPresent bool) []string {
 	args := []string{"run", "-d", "--name", spec.Name,
 		"--label", "loom.managed=true", "--label", "loom.project=" + spec.Project}
+	if spec.NoEgress {
+		args = append(args, "--network", "none")
+	}
 	args = append(args, envArgs(spec.Env)...)
 	if hasAgent(spec.Agents, "claude-code") {
 		args = append(args, "-v", agentHomeVolume(spec.Name)+":"+spec.home()+"/.claude")
