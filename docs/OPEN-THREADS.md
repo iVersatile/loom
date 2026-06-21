@@ -475,7 +475,7 @@ Pointers: ADR-0014 addendum (PR #10) · engine.TestCreateRunArgs · archive: doc
 
 ---
 
-## T15 — the working auth path is human-only; AI-first auth needed   🟡 open
+## T15 — the working auth path is human-only; AI-first auth needed   🟡 SCOPED 2026-06-21 — analysis spike done; next = live spike (human/docker) → T15-successor ADR → build
 Origin: ADR-0014 landed on **interactive in-container OAuth login** as the only
 path that authenticates the interactive TUI — but completing that flow requires a
 human with a browser. An autonomous agent cannot perform it.
@@ -512,6 +512,26 @@ mechanism-not-trust design test).
 Promote to: an ADR-0014 addendum or successor ADR (credential-acquisition policy,
 interacts with the secret-store design); FR once a non-interactive auth path is
 covered by `verify`.
+
+**SCOPED 2026-06-21 (human: analysis spike → ADR; pluggable helper command).** Analysis
+spike: `.scratch/spikes/t15-apikeyhelper-credential-acquisition.md`. Slice = option 1,
+**pluggable `apiKeyHelper`**: `harness.claude.apiKeyHelper` declares an operator command;
+loom materializes it into `settings.json`, never seeing/storing/logging the key. KEY
+FINDING: "zero token at rest" is **relocation, not elimination** — the helper needs a
+store-access credential (e.g. `OP_SERVICE_ACCOUNT_TOKEN`) at rest at the container
+boundary; the win is a **better trust class** (short-lived/scoped/outside loom artifacts)
++ no `docker inspect` leak, NOT no-secret-at-rest (don't overclaim). ADR-0026 weighed this
+exact fork for `gh` and chose the volume; T15 diverges for the model key ONLY because the
+**autonomous/leak-free** requirement (ADR-0005) needs it. TWO UNKNOWNS gate the ADR, for a
+LIVE (docker, human-run) spike: (1) does `apiKeyHelper` auth the interactive TUI or only
+`claude -p`? (the gap that killed the env-token); (2) API-key billing vs the current OAuth
+subscription. Keep the OAuth/volume path for the human seat (apiKeyHelper = the AGENT
+path; two seats, two mechanisms — per ADR-0026 non-generalization). Couple to **T20**
+(egress = the only real protection for an in-container key). PATH: live spike (human) →
+T15-successor ADR (advisor drafts, human accepts — interacts with secret-store + trust
+paths) → build slice (`harness.claude.apiKeyHelper` → `settings.json` materialization +
+FR; the Go plumbing is autonomous, the key never touched; the `settings.json`/helper
+wiring is trust-path → propose-as-diff).
 
 ---
 
