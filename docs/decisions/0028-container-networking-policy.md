@@ -1,6 +1,6 @@
 # ADR-0028 — Container networking policy: deny-by-default egress, declared hostname allowlist, provision-then-restrict
 
-**Date:** 2026-06-21   **Status: Accepted** (human, 2026-06-21 — "Accepted, ALLOW_SPEC_CHANGE ADR-0028"; via advisor; T20-successor of the S1 mechanism proof #246).
+**Date:** 2026-06-21   **Status: Accepted** (human, 2026-06-21 — "Accepted, ALLOW_SPEC_CHANGE ADR-0028"; via advisor; T20-successor of the S1 mechanism proof #246). **· Amended 2026-06-21 (Amendment 1, ALLOW_SPEC_CHANGE):** the allowlist mechanism is the **SNI/CONNECT proxy sidecar** (promoted from the deferred S3 to BE S2b), evidence-driven by the real-docker proof #249. The original §3 "IP custom network first" ordering + the §3 iptables-fragility note + the §4 allowlist are superseded by **Amendment 1** (appended below; original decision text retained per the append-only doctrine).
 
 > "Agent drafts, human accepts" (RULES §5 / ADR-0017). Scoping spike +
 > archaeology: `.scratch/spikes/t20-egress-control.md`. The mechanism this ADR
@@ -208,3 +208,75 @@ mitigation it explicitly couples to T20). Realizes the network-layer fix the
 **ADR-0005** worst-thing test demands. Schema follows the **ADR-0019** `user:`/
 `role:` freeze + merge precedent. Mechanism rejects in-container iptables on the
 **ADR-0019** non-root-where-declared + "policy outside the box" grounds.
+
+---
+
+## Amendment 1 (2026-06-21) — the allowlist mechanism is the egress PROXY, not an IP network
+
+**Accepted** (human, 2026-06-21 — "accept / ALLOW_SPEC_CHANGE — merge it and build S2b"; via advisor).
+Evidence: the 3-agent confer `.scratch/spikes/t20-s2b-allowlist-mechanism.md` + the **real-docker proof
+#249** (`TestT20S2bProxyEgressAllowlist`, integration tier GREEN — all three assertions). The original
+decision (above) leaned **S2 = a docker-native IP custom network first, S3 = an egress proxy sidecar
+later**; this amendment revises the *mechanism and its sequence*. **The policy is unchanged.**
+
+### Why (the evidence)
+1. **The "IP custom network" mechanism does not exist as a docker primitive.** A custom/`--internal`
+   network gives deny-*all*, not deny-by-default-with-exceptions; the per-host exceptions can come only
+   from host iptables or a proxy — so §3's "S2 = loom-managed deny-by-default IP network" had no concrete
+   docker-native realization.
+2. **Host iptables (`DOCKER-USER`) is Linux-only** — on Docker Desktop (Mac LinuxKit / Windows WSL2) the
+   daemon's netfilter lives in a VM the host cannot reach; mac-dev is loom's only *validated* topology.
+3. **The load-bearing allowlist is ~80% rotating-CDN hosts** (Go→Google, apt→Fastly, npm/astral→
+   Cloudflare, PyPI/githubusercontent→Fastly, LFS→S3, telemetry→GCP); only ~5 (Anthropic-owned + github)
+   have stable CIDRs. An IP allowlist either breaks on rotation or admits whole CDN ranges. **It fights
+   the data.**
+4. **The proxy is the only per-host AND cross-platform AND not-trust mechanism — and it is PROVEN** (#249):
+   a project container on an `--internal` network with a sidecar gatekeeper as its sole route → an
+   allowlisted host reachable *through* it, a non-allowlisted host blocked (403), and a **direct bypass
+   dead** (the `go test`/`/dev/tcp` exfil path T20 exists to close). provision-then-restrict demonstrated.
+
+### The three revisions
+- **R1 — Mechanism ordering (supersedes §3).** **S2b = the SNI/CONNECT egress-proxy sidecar** (was the
+  deferred "S3"). The project container is on an internal network whose **only** route off-box is a
+  loom-managed sidecar running a per-HOSTNAME allowlist proxy (the route is the fence; `HTTPS_PROXY` is
+  convenience for cooperating clients, NOT the control — a raw socket has nowhere to go). Lean:
+  **explicit-CONNECT** (no TLS decryption / no MITM CA; immune to ECH); a small loom-shipped Go proxy
+  (no third-party image in the trust path). The docker-native IP-network "S2" is **dropped** (Why-1).
+- **R2 — Correct the iptables-fragility note (supersedes the §3 Alternatives wording).** ADR-0028
+  labeled in-container iptables "cross-platform-fragile" — **backwards**. *Host* DOCKER-USER iptables is
+  the Linux-only one; *in-container* iptables is cross-platform-robust (same kernel everywhere). Under
+  T10 non-root it is a genuine candidate, but it stays IP-level (the CDN fragility, Why-3) and hinges on
+  dropping CAP_NET_ADMIN from the agent's `docker exec` (docker exec has no `--cap-drop` — an unproven
+  unknown). So it remains **not chosen**, on the *correct* grounds (IP-level + the cap-drop unknown), not
+  the mis-stated cross-platform one. The proxy is the portable mechanism.
+- **R3 — Correct the load-bearing allowlist (supersedes §4's 3 entries).** The runtime allowlist MUST
+  also include **claude.ai + console.anthropic.com** (OAuth login / token refresh — ADR-0014/0027 M1;
+  **absent from Anthropic's own devcontainer firewall**, a known footgun) and very likely
+  **statsig.anthropic.com / statsig.com / sentry.io** (CLI feature-gates + error reporting). The base
+  tier owns these; the engine **unions a hardcoded load-bearing set into any declared allowlist** so a
+  forgotten host can never brick the agent. `container:egress` doctor = a hard pre-flight; first
+  deployment is **observe→enforce** (log would-be-denies before enforcing — a capability the proxy has).
+
+### What does NOT change
+- The **policy**: deny-by-default, declared **hostnames**, provision-then-restrict, "policy outside the
+  box," the worst-thing test at the network layer.
+- The **`networking:` SPEC-playbook schema** (S2a): unchanged — it names hostnames, mechanism-independent,
+  so promoting the proxy is an **engine choice, not a spec change** (this amendment touches only this ADR;
+  any S2a clause phrase that called `allowlist` "deferred" is corrected to "supported as of S2b").
+- **S1** (`egress: none`) and **S2a** (the field + the `allowlist` validate fail-close): unaffected; S2b
+  flips the fail-close to wired. provision-then-restrict survives but **simplifies** (one union allowlist
+  → policy reload; the docker network swap becomes optional).
+
+### Updated realization (supersedes the §Realization S2/S3 rows)
+- **S2b (the build this authorizes):** an engine-managed proxy sidecar (loom-shipped Go CONNECT proxy) +
+  a shared internal network (the project container's sole route) + flip S2a's `egress: allowlist`
+  fail-close → wired + the hardcoded load-bearing union (R3) + a `container:egress` allowlist doctor
+  claim + observe→enforce. FRs: **FR-NET-002** (allowlist enforced, bypass dead), **FR-NET-003**
+  (provision-then-restrict / union-then-narrow), **FR-NET-004** (doctor egress reachability). Proven-out
+  by #249, generalized to loom's own sidecar.
+- **S3 is absorbed into S2b** — the proxy is the mechanism, not a deferred end-state. Future hardening
+  (transparent routing, hot multi-policy, content inspection) layers on the same schema.
+
+### Biggest risk (carried)
+**Brick-the-agent via an incomplete runtime allowlist** (R3). Mitigations: the hardcoded base-owned
+load-bearing union, the `container:egress` doctor pre-flight, and observe→enforce on first deployment.
