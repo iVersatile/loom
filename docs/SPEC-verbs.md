@@ -224,16 +224,22 @@ playbook — the "devcontainer is an input we import and enrich, never degrade t
 floor (ADR-0003). It reads a FILE (not the machine, unlike `detect`) and writes a
 draft; it never mutates the environment.
 
-- Stage-1 (this slice) = deterministic core. Maps the fields that have a playbook
-  home: `forwardPorts`/`appPort → ports` and `containerEnv`/`remoteEnv → env` (NAMES
-  only — values stay in `.env`/secret store, per the playbook's names-only env model).
-  The devcontainer `image` is **REPORTED, not mapped**: loom enriches with its own
-  engine-level base (ADR-0012 — `LOOM_BASE_IMAGE`/default, NOT a per-project playbook
-  field), it does not "degrade to" the devcontainer's image (ADR-0003); the import
-  surfaces the image + names `LOOM_BASE_IMAGE` as the override path. `features` and
-  `commands` are DEFERRED (no schema home yet — a later slice with the schema growth).
-  Every non-mapped field is REPORTED, never silently dropped. Intent inference for
-  awkward fields via an AI skill is DEFERRED (ADR-0003 Stage-3; flagged optional).
+- Deterministic core. Maps the fields that have a playbook home: `forwardPorts`/
+  `appPort → ports`; `containerEnv`/`remoteEnv → env` (NAMES only — values stay in
+  `.env`/secret store, per the names-only env model); and **recognized official
+  devcontainer `features` → `tools`** — `ghcr.io/devcontainers/features/<name>:<ver>`
+  maps via a known feature→tool table to a `tools:` entry `name@<version>`, where the
+  version is the feature's `version` OPTION (not the ref tag) when it is a clean token,
+  else the bare tool name. The devcontainer `image` is **REPORTED, not mapped**: loom
+  enriches with its own engine-level base (ADR-0012 — `LOOM_BASE_IMAGE`/default, NOT a
+  per-project field), it does not "degrade to" the devcontainer's image (ADR-0003); the
+  import surfaces the image + names `LOOM_BASE_IMAGE` as the override path. **Unrecognized
+  or custom features are REPORTED** (surfaced for the human / the `import-enrich` skill),
+  never guessed. `commands` remain DEFERRED (no schema home — loom has no inline-command
+  field; the `import-enrich` skill surfaces them as review notes). Every non-mapped field
+  is REPORTED, never silently dropped. The optional `import-enrich` AI skill (ADR-0003
+  Stage-3) adds the judgment layer over this deterministic core — agent-run, not part of
+  the verb (the engine never invokes the agent; ADR-0022).
 - Output is a draft, review-then-commit. Writes a DISTINCT draft file
   (`loom.imported.yml`), never overwriting an authored `loom.yml`. The draft re-parses
   and validates as a project-tier playbook (Stage-1 "runs as a plain devcontainer":
@@ -245,22 +251,25 @@ draft; it never mutates the environment.
   (source, mapped fields, deferred fields, draft path). Idempotent (re-importing the
   same file yields the same draft); never mutates outside writing the draft. Exit codes
   per convention (`0` ok / `1` error / `2` needs-input).
-- Scope (this slice): Stage-1 deterministic import → draft. OUT: `features`/`commands`
-  mapping (needs schema), the AI enrich skill (Stage-3), and `export` (later, lossy).
+- Scope: deterministic import → draft (ports, env, recognized features→tools). OUT:
+  `commands` mapping (needs schema — no inline-command field), and `export` (later,
+  lossy). The `import-enrich` skill's judgment layer ships separately (Stage-3).
 
 ```json
 // loom import --json (shape)
 { "source": ".devcontainer/devcontainer.json",
-  "mapped": { "ports": [3000], "env": ["NODE_ENV"] },
-  "reported": { "image": "mcr.microsoft.com/devcontainers/go:1.22" },
-  "deferred": ["features", "commands"],
+  "mapped": { "ports": [3000], "env": ["NODE_ENV"], "tools": ["go@1.22"] },
+  "reported": { "image": "mcr.microsoft.com/devcontainers/go:1.22",
+                "unmapped_features": "ghcr.io/acme/custom:1" },
+  "deferred": ["commands"],
   "draft": "loom.imported.yml" }
 ```
 
-FRs: **FR-IMPORT-\*** (extracted next) pin the deterministic field mapping, the
-names-only env rule, the draft-not-clobber output, and the e2e round-trip
-(devcontainer.json → draft → validates + feeds `plan`). AI-enrich + features/commands
-FRs land with their later slices.
+FRs: **FR-IMPORT-001..003** pin the deterministic field mapping, the names-only env
+rule, the draft-not-clobber output, and the e2e round-trip (devcontainer.json → draft
+→ validates + feeds `plan`); **FR-IMPORT-004** pins the recognized-features→tools
+mapping + unrecognized-features reporting. `commands` mapping (needs schema) lands with
+a later slice; the `import-enrich` AI skill is a separate, prose-only artifact (no FR).
 
 ## export  (later, lossy)
 

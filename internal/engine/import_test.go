@@ -72,14 +72,16 @@ func TestImportMapsPortsAndEnv(t *testing.T) {
 }
 
 // TestImportReportsImageDefersFeaturesCommands pins FR-IMPORT-001's report/defer
-// half: the image is REPORTED (never written into the playbook), and features +
-// commands are DEFERRED, never silently dropped.
+// half: the image is REPORTED (never written into the playbook); a CUSTOM/unmapped
+// feature is REPORTED (unmapped_features), NOT deferred; and commands are DEFERRED,
+// never silently dropped. `features` no longer joins the deferred set.
 func TestImportReportsImageDefersFeaturesCommands(t *testing.T) {
 	const image = "mcr.microsoft.com/devcontainers/go:1.22"
+	const customRef = "ghcr.io/acme/custom:1"
 	src := writeFixture(t, `{
   "name": "demo",
   "image": "`+image+`",
-  "features": {"ghcr.io/x/y:1": {}},
+  "features": {"`+customRef+`": {}},
   "postCreateCommand": "make"
 }`)
 
@@ -91,11 +93,14 @@ func TestImportReportsImageDefersFeaturesCommands(t *testing.T) {
 	if res.Reported["image"] != image {
 		t.Errorf("Reported[image] = %q, want %q", res.Reported["image"], image)
 	}
-	if !slices.Contains(res.Deferred, "features") {
-		t.Errorf("Deferred = %v, want it to contain features", res.Deferred)
+	if slices.Contains(res.Deferred, "features") {
+		t.Errorf("Deferred = %v, want it to NOT contain features (features now map/report)", res.Deferred)
 	}
 	if !slices.Contains(res.Deferred, "commands") {
 		t.Errorf("Deferred = %v, want it to contain commands", res.Deferred)
+	}
+	if !strings.Contains(res.Reported["unmapped_features"], customRef) {
+		t.Errorf("Reported[unmapped_features] = %q, want it to contain %q", res.Reported["unmapped_features"], customRef)
 	}
 
 	// The image must NEVER be written into the playbook (base_image is an
@@ -106,6 +111,114 @@ func TestImportReportsImageDefersFeaturesCommands(t *testing.T) {
 	}
 	if strings.Contains(string(data), image) {
 		t.Errorf("draft leaked the image %q:\n%s", image, data)
+	}
+}
+
+// TestImportMapsKnownFeaturesToTools pins FR-IMPORT-004's mapping half: recognized
+// official features map to loom tools — name@<version-option> when the feature's
+// `version` OPTION is a clean token, else the bare tool name — deduped + sorted, and
+// `features` leaves the deferred set.
+func TestImportMapsKnownFeaturesToTools(t *testing.T) {
+	src := writeFixture(t, `{
+  "name": "demo",
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": {"version": "1.22"},
+    "ghcr.io/devcontainers/features/node:1": {}
+  }
+}`)
+
+	res, err := Import(src)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	want := []string{"go@1.22", "node"}
+	if !reflect.DeepEqual(res.Mapped.Tools, want) {
+		t.Errorf("Mapped.Tools = %v, want %v", res.Mapped.Tools, want)
+	}
+	if slices.Contains(res.Deferred, "features") {
+		t.Errorf("Deferred = %v, want it to NOT contain features", res.Deferred)
+	}
+
+	pb, err := playbook.ParseFile(res.Draft)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	if !reflect.DeepEqual(pb.Tools, want) {
+		t.Errorf("draft Tools = %v, want %v", pb.Tools, want)
+	}
+}
+
+// TestImportReportsUnknownFeatures pins FR-IMPORT-004's report half: a recognized
+// feature still maps to a tool while an UNRECOGNIZED/custom ref is surfaced in
+// reported (unmapped_features), never guessed; `features` stays out of deferred.
+func TestImportReportsUnknownFeatures(t *testing.T) {
+	const customRef = "ghcr.io/acme/custom-thing:2"
+	src := writeFixture(t, `{
+  "name": "demo",
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": {},
+    "`+customRef+`": {}
+  }
+}`)
+
+	res, err := Import(src)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	if !reflect.DeepEqual(res.Mapped.Tools, []string{"go"}) {
+		t.Errorf("Mapped.Tools = %v, want [go]", res.Mapped.Tools)
+	}
+	if !strings.Contains(res.Reported["unmapped_features"], customRef) {
+		t.Errorf("Reported[unmapped_features] = %q, want it to contain %q", res.Reported["unmapped_features"], customRef)
+	}
+	if slices.Contains(res.Deferred, "features") {
+		t.Errorf("Deferred = %v, want it to NOT contain features", res.Deferred)
+	}
+}
+
+// TestImportFeatureNameBoundary pins the host-anchored boundary match (not substring):
+// a CUSTOM ref that merely CONTAINS "devcontainers/features/" but isn't the official
+// <host>/devcontainers/features/<name> shape must be REPORTED, never wrongly mapped to
+// the official tool (the false-positive direction is the unsafe one).
+func TestImportFeatureNameBoundary(t *testing.T) {
+	const fake1 = "ghcr.io/me/devcontainers/features/go:1" // 5 segments — extra path
+	const fake2 = "x-devcontainers/features/go:1"          // 3 segments — substring, not a host boundary
+	src := writeFixture(t, `{
+  "name": "demo",
+  "features": { "`+fake1+`": {}, "`+fake2+`": {} }
+}`)
+
+	res, err := Import(src)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if len(res.Mapped.Tools) != 0 {
+		t.Errorf("Mapped.Tools = %v, want empty (custom refs must NOT masquerade as official go)", res.Mapped.Tools)
+	}
+	um := res.Reported["unmapped_features"]
+	if !strings.Contains(um, fake1) || !strings.Contains(um, fake2) {
+		t.Errorf("both custom refs must be reported as unmapped, got %q", um)
+	}
+}
+
+// TestImportMultiToolFeatureBareNames pins F3: a multi-tool feature
+// (kubectl-helm-minikube -> kubectl, helm) emits BARE names — the single `version`
+// option pins only the primary tool, so applying it to siblings would be a wrong pin.
+func TestImportMultiToolFeatureBareNames(t *testing.T) {
+	src := writeFixture(t, `{
+  "name": "demo",
+  "features": { "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {"version": "1.30"} }
+}`)
+
+	res, err := Import(src)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	want := []string{"helm", "kubectl"}
+	if !reflect.DeepEqual(res.Mapped.Tools, want) {
+		t.Errorf("Mapped.Tools = %v, want %v (bare names; the version is tool-ambiguous)", res.Mapped.Tools, want)
 	}
 }
 

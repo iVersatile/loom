@@ -618,6 +618,22 @@ requirements:
     source: SPEC-verbs.md#import
     tests: [engine.TestImportStripsJSONCCommentsRespectingStrings]
     status: active
+  - id: FR-IMPORT-004
+    kind: behavioral
+    # features -> tools fits the EXISTING `tools` schema field (no SPEC-playbook change);
+    # only the SPEC-verbs clause moved features from DEFERRED -> mapped (ALLOW_SPEC_CHANGE).
+    # The version is the feature's `version` OPTION, not the ref tag (devcontainer puts the
+    # tool version in the options object; the tag is the feature's own version).
+    statement: >-
+      import maps RECOGNIZED official devcontainer features
+      (ghcr.io/devcontainers/features/<name>) to loom tools via a known feature->tool table
+      — name@version when the feature's `version` option is a clean token, else the bare tool
+      name, deduped + sorted — and surfaces UNRECOGNIZED/custom features in reported
+      (unmapped_features) rather than guessing; `features` thereby leaves the DEFERRED set
+      (only `commands` remains deferred).
+    source: SPEC-verbs.md#import
+    tests: [engine.TestImportMapsKnownFeaturesToTools, engine.TestImportReportsUnknownFeatures, engine.TestImportFeatureNameBoundary, engine.TestImportMultiToolFeatureBareNames]
+    status: active
 
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
   # start is a mutating verb subject to the invariants (NOT --json-exempt), so it
