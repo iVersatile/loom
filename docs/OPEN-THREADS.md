@@ -531,7 +531,11 @@ path; two seats, two mechanisms — per ADR-0026 non-generalization). Couple to 
 T15-successor ADR (advisor drafts, human accepts — interacts with secret-store + trust
 paths) → build slice (`harness.claude.apiKeyHelper` → `settings.json` materialization +
 FR; the Go plumbing is autonomous, the key never touched; the `settings.json`/helper
-wiring is trust-path → propose-as-diff).
+wiring is trust-path → propose-as-diff). **ADR DRAFTED 2026-06-21 (human: draft now,
+flag the unknowns): `docs/patches/0027-ai-first-credential-apikeyhelper.md` — status
+PROPOSED, staged for human acceptance (ON ACCEPT: move to `docs/decisions/0027-...`, flip
+to Accepted, commit with `ALLOW_SPEC_CHANGE`). The two unknowns (TUI-vs-headless,
+API-key-vs-OAuth billing) are flagged confirm-before-build, not blocking the policy.**
 
 ---
 
