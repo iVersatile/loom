@@ -23,6 +23,17 @@ const importedPlaybookName = "loom.imported.yml"
 type ImportMapped struct {
 	Ports []int    `json:"ports"`
 	Env   []string `json:"env"`
+	Tools []string `json:"tools"`
+}
+
+// featureToTool maps a known official devcontainer feature name (the segment after
+// ".../features/") to loom tool name(s). Unlisted official features and custom refs
+// are REPORTED (unmapped_features), never guessed.
+var featureToTool = map[string][]string{
+	"go": {"go"}, "node": {"node"}, "python": {"python"}, "rust": {"rust"},
+	"ruby": {"ruby"}, "java": {"java"}, "dotnet": {"dotnet"}, "php": {"php"},
+	"git": {"git"}, "github-cli": {"gh"}, "aws-cli": {"awscli"}, "azure-cli": {"az"},
+	"terraform": {"terraform"}, "kubectl-helm-minikube": {"kubectl", "helm"},
 }
 
 // ImportResult is the documented --json shape (docs/SPEC-verbs.md#import):
@@ -38,7 +49,7 @@ type ImportResult struct {
 // Human renders the operator-facing one-liner.
 func (r ImportResult) Human() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "import: %d ports, %d env from %s -> %s", len(r.Mapped.Ports), len(r.Mapped.Env), r.Source, r.Draft)
+	fmt.Fprintf(&b, "import: %d ports, %d env, %d tools from %s -> %s", len(r.Mapped.Ports), len(r.Mapped.Env), len(r.Mapped.Tools), r.Source, r.Draft)
 
 	var notes []string
 	if len(r.Reported) > 0 {
@@ -94,6 +105,7 @@ func Import(srcPath string) (ImportResult, error) {
 
 	ports := collectPorts(dc)
 	env := collectEnvNames(dc)
+	tools, unmappedFeatures := collectTools(dc)
 
 	name := sanitizeName(dc.Name)
 	if name == "" {
@@ -110,6 +122,7 @@ func Import(srcPath string) (ImportResult, error) {
 		Name:  name,
 		Ports: ports,
 		Env:   env,
+		Tools: tools,
 	}
 	if err := pb.Validate(); err != nil {
 		return ImportResult{}, fmt.Errorf("import: draft playbook invalid: %w", err)
@@ -121,13 +134,17 @@ func Import(srcPath string) (ImportResult, error) {
 	if dc.Image != "" {
 		reported["image"] = dc.Image
 	}
+	// REPORTED: unrecognized/custom features are surfaced (for the human / the
+	// import-enrich skill), never guessed into tools.
+	if len(unmappedFeatures) > 0 {
+		reported["unmapped_features"] = strings.Join(unmappedFeatures, ", ")
+	}
 
 	// DEFERRED: fields with no schema home yet — reported, never silently dropped.
 	// Non-nil so the --json `deferred` is [] not null when empty (AI-first shape).
+	// `features` are no longer deferred — recognized ones map to tools (above),
+	// unrecognized ones are reported; only `commands` (no schema home) defers.
 	deferred := []string{}
-	if len(dc.Features) > 0 {
-		deferred = append(deferred, "features")
-	}
 	if hasCommand(dc) {
 		deferred = append(deferred, "commands")
 	}
@@ -148,9 +165,13 @@ func Import(srcPath string) (ImportResult, error) {
 		return ImportResult{}, fmt.Errorf("import: write draft %s: %w", draft, err)
 	}
 
+	// Non-nil slices so the --json `mapped` sub-keys are [] not null when empty.
+	if tools == nil {
+		tools = []string{}
+	}
 	return ImportResult{
 		Source:   srcPath,
-		Mapped:   ImportMapped{Ports: ports, Env: env},
+		Mapped:   ImportMapped{Ports: ports, Env: env, Tools: tools},
 		Reported: reported,
 		Deferred: deferred,
 		Draft:    draft,
@@ -251,6 +272,93 @@ func collectEnvNames(dc devcontainer) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// collectTools maps RECOGNIZED official devcontainer features to loom tool intents
+// (name@version, or the bare name when no clean version), and REPORTS the rest:
+// unrecognized/custom feature refs are returned as `unmapped` rather than guessed.
+// The tool version is the feature's `version` OPTION (the options object value),
+// NOT the ref tag (which is the feature's own version). Both returns are deduped +
+// sorted; both default to nil (the caller materializes [] when needed).
+func collectTools(dc devcontainer) (tools []string, unmapped []string) {
+	toolSet := map[string]struct{}{}
+	unmappedSet := map[string]struct{}{}
+	for ref, optsRaw := range dc.Features {
+		name, ok := featureName(ref)
+		if !ok {
+			unmappedSet[ref] = struct{}{}
+			continue
+		}
+		mapped, known := featureToTool[name]
+		if !known {
+			unmappedSet[ref] = struct{}{}
+			continue
+		}
+		ver := featureVersion(optsRaw)
+		for _, tool := range mapped {
+			// A multi-tool feature (e.g. kubectl-helm-minikube) has ONE `version`
+			// option that pins only its primary tool, not the siblings — so attach
+			// the version only when the feature maps to a single tool; otherwise
+			// emit bare names rather than a wrong pin (helm@<kubectl-version>).
+			if ver != "" && len(mapped) == 1 {
+				toolSet[tool+"@"+ver] = struct{}{}
+			} else {
+				toolSet[tool] = struct{}{}
+			}
+		}
+	}
+	for t := range toolSet {
+		tools = append(tools, t)
+	}
+	for u := range unmappedSet {
+		unmapped = append(unmapped, u)
+	}
+	sort.Strings(tools)
+	sort.Strings(unmapped)
+	return tools, unmapped
+}
+
+// featureName recognizes an OFFICIAL devcontainers/features ref and returns its
+// feature name (the segment after "features/", tag stripped). It requires the EXACT
+// shape `<host>/devcontainers/features/<name>[:tag]` — a host-anchored boundary
+// match, not a substring — so a CUSTOM ref that merely contains the official path
+// (e.g. `ghcr.io/me/devcontainers/features/go`, `x-devcontainers/features/go`) is
+// REPORTED, never wrongly guessed into the official tool. Examples:
+//   - ghcr.io/devcontainers/features/go:1               -> ("go", true)
+//   - mcr.microsoft.com/devcontainers/features/node:1   -> ("node", true)
+//   - ghcr.io/acme/custom:2                             -> ("", false)
+//   - ghcr.io/me/devcontainers/features/go:1            -> ("", false)  // 5 segments
+func featureName(ref string) (string, bool) {
+	// Exactly: host / "devcontainers" / "features" / name[:tag]
+	segs := strings.Split(ref, "/")
+	if len(segs) != 4 || segs[1] != "devcontainers" || segs[2] != "features" {
+		return "", false
+	}
+	rest := segs[3]
+	// Drop any ":tag" — the feature's own version, irrelevant to the tool version.
+	if j := strings.IndexByte(rest, ':'); j >= 0 {
+		rest = rest[:j]
+	}
+	if rest == "" {
+		return "", false
+	}
+	return rest, true
+}
+
+// featureVersion reads the feature's `version` OPTION from its options object and
+// returns a clean version token (reusing cleanVersion), or "" when the option is
+// absent / not a clean token — so the caller emits the bare tool name.
+func featureVersion(optsRaw json.RawMessage) string {
+	if len(optsRaw) == 0 {
+		return ""
+	}
+	var v struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(optsRaw, &v); err != nil {
+		return ""
+	}
+	return cleanVersion(v.Version)
 }
 
 // hasCommand reports whether ANY devcontainer command field is present.
