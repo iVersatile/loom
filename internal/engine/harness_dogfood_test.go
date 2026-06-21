@@ -40,6 +40,14 @@ func TestDogfoodBasePlaybookHarnessMaterializes(t *testing.T) {
 		t.Errorf("guard-bash should be materialized executable, got %v / %v", fi, err)
 	}
 
+	// The import-enrich product skill (T37) must materialize — loom's FIRST
+	// product skill (harness.claude.skills); a declaration without the skill dir
+	// would dangle HERE, not on the next human rebuild.
+	skill := filepath.Join(home, ".claude", "skills", "import-enrich", "SKILL.md")
+	if _, err := os.Stat(skill); err != nil {
+		t.Errorf("import-enrich skill should materialize at ~/.claude/skills/import-enrich/SKILL.md: %v", err)
+	}
+
 	raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
 	if err != nil {
 		t.Fatalf("settings.json not materialized: %v", err)
