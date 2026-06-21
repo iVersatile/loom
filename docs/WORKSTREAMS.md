@@ -13,7 +13,7 @@ and thread serves exactly one of these streams. Aliases are human-set (2026-06-1
 | --- | --- | --- | --- | --- | --- |
 | 1 | **The Spine** | Environment orchestration | feature | Goal 2 · Phase 2 | spine done; **2nd stack open** |
 | 2 | **AI-First** | Agent-autonomy | feature + cross-cutting | North star · Phase 3 | substrate complete + verified |
-| 3 | **The Run** | Onboarding & installer | feature | Goal 1 · scenarios 1–2 | **scenario 1 + s2 continuity shipped** |
+| 3 | **The Run** | Onboarding & installer | feature | Goal 1 · scenarios 1–2 | **scenarios 1 & 2 shipped** |
 | 4 | **Target Env** | Portability & topology | feature | scenario 3 · Phases 4–5 | mac validated; rest declared |
 | 5 | **Guardrails** | Security integrity | cross-cutting + surface | North star ("worst thing") | strong floors; gaps open |
 | 6 | **Verification** | spec→FR→test integrity + observability | cross-cutting | RULES §2 (specs = product) | enforced (gate / fr-verify) |
@@ -38,10 +38,13 @@ fleet / supervising-box (us building Loom). North star; Phase 3. Substrate compl
 ## 3. The Run — Onboarding & installer  *(feature)*
 The "one guided run": a menu-driven, situation-detecting entry point; new-machine
 comfort (non-technical); established-machine **clean reset with credential
-carry-forward, zero loss**. Charter Goal 1; scenarios 1–2. Scenario 1 (`loom
-start`, #227) and scenario 2's **continuity half** (`detect --emit-playbook` draft
-carry-forward, #229) shipped; the credential-**move** half (`detect --migrate` into
-`.env`) remains — security-sensitive, ADR-0014/0026.
+carry-forward, zero loss**. Charter Goal 1; scenarios 1–2. **Both scenarios shipped:**
+scenario 1 (`loom start`, #227); scenario 2 = continuity (`detect --emit-playbook`
+draft carry-forward, #229) + credential-move (`detect --migrate` → gitignored `.env`,
+#231, **producer-only** — the auto-load consumer was rejected per the spike, as it
+reopens ADR-0014's leak). The remaining gap is the *delivery* of `.env`/secret-store
+creds INTO the container leak-free — the open **T15** secret-store / volume question,
+not a Run-onboarding gap.
 
 ## 4. Target Env — Portability & topology  *(feature)*
 Where Loom runs: `mac-dev` (validated), `windows-dev` (declared), devcontainer
@@ -87,14 +90,14 @@ The mapping is **latent** — FR family prefixes already cluster by concern — 
 is a lens over the existing registry, not new metadata. (A queryable per-FR
 `workstream:` field is a deferred option; this index is the lightweight version.)
 
-**FRs by workstream** (75 total; counts current to #229):
+**FRs by workstream** (77 total; counts current to #231):
 | Workstream | FR families | ~FRs |
 | --- | --- | --- |
 | The Spine | BUILD 16 · SCHEMA 11 · EXEC 4 · ENTRY 4 · TEARDOWN 4 · PLAN 3 · DETECT 2 · SHELL 1 | **45** (60%) |
 | AI-First | LOOP 4 · INV 5 (the `--json`/idempotent/auditable invariants) | 9 |
 | Guardrails | GUARD 9 (the 3 `role:`/`user:` SCHEMA FRs also lean here) | 9 |
 | Verification | DOCTOR 6 (the verb lives in The Spine; *serves* verification) · LOG 2 (observability) | 8 |
-| **The Run** | RUN 6 (start scenario-1 · 1–4; detect `--emit-playbook` continuity · 5–6) | **6** |
+| **The Run** | RUN 8 (start · 1–4; `--emit-playbook` continuity · 5–6; `--migrate` cred-move · 7–8) | **8** |
 | **Target Env** | — (only touched by BUILD/SCHEMA) | **0 dedicated** ⚠ |
 | **Dogfood** | — (governed by RULES/TEAM, not FRs by nature) | **0** |
 
@@ -112,10 +115,11 @@ is a lens over the existing registry, not new metadata. (A queryable per-FR
 
 **The coverage signal — sharper than prose:**
 - **The Spine holds ~60% of all FRs** — the requirement mass *is* the product engine.
-- **The Run now holds 6 FRs** — scenario 1 (`loom start`, #227) + scenario 2's
-  continuity half (`detect --emit-playbook`, #229); the `--migrate` cred-move half
-  remains. **Target Env still has ADRs (decided) but ZERO FRs (unbuilt)** — *designed,
-  not implemented*. That is now the precise remaining gap.
+- **The Run now holds 8 FRs** — scenario 1 (`loom start`, #227) + scenario 2 both
+  halves (continuity `detect --emit-playbook`, #229; cred-move `detect --migrate`,
+  #231). Charter Goal 1 is largely met. **Target Env is now the lone feature stream
+  with ADRs (decided) but ZERO FRs (unbuilt)** — *designed, not implemented*. That is
+  the precise remaining build gap.
 - **Dogfood = 1 ADR + 0 FRs** — expected: it lives in RULES/TEAM as process.
 
 ## Resolved (human, 2026-06-19)
