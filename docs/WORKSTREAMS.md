@@ -14,7 +14,7 @@ and thread serves exactly one of these streams. Aliases are human-set (2026-06-1
 | 1 | **The Spine** | Environment orchestration | feature | Goal 2 · Phase 2 | spine done; **2nd stack open** |
 | 2 | **AI-First** | Agent-autonomy | feature + cross-cutting | North star · Phase 3 | substrate complete + verified |
 | 3 | **The Run** | Onboarding & installer | feature | Goal 1 · scenarios 1–2 | **scenarios 1 & 2 shipped** |
-| 4 | **Target Env** | Portability & topology | feature | scenario 3 · Phases 4–5 | mac validated; rest declared |
+| 4 | **Target Env** | Portability & topology | feature | scenario 3 · Phases 4–5 | mac validated; devcontainer import S1 shipped |
 | 5 | **Guardrails** | Security integrity | cross-cutting + surface | North star ("worst thing") | strong floors; gaps open |
 | 6 | **Verification** | spec→FR→test integrity + observability | cross-cutting | RULES §2 (specs = product) | enforced (gate / fr-verify) |
 | 7 | **Dogfood** | Operating model — "Loom is built using Loom" | cross-cutting / governance | Success criterion (dogfood) | live operating model |
@@ -48,8 +48,10 @@ not a Run-onboarding gap.
 
 ## 4. Target Env — Portability & topology  *(feature)*
 Where Loom runs: `mac-dev` (validated), `windows-dev` (declared), devcontainer
-**import-and-enrich** (Phase 4, never degrade-to), the **cloud sandbox sibling**
-(Phase 5 — ephemeral VM, durable state outside it). Charter scenario 3; Phases 4–5.
+**import-and-enrich** (Phase 4, never degrade-to — **Stage-1 `loom import` shipped #234**:
+devcontainer.json → draft playbook, ports+env mapped, image reported, features/commands
++ AI-enrich deferred), the **cloud sandbox sibling** (Phase 5 — ephemeral VM, durable
+state outside it). Charter scenario 3; Phases 4–5.
 
 ## 5. Guardrails — Security integrity  *(cross-cutting + surface)*
 The north star's *"would the guardrails hold if it tried the worst thing?"*: the
@@ -90,7 +92,7 @@ The mapping is **latent** — FR family prefixes already cluster by concern — 
 is a lens over the existing registry, not new metadata. (A queryable per-FR
 `workstream:` field is a deferred option; this index is the lightweight version.)
 
-**FRs by workstream** (77 total; counts current to #231):
+**FRs by workstream** (80 total; counts current to #234):
 | Workstream | FR families | ~FRs |
 | --- | --- | --- |
 | The Spine | BUILD 16 · SCHEMA 11 · EXEC 4 · ENTRY 4 · TEARDOWN 4 · PLAN 3 · DETECT 2 · SHELL 1 | **45** (60%) |
@@ -98,7 +100,7 @@ is a lens over the existing registry, not new metadata. (A queryable per-FR
 | Guardrails | GUARD 9 (the 3 `role:`/`user:` SCHEMA FRs also lean here) | 9 |
 | Verification | DOCTOR 6 (the verb lives in The Spine; *serves* verification) · LOG 2 (observability) | 8 |
 | **The Run** | RUN 8 (start · 1–4; `--emit-playbook` continuity · 5–6; `--migrate` cred-move · 7–8) | **8** |
-| **Target Env** | — (only touched by BUILD/SCHEMA) | **0 dedicated** ⚠ |
+| **Target Env** | IMPORT 3 (devcontainer import Stage-1 · 1–3) | **3** |
 | **Dogfood** | — (governed by RULES/TEAM, not FRs by nature) | **0** |
 
 **ADRs by workstream** (25 total; listed by *primary* — several are multi-stream):
@@ -115,11 +117,12 @@ is a lens over the existing registry, not new metadata. (A queryable per-FR
 
 **The coverage signal — sharper than prose:**
 - **The Spine holds ~60% of all FRs** — the requirement mass *is* the product engine.
-- **The Run now holds 8 FRs** — scenario 1 (`loom start`, #227) + scenario 2 both
-  halves (continuity `detect --emit-playbook`, #229; cred-move `detect --migrate`,
-  #231). Charter Goal 1 is largely met. **Target Env is now the lone feature stream
-  with ADRs (decided) but ZERO FRs (unbuilt)** — *designed, not implemented*. That is
-  the precise remaining build gap.
+- **The Run holds 8 FRs** (scenario 1 `loom start` #227 + scenario 2 both halves:
+  `detect --emit-playbook` #229, `detect --migrate` #231) — charter Goal 1 largely met.
+- **Target Env now holds 3 FRs** — devcontainer `import` Stage-1 (#234) opened the
+  stream (was 0). **Every feature stream now has FRs;** the remaining Target Env work is
+  *designed, not built*: the AI enrich skill + `features`/`commands` mapping (Phase 4),
+  windows-dev validation (hardware-gated), and the cloud sandbox sibling (Phase 5).
 - **Dogfood = 1 ADR + 0 FRs** — expected: it lives in RULES/TEAM as process.
 
 ## Resolved (human, 2026-06-19)
