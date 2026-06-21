@@ -318,6 +318,36 @@ requirements:
     source: SPEC-playbook.md#role
     tests: [playbook.TestRolesMergeConcatDedup, playbook.TestValidateRolesDeclaration, playbook.TestSingleRoleConfigByteIdentical]
     status: active
+  - id: FR-SCHEMA-012
+    kind: schema
+    # T20 S2a (ADR-0028): networking: is the optional, any-tier egress posture. The
+    # egress: scalar merges last-non-empty-wins (the user: rule); allow: unions
+    # across tiers, deduped in layer order (the rules:/dotfiles: rule, so the base
+    # load-bearing model-API/VCS entries cannot be dropped by an overlay). This FR
+    # covers only the SCHEMA joint — parse/merge/validate. CRITICAL fail-closed: the
+    # allowlist MECHANISM (custom network, provision-then-restrict) is S2b — validate
+    # rejects egress: allowlist as a HARD error (never a silent degrade to full
+    # egress, the exact guardrail hole ADR-0028 closes). The behavioral none→cut
+    # mapping is FR-NET-001. S2b will extend this to validate a REALIZED allowlist.
+    statement: the optional `networking:` section parses at any tier; `egress:` merges last-non-empty-wins in {"" (=off), off, none, allowlist}; `allow:` is a hostname list unioned + deduped across tiers in layer order; validation requires a non-empty `allow:` for allowlist and FAIL-CLOSES `egress: allowlist` as not-yet-supported (S2b — never silently full-egress); none/off/unset are accepted.
+    source: SPEC-playbook.md#networking
+    tests: [playbook.TestNetworkingMerge, playbook.TestValidateNetworking, playbook.TestParseNetworkingBothTiers]
+    status: active
+
+  # --- Behavioral: networking / egress (SPEC-playbook#networking, ADR-0028) ---
+  # T20 S2a realizes the declarative networking: field + the egress: none posture
+  # (reusing the S1 --network none primitive). S2b will add FR-NET-002/003/004 for
+  # the allowlist mechanism (deny-by-default custom network, provision-then-restrict,
+  # and the doctor reachability claim). FR-NET-001 cites the ENGINE-SEAM unit tests
+  # (the playbook → spec.NoEgress → --network none mapping, proven without docker);
+  # the live container cut is the integration canary (//go:build integration), which
+  # fr-verify cannot see, so it is deliberately NOT cited here.
+  - id: FR-NET-001
+    kind: behavioral
+    statement: a playbook declaring `networking.egress: none` produces a container with no external egress — build plumbs it to ContainerSpec.NoEgress and createRunArgs appends `--network none` (only loopback, no eth0), doctor-verifiable via `container:egress`; off/unset leave full egress unchanged (the Phase-1 default).
+    source: SPEC-playbook.md#networking
+    tests: [engine.TestBuildPopulatesNoEgress, engine.TestNoEgressMapping, engine.TestCreateRunArgsNoEgress, engine.TestEgressClaimOK, engine.TestContainerEgressCheckNone, engine.TestContainerEgressCheckOffNoProbe]
+    status: active
 
   # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---
   - id: FR-EXEC-001

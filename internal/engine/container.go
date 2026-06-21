@@ -121,6 +121,12 @@ type ContainerRuntime interface {
 	// UserUID reports the numeric uid of a named user inside the container —
 	// read-only (`id -u <user>`). Errs when the user does not exist (adv-064).
 	UserUID(container, user string) (string, error)
+	// NetInterfaces lists the container's network interface names by reading
+	// /sys/class/net inside it — read-only, hermetic (no external reachability
+	// needed). Doctor's container:egress claim compares the declared posture
+	// against the actual interfaces: a no-egress container has only `lo` (T20
+	// S2a/ADR-0028, the S1 mechanism it verifies).
+	NetInterfaces(container string) ([]string, error)
 	// HomeDigest reads the container's home-sync sentinel digest (T7); "" when
 	// absent or unreadable (including a stopped container — callers never start
 	// one to ask; read-only verbs grade the staging tier instead).
@@ -736,6 +742,19 @@ func (dockerRuntime) UserUID(container, user string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// NetInterfaces lists the container's network interface names by reading
+// /sys/class/net (read-only, hermetic — no external host needed). The T20 S2a
+// doctor egress claim compares this against the declared posture: a no-egress
+// container (`--network none`) has only `lo`. NOTE: integration-validated (docker
+// host), not the local gate.
+func (dockerRuntime) NetInterfaces(container string) ([]string, error) {
+	out, err := exec.Command("docker", "exec", container, "ls", "/sys/class/net").Output()
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(string(out)), nil
 }
 
 // Start brings a stopped container up. `docker start` on a running container

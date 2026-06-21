@@ -78,6 +78,35 @@ func (pb *Playbook) Validate() error {
 		}
 	}
 
+	// networking: (T20 S2a, ADR-0028) is the optional, any-tier egress posture.
+	// egress: must be one of {"" (=off), off, none, allowlist}; "" and "off" both
+	// mean full outbound (Phase-1 compatible). allowlist REQUIRES a non-empty allow:
+	// list. CRITICAL fail-closed (the chokepoint): allowlist is NOT implemented in
+	// this slice (S2b owns the custom-network mechanism) — it is a HARD error, so a
+	// playbook asking for allowlist can NEVER silently run with full egress (the
+	// guardrail hole this guards). off/none/unset are accepted; none maps to the T20
+	// S1 --network none primitive in the engine.
+	if n := pb.Networking; n != nil {
+		switch n.Egress {
+		case "", EgressOff, EgressNone:
+			// off/unset = full egress (Phase-1 default); none = the S1 cut. Both
+			// accepted. allow: is meaningful only for allowlist, but an authored
+			// allow: list is harmless here (union-merged; ignored until S2b), so it
+			// is not an error to carry it ahead of the allowlist posture landing.
+		case EgressAllowlist:
+			if len(n.Allow) == 0 {
+				errs = append(errs, `networking.egress: "allowlist" requires a non-empty allow: hostname list`)
+			}
+			// FAIL-CLOSED: the allowlist MECHANISM is S2b. Reject it as a hard error
+			// rather than degrade to full egress — a deny-by-default posture that
+			// silently became allow-all is the exact guardrail hole ADR-0028 exists
+			// to close.
+			errs = append(errs, `networking.egress: "allowlist" is not yet supported (T20 S2b); use "none" or "off"`)
+		default:
+			errs = append(errs, fmt.Sprintf("invalid networking.egress %q (want %q, %q, or %q)", n.Egress, EgressOff, EgressNone, EgressAllowlist))
+		}
+	}
+
 	for agent, h := range pb.Harness {
 		if agent == "" {
 			errs = append(errs, "harness: agent namespace key must be non-empty")

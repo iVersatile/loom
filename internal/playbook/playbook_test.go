@@ -173,6 +173,78 @@ func TestSingleRoleConfigByteIdentical(t *testing.T) {
 	}
 }
 
+// TestValidateNetworking covers FR-SCHEMA-012 (T20 S2a, ADR-0028): the egress
+// enum, the allowlist-requires-allow rule, and — CRITICAL — the FAIL-CLOSED reject
+// of allowlist as not-yet-implemented (S2b). none/off/unset are accepted; an
+// allowlist posture (even with a populated allow:) is a hard error, so a
+// deny-by-default playbook can NEVER silently run with full egress.
+func TestValidateNetworking(t *testing.T) {
+	valid := []*Playbook{
+		{Loom: 1, Tier: TierBase},                                              // unset = off (no networking section)
+		{Loom: 1, Tier: TierBase, Networking: &Networking{}},                   // present but empty egress = off
+		{Loom: 1, Tier: TierBase, Networking: &Networking{Egress: EgressOff}},  // explicit off
+		{Loom: 1, Tier: TierBase, Networking: &Networking{Egress: EgressNone}}, // the S1 cut
+		{Loom: 1, Tier: TierProject, Name: "x", Networking: &Networking{Egress: EgressNone}},
+		// off carrying an allow: list is harmless (union-merged, ignored until S2b).
+		{Loom: 1, Tier: TierBase, Networking: &Networking{Egress: EgressOff, Allow: []string{"api.anthropic.com"}}},
+	}
+	for i, pb := range valid {
+		if err := pb.Validate(); err != nil {
+			t.Errorf("valid case %d (%+v): %v", i, pb.Networking, err)
+		}
+	}
+
+	invalid := map[string]*Playbook{
+		"unknown egress posture": {Loom: 1, Tier: TierBase, Networking: &Networking{Egress: "deny"}},
+		// allowlist requires a non-empty allow: list...
+		"allowlist without allow": {Loom: 1, Tier: TierBase, Networking: &Networking{Egress: EgressAllowlist}},
+		// ...and even WITH allow: it is fail-closed as unimplemented (S2b). This is
+		// the guardrail-hole case: an allowlist posture must never degrade to full egress.
+		"allowlist fail-closed": {Loom: 1, Tier: TierBase,
+			Networking: &Networking{Egress: EgressAllowlist, Allow: []string{"api.anthropic.com"}}},
+	}
+	for name, pb := range invalid {
+		if err := pb.Validate(); err == nil {
+			t.Errorf("%s: expected validation error, got nil", name)
+		}
+	}
+
+	// The fail-closed message must name the deferral + the safe alternatives, so an
+	// operator is never left to guess that allowlist silently means full egress.
+	pb := &Playbook{Loom: 1, Tier: TierBase,
+		Networking: &Networking{Egress: EgressAllowlist, Allow: []string{"api.anthropic.com"}}}
+	err := pb.Validate()
+	if err == nil || !strings.Contains(err.Error(), "not yet supported") {
+		t.Errorf("allowlist error must say it is not yet supported (fail-closed), got: %v", err)
+	}
+}
+
+// TestParseNetworkingBothTiers covers FR-SCHEMA-012: the networking: section
+// decodes from YAML at both the base and project tiers — egress scalar + allow
+// list — through the same struct tags YAML and JSON share.
+func TestParseNetworkingBothTiers(t *testing.T) {
+	baseYAML := []byte("loom: 1\ntier: base\nnetworking:\n  egress: allowlist\n  allow:\n    - api.anthropic.com\n    - github.com\n")
+	base, err := Parse(baseYAML)
+	if err != nil {
+		t.Fatalf("parse base: %v", err)
+	}
+	if base.Networking == nil || base.Networking.Egress != EgressAllowlist {
+		t.Fatalf("base egress = %+v, want allowlist", base.Networking)
+	}
+	if !slices.Equal(base.Networking.Allow, []string{"api.anthropic.com", "github.com"}) {
+		t.Errorf("base allow = %v, want [api.anthropic.com github.com]", base.Networking.Allow)
+	}
+
+	projYAML := []byte("loom: 1\ntier: project\nname: x\nnetworking:\n  egress: none\n")
+	proj, err := Parse(projYAML)
+	if err != nil {
+		t.Fatalf("parse project: %v", err)
+	}
+	if proj.Networking == nil || proj.Networking.Egress != EgressNone {
+		t.Errorf("project egress = %+v, want none", proj.Networking)
+	}
+}
+
 func TestLoadMergesLayers(t *testing.T) {
 	res, err := Load("testdata/proj/loom.yml")
 	if err != nil {

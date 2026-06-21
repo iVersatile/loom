@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/iVersatile/loom/internal/lock"
+	"github.com/iVersatile/loom/internal/playbook"
 	"github.com/iVersatile/loom/internal/resolver"
 )
 
@@ -662,6 +663,88 @@ func TestBuildPopulatesUserAndHome(t *testing.T) {
 	}
 	if spec2.User != "agent" || spec2.Home != "/home/agent" {
 		t.Errorf("user set: User=%q Home=%q, want agent//home/agent", spec2.User, spec2.Home)
+	}
+}
+
+// TestBuildPopulatesNoEgress covers FR-NET-001 (T20 S2a, ADR-0028): a resolved
+// playbook declaring networking.egress: none plumbs NoEgress: true onto the
+// ContainerSpec build converges (which createRunArgs realizes as --network none —
+// the S1 mechanism); off/unset leave NoEgress false (full egress, Phase-1
+// default). This is the engine seam — the single behavioral mapping in the slice —
+// proven WITHOUT docker (the live --network none cut is the integration canary).
+func TestBuildPopulatesNoEgress(t *testing.T) {
+	t.Setenv("LOOM_SESSION_ROLE", "") // hermetic: this test exercises egress plumbing, not role resolution
+
+	// Default: the fixture declares no networking:, so the spec stays full-egress.
+	root := tempProject(t)
+	var spec ContainerSpec
+	rt := fakeRuntime{
+		ensureInfo:   ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"},
+		ensureRecord: &spec,
+	}
+	if _, err := buildImpl(BuildOpts{PlaybookPath: filepath.Join(root, "loom.yml")}, rt, fixedClock); err != nil {
+		t.Fatalf("build (default): %v", err)
+	}
+	if spec.NoEgress {
+		t.Errorf("default: NoEgress=true, want false (unset networking = off = full egress)")
+	}
+
+	// networking.egress: none on the project overlay flows through merge → spec.
+	root2 := tempProject(t)
+	pbPath := filepath.Join(root2, "loom.yml")
+	data, err := os.ReadFile(pbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pbPath, append(data, []byte("\nnetworking:\n  egress: none\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var spec2 ContainerSpec
+	rt2 := fakeRuntime{
+		ensureInfo:   ContainerInfo{Name: "loom-dev", Image: defaultBaseImage, Status: "created"},
+		ensureRecord: &spec2,
+	}
+	if _, err := buildImpl(BuildOpts{PlaybookPath: pbPath}, rt2, fixedClock); err != nil {
+		t.Fatalf("build (egress none): %v", err)
+	}
+	if !spec2.NoEgress {
+		t.Errorf("egress none: NoEgress=false, want true (networking.egress: none → --network none)")
+	}
+}
+
+// TestNoEgressMapping pins the pure posture→cut mapping (FR-NET-001): only
+// egress: none turns the cut on; off, unset (nil networking), and an empty section
+// leave it off (full egress, Phase-1 default).
+func TestNoEgressMapping(t *testing.T) {
+	cases := []struct {
+		name string
+		pb   playbook.Playbook
+		want bool
+	}{
+		{"nil networking (unset = off)", playbook.Playbook{}, false},
+		{"empty section (= off)", playbook.Playbook{Networking: &playbook.Networking{}}, false},
+		{"explicit off", playbook.Playbook{Networking: &playbook.Networking{Egress: playbook.EgressOff}}, false},
+		{"none cuts egress", playbook.Playbook{Networking: &playbook.Networking{Egress: playbook.EgressNone}}, true},
+	}
+	for _, c := range cases {
+		if got := noEgress(&c.pb); got != c.want {
+			t.Errorf("%s: noEgress = %t, want %t", c.name, got, c.want)
+		}
+	}
+}
+
+// TestCreateRunArgsNoEgress covers FR-NET-001 (the createRunArgs companion to the
+// S1 test): NoEgress: true appends --network none; the default (false) does not.
+// This is the create-time half of the egress cut — the live container proof is the
+// integration canary.
+func TestCreateRunArgsNoEgress(t *testing.T) {
+	cut := ContainerSpec{Name: "x-dev", Project: "x", BaseImage: "img", NoEgress: true}
+	if got := strings.Join(createRunArgs(cut, "", false), " "); !strings.Contains(got, "--network none") {
+		t.Errorf("NoEgress spec must append --network none: %s", got)
+	}
+	open := ContainerSpec{Name: "x-dev", Project: "x", BaseImage: "img"}
+	if got := strings.Join(createRunArgs(open, "", false), " "); strings.Contains(got, "--network") {
+		t.Errorf("default spec must NOT set --network (full egress): %s", got)
 	}
 }
 

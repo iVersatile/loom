@@ -18,6 +18,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/iVersatile/loom/internal/playbook"
 )
 
 // minimalEgressSpec builds the smallest ContainerSpec that exercises
@@ -104,5 +106,36 @@ func TestT20S1DefaultHasEgressInterface(t *testing.T) {
 	ifaces := netInterfaces(t, name)
 	if !hasNonLoopback(ifaces) {
 		t.Errorf("default container has no non-loopback interface %v — the canary cannot discriminate; want eth0 present", ifaces)
+	}
+}
+
+// TestT20S2aPlaybookEgressNoneHasNoNetworkInterface is the S2a live proof: it
+// drives the cut from a PLAYBOOK (`networking: {egress: none}`) through the same
+// noEgress() mapping `loom build` uses, then asserts the realized container has
+// ONLY loopback. Where the S1 canary hand-sets NoEgress, this proves the
+// declarative field reaches the --network none mechanism end to end. Not cited by
+// any FR (the engine-seam unit tests are); this is the integration-tier proof.
+func TestT20S2aPlaybookEgressNoneHasNoNetworkInterface(t *testing.T) {
+	requireDocker(t)
+	name := containerName("t20s2a-noegress")
+	_ = exec.Command("docker", "rm", "-f", name).Run()
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+
+	// A playbook declaring egress: none → noEgress() true → the spec cut. The
+	// mapping is the production path; only Name/Project/BaseImage are filled in to
+	// keep the canary hermetic (no provisioning egress needed).
+	pb := &playbook.Playbook{Networking: &playbook.Networking{Egress: playbook.EgressNone}}
+	spec := minimalEgressSpec(name, noEgress(pb))
+	spec.Project = "t20s2a"
+	if !spec.NoEgress {
+		t.Fatalf("playbook egress: none did not map to NoEgress (got %+v)", spec)
+	}
+	if _, err := (dockerRuntime{}).Ensure(spec); err != nil {
+		t.Fatalf("Ensure(playbook egress: none): %v", err)
+	}
+
+	ifaces := netInterfaces(t, name)
+	if hasNonLoopback(ifaces) {
+		t.Errorf("playbook egress: none container has a non-loopback interface %v — declarative egress cut FAILED; want only [lo]", ifaces)
 	}
 }
