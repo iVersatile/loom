@@ -99,6 +99,47 @@ func TestRolesMergeConcatDedup(t *testing.T) {
 	}
 }
 
+// TestNetworkingMerge covers FR-SCHEMA-012 (T20 S2a, ADR-0028): egress: is a
+// last-non-empty-wins scalar (like user:) and allow: is a union across tiers,
+// deduped in layer order (like rules:/dotfiles:), so the base load-bearing entries
+// cannot be dropped by an overlay.
+func TestNetworkingMerge(t *testing.T) {
+	// egress: last-non-empty-wins; an empty later layer must not blank the value.
+	base := &Playbook{Loom: 1, Tier: TierBase, Networking: &Networking{Egress: EgressNone}}
+	stack := &Playbook{}                               // no networking — must not blank the base posture
+	proj := &Playbook{Tier: TierProject, Name: "loom"} // no egress override
+	if got := Merge(base, stack, proj).Networking; got == nil || got.Egress != EgressNone {
+		t.Errorf("egress = %+v, want none (base posture survives empty later layers)", got)
+	}
+
+	// A later non-empty egress wins (the posture is a scalar).
+	over := &Playbook{Tier: TierProject, Name: "loom", Networking: &Networking{Egress: EgressOff}}
+	if got := Merge(base, over).Networking; got == nil || got.Egress != EgressOff {
+		t.Errorf("egress = %+v, want off (later tier wins the scalar)", got)
+	}
+
+	// allow: union across tiers, deduped keeping first occurrence (the base
+	// load-bearing entry survives, overlay adds, the shared host is not duplicated).
+	baseAllow := &Playbook{Loom: 1, Tier: TierBase,
+		Networking: &Networking{Egress: EgressAllowlist, Allow: []string{"api.anthropic.com", "github.com"}}}
+	projAllow := &Playbook{Tier: TierProject, Name: "loom",
+		Networking: &Networking{Allow: []string{"github.com", "svc.internal"}}}
+	got := Merge(baseAllow, projAllow).Networking
+	want := []string{"api.anthropic.com", "github.com", "svc.internal"}
+	if got == nil || !slices.Equal(got.Allow, want) {
+		t.Errorf("allow = %+v, want %v (union + dedup, layer order)", got, want)
+	}
+	// The scalar still carries the base posture (egress did not get unioned).
+	if got.Egress != EgressAllowlist {
+		t.Errorf("egress = %q, want allowlist (base scalar survives an overlay with no egress)", got.Egress)
+	}
+
+	// Unset everywhere stays nil (= off, the Phase-1 default).
+	if got := Merge(&Playbook{Loom: 1, Tier: TierBase}, proj).Networking; got != nil {
+		t.Errorf("networking = %+v, want nil (unset = off)", got)
+	}
+}
+
 func TestMergeListsConcatAndDedup(t *testing.T) {
 	a := &Playbook{Tools: []string{"git", "jq"}, Ports: []int{8080}}
 	b := &Playbook{Tools: []string{"jq", "go@1.26"}, Ports: []int{8080, 9090}}

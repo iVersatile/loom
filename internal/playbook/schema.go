@@ -22,6 +22,19 @@ const (
 	RoleAdvisor = "loom-advisor"
 )
 
+// Egress postures a `networking.egress:` declaration may name (T20 S2a, ADR-0028).
+// "" and EgressOff both mean full outbound — the Phase-1 default, so every existing
+// playbook keeps meaning what it meant. EgressNone cuts all egress (`--network
+// none`, the T20 S1 primitive). EgressAllowlist is the deny-by-default posture
+// whose mechanism (custom network / proxy sidecar) is S2b — it is a KNOWN enum
+// value but FAIL-CLOSED at validate (not yet implemented), never silently run with
+// full egress.
+const (
+	EgressOff       = "off"
+	EgressNone      = "none"
+	EgressAllowlist = "allowlist"
+)
+
 // Playbook is the union of both tiers' fields; Tier selects which apply, and
 // Validate enforces the tier-appropriate subset. Lists are intent-by-reference
 // (rules/dotfiles/hooks resolve against the config source); Tools are name@version
@@ -66,6 +79,17 @@ type Playbook struct {
 	// config carries no Roles and stays byte-identical to a pre-Slice-A build.
 	Roles []string `json:"roles,omitempty"`
 
+	// Networking is the container's declared egress posture (T20 S2a, ADR-0028).
+	// Optional section: unset means `egress: off` — full outbound, the Phase-1
+	// default (every existing playbook is unchanged). A pointer so "absent" is
+	// distinguishable from "present but empty" (the `config_source` precedent),
+	// though `off`/unset collapse to the same behavior. The `egress:` scalar is
+	// last-non-empty-wins (like `user:`); `allow:` is a union across tiers (like
+	// `rules:`/`dotfiles:`). The S2a slice realizes `egress: none` (→ the T20 S1
+	// `--network none` primitive); `allowlist` is a KNOWN posture but FAIL-CLOSED at
+	// validate (the custom-network mechanism is S2b — never silently full-egress).
+	Networking *Networking `json:"networking,omitempty"`
+
 	Agents   []string `json:"agents,omitempty"`   // agent harnesses
 	Tools    []string `json:"tools,omitempty"`    // name@version intent
 	Rules    []string `json:"rules,omitempty"`    // references, not bodies
@@ -104,6 +128,22 @@ type HarnessAgent struct {
 	// Skills are skills/<name>/ directories materialized recursively to
 	// <agent home>/skills/<name>/.
 	Skills []string `json:"skills,omitempty"`
+}
+
+// Networking is the declared egress posture (T20 S2a, ADR-0028). Egress is a
+// last-non-empty-wins scalar in {"" (=off), off, none, allowlist}; Allow is the
+// union of runtime-reachable hostnames across tiers. The schema is mechanism-
+// independent (it names hostnames, not IPs or proxy config), so the S2b→S3
+// migration is an engine change behind this frozen field, not a schema change.
+type Networking struct {
+	// Egress is the posture: "" or "off" = full outbound (Phase-1 default), "none"
+	// = no network but loopback (`--network none`, the T20 S1 primitive),
+	// "allowlist" = deny-by-default (S2b — fail-closed as unimplemented at validate).
+	Egress string `json:"egress,omitempty"`
+	// Allow is the runtime-reachable hostname list (union across tiers; the base
+	// tier owns the load-bearing model-API/credential-helper/VCS entries a
+	// deny-by-default must not drop). Required and meaningful only for `allowlist`.
+	Allow []string `json:"allow,omitempty"`
 }
 
 // ConfigSource locates where rules/skills/hooks/dotfiles resolve from (ADR-0006).

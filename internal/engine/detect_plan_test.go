@@ -35,6 +35,8 @@ type fakeRuntime struct {
 	statErr         map[string]error     // canned stat error per path (adv-064)
 	userUIDs        map[string]string    // canned `id -u` per user (adv-064)
 	userErr         map[string]error     // canned id error per user (adv-064)
+	netIfaces       []string             // canned /sys/class/net interface names (T20 S2a)
+	netIfacesErr    error                // canned NetInterfaces error (T20 S2a)
 	homeSentinel    string               // canned home-sync sentinel digest (T7/C1)
 	running         bool                 // canned container state (LL-012)
 	runningErr      error
@@ -106,6 +108,11 @@ func (r fakeRuntime) UserUID(_, user string) (string, error) {
 		return "", err
 	}
 	return r.userUIDs[user], nil
+}
+
+// NetInterfaces returns the canned interface list (T20 S2a egress claim).
+func (r fakeRuntime) NetInterfaces(string) ([]string, error) {
+	return r.netIfaces, r.netIfacesErr
 }
 
 // HomeDigest returns the canned home sentinel ("" = absent/stopped).

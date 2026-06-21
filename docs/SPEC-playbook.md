@@ -49,6 +49,11 @@ tier: base
                              # Unset = root (compatibility). A project overlay
                              # may override. See "user: field" below.
 
+# networking:                # optional: env-wide egress posture (T20 / ADR-0028).
+#   egress: off              #   off (default) | none | allowlist. Unset = off
+#                            #   (full outbound, compatibility). See "networking:
+#                            #   field" below. allowlist is S2b (fail-closed today).
+
 # Agent harnesses available in every project's container
 agents:
   - claude-code
@@ -219,6 +224,44 @@ an explicit override / test-seam (it wins over `role:` when set, so a second sea
 sharing one tree — e.g. the advisor — can override without editing the playbook).
 Conceptual home of the role model is ADR-0021. Whether anything *reads* the
 marker (the drain role-guard swap) is PR4 Part 2, human-applied.
+
+## `networking:` field (added 2026-06-21, T20 / ADR-0028)
+
+**`networking:` (optional, section, later-wins scalar + union list): the
+container's egress posture.** Unset means `off` — full outbound, the Phase-1
+default (every existing playbook is unchanged). `egress: none` removes all network
+access (`--network none`; no interface but `lo`). `egress: allowlist` denies by
+default and permits only the resolved `allow:` hostnames at runtime. `allow:` is a
+hostname list, authored at any tier; the resolved set is the **union** in layer
+order (the base tier contributes the load-bearing model-API, credential-helper, and
+VCS hosts that a deny-by-default must not drop). The `egress:` scalar is
+last-non-empty-wins (like `user:`); a later tier weakening the posture is caught at
+the full-auto re-evaluation gate, not the scalar merge. Provisioning runs with full
+egress; the restricted network is applied before the agent seat opens
+(provision-then-restrict). The mechanism (custom network / proxy sidecar) is an
+engine concern behind this declarative field.
+
+```yaml
+networking:
+  egress: allowlist          # off (default) | none | allowlist
+  allow:                     # runtime-reachable hostnames (union across tiers)
+    - api.anthropic.com      #   base contributes the load-bearing entries
+    - github.com
+```
+
+`egress:` must be one of `off | none | allowlist`; `off`/unset and `none` are
+accepted today. **`allowlist` is sliced (T20 S2a vs S2b):** S2a (this) realizes the
+declarative field + the `none` posture (reusing the T20 S1 `--network none`
+primitive) and validates the enum; the `allowlist` MECHANISM (the deny-by-default
+custom network, per-host resolution, provision-then-restrict) is **S2b**. Until S2b
+lands, `egress: allowlist` is **FAIL-CLOSED** — a hard validation error
+(`networking.egress: "allowlist" is not yet supported (T20 S2b); use "none" or
+"off"`), never a silent degrade to full egress. `allowlist` also requires a
+non-empty `allow:` list. `doctor` surfaces a `container:egress` claim: for a
+declared `egress: none` it verifies the realized container has no external egress
+interface (only `lo`); for `off`/unset it is a no-op pass. The full mechanism
+rationale (provision-then-restrict, custom-network-first, the load-bearing
+allowlist) is ADR-0028.
 
 ## `harness:` section (added 2026-06-11, ADR-0015)
 

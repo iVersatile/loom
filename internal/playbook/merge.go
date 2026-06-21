@@ -46,6 +46,7 @@ func Merge(layers ...*Playbook) *Playbook {
 		if l.ConfigSource != nil {
 			out.ConfigSource = l.ConfigSource
 		}
+		out.Networking = mergeNetworking(out.Networking, l.Networking)
 		out.Agents = appendDedup(out.Agents, l.Agents)
 		out.Roles = appendDedup(out.Roles, l.Roles)
 		out.Tools = appendDedup(out.Tools, l.Tools)
@@ -85,6 +86,27 @@ func mergeHarness(dst, src map[string]HarnessAgent) map[string]HarnessAgent {
 		cur.Skills = appendDedup(cur.Skills, in.Skills)
 		dst[agent] = cur
 	}
+	return dst
+}
+
+// mergeNetworking merges the egress posture (T20 S2a, ADR-0028): egress: is a
+// last-non-empty-wins scalar (the user: rule — a later tier weakening the posture
+// is caught at the full-auto re-evaluation gate, not here, mirroring user:'s
+// "later layer re-grants root"); allow: is a union across tiers, deduped in layer
+// order (the rules:/dotfiles: rule — so the base load-bearing entries cannot be
+// dropped by an overlay). A nil src leaves dst untouched; the first non-nil layer
+// allocates dst so an absent networking: across all tiers stays nil (= off).
+func mergeNetworking(dst, src *Networking) *Networking {
+	if src == nil {
+		return dst
+	}
+	if dst == nil {
+		dst = &Networking{}
+	}
+	if src.Egress != "" {
+		dst.Egress = src.Egress
+	}
+	dst.Allow = appendDedup(dst.Allow, src.Allow)
 	return dst
 }
 

@@ -44,6 +44,16 @@ func sessionRole(pb *playbook.Playbook) string {
 	return strings.TrimSpace(pb.Role)
 }
 
+// noEgress maps the resolved networking posture onto the ContainerSpec egress cut
+// (T20 S2a, ADR-0028). Only egress: none turns it on — it reuses S1's existing
+// --network none MECHANISM (the single behavioral mapping in this slice). off/unset
+// leave egress unchanged (full outbound, Phase-1 default); allowlist never reaches
+// here (validate fail-closes it as unimplemented — S2b). Validate runs in Load
+// before this, so a non-none/off/allowlist value cannot survive to here.
+func noEgress(pb *playbook.Playbook) bool {
+	return pb.Networking != nil && pb.Networking.Egress == playbook.EgressNone
+}
+
 // containerVersions adapts the runtime's in-container probe to
 // resolver.VersionProbe: the lock pins the CONTAINER's reality (T5), never the
 // build host's — a Mac build must not record "Apple Git" for a debian container.
@@ -240,6 +250,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		User:       pb.User,              // T10/ADR-0019: configured runtime user ("" = root)
 		Home:       homeForUser(pb.User), // resolved $HOME; consumed by the engine in PR 3
 		Role:       role,                 // ADR-0019 PR4 §5: declarative role: → /var/lib/loom/role marker
+		NoEgress:   noEgress(pb),         // T20 S2a/ADR-0028: networking.egress: none → --network none (the S1 primitive)
 		Force:      opts.Force, LogW: logw,
 	})
 	if err != nil {
