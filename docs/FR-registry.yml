@@ -535,6 +535,47 @@ requirements:
     tests: [engine.TestDetectEmitPlaybookViaSeam]
     status: active
 
+  # --- The Run, scenario 2 (carry-forward) — detect --migrate (credential MOVE) ---
+  # The credential-MOVE half of scenario 2: consolidate detected credentials into a
+  # gitignored .env (SPEC-verbs#detect "Credential handling" — frozen, no
+  # ALLOW_SPEC_CHANGE). SECURITY-SENSITIVE (it writes secret VALUES to disk) so the
+  # build bakes in the spike's guardrails: redacted diff (values never shown/logged),
+  # a gitignore refusal guard, --yes consent (never-auto on silence, mirroring
+  # teardown), idempotent merge, and a pluggable value source (env -> shell rc files)
+  # so a 1Password/Keychain source is a drop-in later. Keychain is OUT of scope (the
+  # macOS harness creds live there, not in env/rc — documented, not silently no-op'd).
+  # See .scratch/spikes/detect-migrate-env-carry-forward.md (producer-only; the
+  # auto-load CONSUMER was rejected — it reopens ADR-0014's leak decision).
+  - id: FR-RUN-007
+    kind: behavioral
+    statement: >-
+      detect --migrate consolidates detected credentials into a gitignored .env via a
+      pluggable value source (process env first, then shell rc files), ONLY after a
+      REDACTED diff (each name marked new/changed/unchanged — secret VALUES are never
+      printed, logged, audited, or placed in the --json document) and confirmation
+      (interactive [y/N]; non-interactive requires --yes, and on silence/EOF writes
+      nothing — never-auto). It refuses to write a literal secret to a .env that a git
+      repo does not ignore, merges idempotently (update-in-place/append, other lines
+      preserved; an unchanged re-run writes nothing), and leaves detect's frozen --json
+      document unchanged. macOS Keychain is out of scope.
+    source: SPEC-verbs.md#detect
+    tests: [engine.TestMigratePlanRedactsSecretValues, engine.TestMigrateMergeIsIdempotent, engine.TestMigrateRefusesUnignoredEnv, engine.TestMigrateEnvFileMode0600, cli.TestDetectMigrateConfirmAndYes]
+    status: active
+  - id: FR-RUN-008
+    kind: behavioral
+    # The 1Password / secret-store on-ramp (the historical T15 "zero token at rest"
+    # lean): a .env of op:// references round-trips through --migrate unmangled, so
+    # `op run --env-file .env -- loom build` works with NO secret at rest and NO
+    # further loom code. References are not secrets, so they are shown in the clear.
+    statement: >-
+      values that are secret-store REFERENCES (op://...) are treated as opaque
+      non-secrets — written verbatim and shown IN THE CLEAR in the diff (not redacted) —
+      so migrating a credential whose value is an op:// reference preserves the reference
+      exactly, never resolving or masking it.
+    source: SPEC-verbs.md#detect
+    tests: [engine.TestMigratePassesThroughReferencesUnredacted]
+    status: active
+
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
   # start is a mutating verb subject to the invariants (NOT --json-exempt), so it
   # is added to the covers: list of each suite. start's mutation IS its build call,
