@@ -475,7 +475,23 @@ Pointers: ADR-0014 addendum (PR #10) · engine.TestCreateRunArgs · archive: doc
 
 ---
 
-## T15 — the working auth path is human-only; AI-first auth needed   🟡 SCOPED 2026-06-21 — analysis spike done; next = live spike (human/docker) → T15-successor ADR → build
+## T15 — the working auth path is human-only; AI-first auth needed   🟡 SCOPED + framework confer done 2026-06-21 — ADR-0027 = per-project credential CONVENTION (all agents + gh); RESOLVER deferred until Gemini lands; T20-first; next = accept ADR + (free) probe + build (convention + claude adapter)
+
+**Framework confer (2026-06-21, 3 agents — adapter survey / loom-fit / abstraction stress-test;
+spike `.scratch/spikes/t15-credential-framework-shape.md`).** The human re-scoped to a unified
+per-project credential framework ("why is gh managed differently from claude?"). Finding: the
+unifying asset is the **INVARIANTS + a declaration grammar, NOT a resolver.** "Source side is
+uniform" is false for 2 of 4 — Google **ADC/Vertex** is a credential FILE+refresh loop (S2), gh is a
+credential-helper PROTOCOL (S2); only the model API keys (claude/gemini/openai) are uniform strings
+(S1). The two BUILT examples (claude, gh) are the two MOST ALIKE → a resolver extracted now is
+guessed from the wrong examples; **Gemini ADC is the shape-decider and isn't built** (premature —
+ADR-0027 M4 + ADR-0026 both already deferred it; gh did NOT pull it). DECISION (ADR-0027 rev4):
+**commit the CONVENTION now** — per-agent `harness.<agent>.credential` declaration + a fixed adapter
+ENUM (`env`/`apiKeyHelper`/`volume-token`/`volume-store+helper`/`oauth-file`/`interactive-login`) +
+the 7 invariants as a shared cross-class rule, **mechanically checked** (doctor: slug-uniqueness +
+cross-project token-reuse) — claude as the first adapter; **gh = WRAP** (keep ADR-0026, don't re-plumb;
+extend not supersede); **DEFER the resolver** until Gemini lands (then spike its ADC → the `oauth-file`
+contract → extract). T20-first for any build. T18 push-gap folds here.
 Origin: ADR-0014 landed on **interactive in-container OAuth login** as the only
 path that authenticates the interactive TUI — but completing that flow requires a
 human with a browser. An autonomous agent cannot perform it.
