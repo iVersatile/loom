@@ -20,7 +20,8 @@ func TestEgressClaimOK(t *testing.T) {
 	}{
 		{"none only-loopback passes", playbook.EgressNone, []string{"lo"}, true},
 		{"none with eth0 fails", playbook.EgressNone, []string{"lo", "eth0"}, false},
-		{"none empty interfaces passes", playbook.EgressNone, nil, true}, // no non-loopback = cut holds
+		{"none empty interfaces fails closed", playbook.EgressNone, nil, false},        // degenerate probe: no `lo` ⇒ cannot confirm
+		{"none without loopback fails closed", playbook.EgressNone, []string{}, false}, // same: a real cut still has `lo`
 		{"off is a no-op pass", playbook.EgressOff, []string{"lo", "eth0"}, true},
 		{"unset is a no-op pass", "", []string{"lo", "eth0"}, true},
 	}

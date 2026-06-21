@@ -52,10 +52,9 @@ type ContainerSpec struct {
 
 	// NoEgress runs the container with `--network none` — a MECHANISM-level egress
 	// cut (T20 S1): no network interface but loopback, so an in-container process
-	// cannot reach any host, refuting the harness command-deny-list bypass. This is
-	// the proof primitive; the user-facing networking policy (a playbook field +
-	// provision-then-restrict) is the T20 ADR / slice S2. Not yet wired to any
-	// playbook/CLI surface — set internally / by tests only.
+	// cannot reach any host, refuting the harness command-deny-list bypass. Wired to
+	// the playbook via networking.egress: none (T20 S2a/ADR-0028, build.go:noEgress);
+	// the allowlist posture (custom network + provision-then-restrict) is S2b.
 	NoEgress bool
 
 	// User is the configured container runtime user (T10/ADR-0019, from playbook

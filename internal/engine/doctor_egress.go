@@ -28,6 +28,18 @@ func hasNonLoopbackIface(ifaces []string) bool {
 	return false
 }
 
+// hasLoopbackIface reports whether loopback is present. Every real container has
+// `lo`, so its ABSENCE means a degenerate probe result (empty/garbage) — which must
+// fail the `none` claim closed rather than green on nothing.
+func hasLoopbackIface(ifaces []string) bool {
+	for _, i := range ifaces {
+		if i == "lo" {
+			return true
+		}
+	}
+	return false
+}
+
 // egressClaimOK decides container:egress: the declared posture must match the
 // container's actual interfaces. For `none` the container must have ONLY loopback
 // (a non-loopback interface means the egress cut FAILED — fail-closed). For
@@ -40,6 +52,13 @@ func egressClaimOK(egress string, ifaces []string) (bool, string) {
 	}
 	if hasNonLoopbackIface(ifaces) {
 		return false, fmt.Sprintf("egress: none declared but container has a non-loopback interface %v — the egress cut FAILED (want only [lo])", ifaces)
+	}
+	// Fail-closed: a real --network none container always has `lo`. An empty/degenerate
+	// interface list means the probe returned nothing usable — we cannot CONFIRM the cut,
+	// so we must not green it (a doctor that passes on a garbage probe is worse than
+	// useless for a security claim).
+	if !hasLoopbackIface(ifaces) {
+		return false, fmt.Sprintf("egress: none declared but no loopback interface in %v — the probe returned no usable interfaces; cannot confirm the egress cut (fail-closed)", ifaces)
 	}
 	return true, fmt.Sprintf("egress: none — container has only loopback %v (no external egress, --network none)", ifaces)
 }
