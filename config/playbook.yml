@@ -79,3 +79,10 @@ harness:
         # denying `claude` (agent spawn) for non-advisor sessions. settings.json
         # registers it as a PreToolUse hook; it MUST be in this list or it is
         # never materialized (LL-016 / #190). Sources segment-split (same dir).
+    skills:
+      - import-enrich # T37 Stage-3: the AI-judgment layer over `loom import`
+        # (ADR-0003 "import & enrich"). Materialized to ~/.claude/skills/; an agent
+        # runs it on a loom.imported.yml draft to map features->tools, infer the
+        # stack, and surface commands as notes. Prose only — not a verb, not FR-
+        # covered (skills are instructions, not contracts; the engine never shells
+        # to claude -p — ADR-0022/spawn-guard). loom's FIRST product skill.
