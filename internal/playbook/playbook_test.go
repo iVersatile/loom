@@ -280,3 +280,120 @@ func TestLoadMergesLayers(t *testing.T) {
 		t.Error("resolved source FS is nil")
 	}
 }
+
+// TestParseRejectsUnknownKey covers FR-SCHEMA-013 (T20/T28 LOW-2): strict
+// decoding rejects any key that maps to no declared schema field, and the error
+// NAMES the offending key so a typo is loud. The motivating case is a one-char
+// typo in a SECURITY field — `egres:` for `egress:`, which under non-strict
+// decoding silently parsed to the permissive full-egress default. Each case
+// asserts both that parse fails AND that the bad key appears in the error.
+func TestParseRejectsUnknownKey(t *testing.T) {
+	cases := map[string]struct {
+		in     string
+		badKey string
+	}{
+		"typo'd top-level tools key": {
+			in:     "loom: 1\ntier: base\ntols:\n  - git\n",
+			badKey: "tols",
+		},
+		"typo'd security egress scalar": {
+			in:     "loom: 1\ntier: base\nnetworking:\n  egres: none\n",
+			badKey: "egres",
+		},
+		"typo'd nested credential method": {
+			in:     "loom: 1\ntier: base\nharness:\n  claude:\n    credential:\n      methd: volume-token\n",
+			badKey: "methd",
+		},
+		"entirely unknown top-level key": {
+			in:     "loom: 1\ntier: base\nbogus: true\n",
+			badKey: "bogus",
+		},
+		"unknown key in JSON input (same decode path)": {
+			in:     `{"loom":1,"tier":"base","egres":"none"}`,
+			badKey: "egres",
+		},
+		// Strict YAML decode also rejects a DUPLICATE top-level key (non-strict
+		// silently kept last-wins) — e.g. a second `harness:` block that shadows
+		// the first. The library names the duplicated key in the error.
+		"duplicate top-level key": {
+			in:     "loom: 1\ntier: base\nharness:\n  claude:\n    settings: a\nharness:\n  claude:\n    settings: b\n",
+			badKey: "harness",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(tc.in))
+			if err == nil {
+				t.Fatalf("expected parse to REJECT unknown key %q, got nil error (silently dropped — the LOW-2 hole)", tc.badKey)
+			}
+			if !strings.Contains(err.Error(), tc.badKey) {
+				t.Errorf("error must NAME the offending key %q so the typo is loud; got: %v", tc.badKey, err)
+			}
+		})
+	}
+}
+
+// TestParseAcceptsKnownGood covers FR-SCHEMA-013's complement: a fully-declared
+// playbook — every declared field, with comments and a YAML anchor/alias — still
+// parses cleanly under strict decoding. Strictness must reject only keys with no
+// struct field, never valid YAML constructs (comments and anchors are resolved by
+// the YAML→JSON step before strict decode ever sees them).
+func TestParseAcceptsKnownGood(t *testing.T) {
+	// A YAML anchor (&tok) + alias (*tok) the YAML layer must resolve away before
+	// strict JSON decode; comments interspersed throughout; all-declared fields.
+	in := []byte(`loom: 1            # schema version
+tier: project
+name: x
+extends: base
+stack: go           # selects stacks/go
+overlay: loom
+user: dev
+role: loom-author
+roles:
+  - loom-author
+networking:
+  egress: none      # a SECURITY field — must round-trip, not be rejected
+agents:
+  - claude-code
+tools:
+  - &gotool go@1.26 # anchor
+  - gopls
+  - *gotool         # alias resolves to go@1.26 (a declared list, not a new key)
+rules:
+  - common/safety
+dotfiles:
+  - gitconfig
+hooks:
+  - guard-bash
+ports:
+  - 8080
+env:
+  - ANTHROPIC_API_KEY
+ci:
+  - ci
+harness:
+  claude:
+    settings: claude/settings.json
+    trust: claude/trust.json
+    hooks:
+      - guard-bash
+    skills:
+      - import-enrich
+    credential:
+      method: volume-token
+      env: ANTHROPIC_API_KEY
+config_source:
+  type: local
+  path: ./config
+`)
+	pb, err := Parse(in)
+	if err != nil {
+		t.Fatalf("known-good fully-declared playbook must PARSE under strict decode, got: %v", err)
+	}
+	if pb.Networking == nil || pb.Networking.Egress != EgressNone {
+		t.Errorf("egress should decode to none, got %+v", pb.Networking)
+	}
+	if !slices.Contains(pb.Tools, "go@1.26") {
+		t.Errorf("anchored tool should decode, got tools=%v", pb.Tools)
+	}
+}
