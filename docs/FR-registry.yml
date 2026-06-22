@@ -374,6 +374,51 @@ requirements:
     tests: [engine.TestEgressAllowlistClaimOK]
     status: active
 
+  # --- Credential convention + claude M1/M2 adapters (SPEC-playbook#credential,
+  # ADR-0027 slice 1). loom wires the MECHANISM, never the VALUE — every FR below
+  # is proven by NON-integration, fr-verify-visible unit tests that use an obvious
+  # FAKE-TOKEN through a mockable read-seam (no real secret, gitleaks-clean). The
+  # LIVE container token-read + injection is the integration canary (NOT fr-cited).
+  - id: FR-CRED-001
+    kind: schema
+    # The declaration + merge + validate joint. credential is the pointer analogue
+    # of trust: any-tier last-non-nil-wins (NOT the base-gated settings path). The
+    # adapter enum is FIXED; only apiKeyHelper (M2) + volume-token (M1) are wired in
+    # slice 1 — every other member FAILS CLOSED at validate (a declared credential
+    # is never silently no-op'd, the guardrail principle).
+    statement: `harness.<agent>.credential` parses as {method, helper?, env?}; merges any-tier last-non-nil-wins (like trust, not base-gated); validates the method against the fixed adapter enum (env, apiKeyHelper, volume-token, volume-store+helper, oauth-file, interactive-login) with per-method required fields (apiKeyHelper requires helper, volume-token requires env), and FAILS CLOSED on a known-but-unwired method (slice 2+) or an unknown token — never a silent no-op.
+    source: SPEC-playbook.md#credential
+    tests: [playbook.TestCredentialMergeAnyTierLastWins, playbook.TestCredentialMergeNilLayerKeepsEarlier, playbook.TestValidateCredentialWiredMethods, playbook.TestValidateCredentialRequiredFields, playbook.TestValidateCredentialFailClosedUnwired, playbook.TestValidateCredentialUnknownMethod]
+    status: active
+  - id: FR-CRED-002
+    kind: behavioral
+    # M2: a TARGETED key-set of apiKeyHelper on the materialized settings.json — a
+    # declared carve-out (like trust), NOT the deferred general key-merge. The
+    # helper is an operator command loom never runs/reads.
+    statement: the apiKeyHelper (M2) adapter sets the `apiKeyHelper` key on the already-materialized settings.json via a targeted key-set that preserves every other key (not a whole-file clobber, not a deep merge), idempotently; the helper value is the operator command loom places but never runs or reads; a non-apiKeyHelper build is byte-identical.
+    source: SPEC-playbook.md#credential
+    tests: [engine.TestSetSettingsKeyTargetedKeySet, engine.TestSetSettingsKeyIdempotent, engine.TestApplyAPIKeyHelperMaterialize, engine.TestApplyAPIKeyHelperNoCredentialNoop]
+    status: active
+  - id: FR-CRED-003
+    kind: behavioral
+    # M1: per-project volume mounted at create (leak-safe -v, NOT run -e), token
+    # injected at EXEC time as `docker exec -e` on the AGENT seat — the ADR-0014
+    # Config.Env/`docker inspect` leak avoided. Fail-closed on absent/empty token.
+    statement: the volume-token (M1) adapter mounts a per-project credential volume (`<container>-<agent>-cred`) read-only on `docker run` (a leak-safe -v, NEVER `docker run -e`) and injects the human-provisioned token at exec-time as `docker exec -e <env>=<token>` onto the AGENT seat only — so the value never enters Config.Env/`docker inspect` (the ADR-0014 leak); an absent or empty token FAILS CLOSED (the verb refuses, no unauthenticated seat). The token-read is a mockable seam (tests assert injection via FAKE-TOKEN, no real secret).
+    source: SPEC-playbook.md#credential
+    tests: [engine.TestCredentialExecEnvInjectsToken, engine.TestCredentialExecEnvFailClosedAbsent, engine.TestCredentialExecEnvFailClosedEmpty, engine.TestCredentialExecEnvNoCredentialNoop, engine.TestCredentialVolumeMountIsVolumeNotRunEnv, engine.TestExecInjectsCredentialOntoAgentSeat, engine.TestExecFailClosedOnAbsentCredential, engine.TestCredentialVolumeName]
+    status: active
+  - id: FR-CRED-004
+    kind: behavioral
+    # ADR-0027 invariant #1, mechanically checked: the per-project credential
+    # volume key isolates one project's credential from another's; doctor fails
+    # closed on a malformed or colliding slug (cross-wiring two projects onto one
+    # credential store). Graded only when an M1 credential is declared.
+    statement: doctor's `host:credential-slug` claim mechanizes ADR-0027 invariant #1 (slug-uniqueness) — the per-project credential volume key must be a well-formed single token and collision-free across declared agents; a malformed project/agent slug or a key collision FAILS CLOSED (two projects must not cross-wire onto one credential store); the check is graded only when an M1 (volume-token) credential is declared.
+    source: SPEC-playbook.md#credential
+    tests: [engine.TestCredentialSlugCheckOK, engine.TestCredentialSlugCheckBadSlug, engine.TestCredentialSlugCheckNotApplicable]
+    status: active
+
   # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---
   - id: FR-EXEC-001
     kind: behavioral

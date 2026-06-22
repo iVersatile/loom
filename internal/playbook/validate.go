@@ -121,6 +121,18 @@ func (pb *Playbook) Validate() error {
 				errs = append(errs, fmt.Sprintf("harness.%s.skills: empty reference", agent))
 			}
 		}
+		// credential: (ADR-0027 §1) — the method must be a known enum member, and
+		// only the two SLICE-1-WIRED methods are accepted: apiKeyHelper (M2,
+		// requires helper:) and volume-token (M1, requires env:). Every other valid
+		// enum member (env / volume-store+helper / oauth-file / interactive-login)
+		// is a DECLARED-BUT-UNWIRED method: it FAILS CLOSED here with a clear "not
+		// yet supported (slice 2+)" error — a declared credential is NEVER silently
+		// no-op'd (the guardrail principle: an unhonorable credential must fail
+		// LOUD, never leave the seat running unauthenticated). An unknown token is
+		// rejected outright.
+		if c := h.Credential; c != nil {
+			errs = append(errs, validateCredential(agent, c)...)
+		}
 	}
 
 	if cs := pb.ConfigSource; cs != nil {
@@ -146,6 +158,42 @@ func (pb *Playbook) Validate() error {
 		return fmt.Errorf("invalid playbook:\n  - %s", strings.Join(errs, "\n  - "))
 	}
 	return nil
+}
+
+// validateCredential checks one agent's credential declaration (ADR-0027 §1).
+// It returns the (possibly empty) list of error strings — fail-closed on any
+// method that is not WIRED in slice 1, so a credential is never silently dropped.
+//   - apiKeyHelper (M2): requires a non-empty helper: (the operator stdout-helper
+//     command); env: is meaningless here.
+//   - volume-token (M1): requires a non-empty env: (the env var NAME injected at
+//     exec-time, e.g. CLAUDE_CODE_OAUTH_TOKEN); helper: is meaningless here.
+//   - env / volume-store+helper / oauth-file / interactive-login: KNOWN enum
+//     members, but UNWIRED in this slice — a hard error ("not yet supported,
+//     ADR-0027 slice 2+"), never a silent no-op.
+//   - anything else: an unknown method token — a hard error.
+//
+// NOTE: this validates the WIRING shape only. The credential VALUE is never here
+// and is never authored/read/logged by loom (the human trust act, out of scope).
+func validateCredential(agent string, c *Credential) []string {
+	var errs []string
+	switch c.Method {
+	case CredAPIKeyHelper:
+		if strings.TrimSpace(c.Helper) == "" {
+			errs = append(errs, fmt.Sprintf("harness.%s.credential: method %q requires a non-empty helper:", agent, c.Method))
+		}
+	case CredVolumeToken:
+		if strings.TrimSpace(c.Env) == "" {
+			errs = append(errs, fmt.Sprintf("harness.%s.credential: method %q requires a non-empty env: (the env var NAME to inject)", agent, c.Method))
+		}
+	case CredEnv, CredVolumeStoreHelp, CredOAuthFile, CredInteractiveLogin:
+		errs = append(errs, fmt.Sprintf("harness.%s.credential: method %q is a known but not-yet-supported adapter (ADR-0027 slice 2+) — declaring it must fail closed, never silently run unauthenticated", agent, c.Method))
+	case "":
+		errs = append(errs, fmt.Sprintf("harness.%s.credential: missing required field: method", agent))
+	default:
+		errs = append(errs, fmt.Sprintf("harness.%s.credential: unknown method %q (want one of %s, %s, %s, %s, %s, %s)",
+			agent, c.Method, CredEnv, CredAPIKeyHelper, CredVolumeToken, CredVolumeStoreHelp, CredOAuthFile, CredInteractiveLogin))
+	}
+	return errs
 }
 
 // validDeclaredRole reports whether r names a known loom-role permitted in a

@@ -84,6 +84,15 @@ type ContainerSpec struct {
 	// self-heals on the next plain build. "" ⇒ no marker and root behavior is
 	// UNCHANGED; nothing reads it until human Part 2.
 	Role string
+
+	// CredentialVolumeAgents is the set of agents whose resolved credential
+	// method is volume-token (M1, ADR-0027): each needs the per-project credential
+	// volume MOUNTED at create (createRunArgs → credentialVolumeMounts). The mount
+	// is leak-safe (`-v`, not run-`-e`): it makes the human-provisioned volume
+	// REACHABLE; the token is read + injected only at EXEC time (credentialExecEnv,
+	// exec.go) so it never enters Config.Env. Empty ⇒ no credential volume (a
+	// non-M1 build is byte-identical). Slice 1 carries one claude adapter.
+	CredentialVolumeAgents []string
 }
 
 // dockerLogged runs a docker command, tees its combined output to logw (when
@@ -149,10 +158,19 @@ type ContainerRuntime interface {
 	// Exec runs argv inside the container with login-shell env, cwd workdir,
 	// stdio attached to the calling process (transparent passthrough,
 	// SPEC-verbs exec). tty allocates a terminal (SPEC-verbs shell — the one
-	// engine path with a TTY option; no second code path). Returns the
-	// command's exit code verbatim; a non-nil error means the transport
-	// failed and no exit code exists.
-	Exec(name string, argv []string, workdir, user string, tty bool) (int, error)
+	// engine path with a TTY option; no second code path). credEnv carries
+	// exec-time `NAME=VALUE` credential injections (M1 volume-token, ADR-0027):
+	// each becomes a `docker exec -e NAME=VALUE` arg, scoped to THIS exec process
+	// only — NEVER `docker run -e` (the ADR-0014 Config.Env / `docker inspect`
+	// leak). Returns the command's exit code verbatim; a non-nil error means the
+	// transport failed and no exit code exists.
+	Exec(name string, argv []string, workdir, user string, tty bool, credEnv []string) (int, error)
+	// ReadCredentialToken reads the M1 (volume-token) secret from inside the
+	// container (`docker exec <name> cat <path>`) — the MOCKABLE SEAM (ADR-0027)
+	// the exec verb resolves the token through. Errs when the volume/token is
+	// absent so the caller fails closed (no unauthenticated seat). The value is
+	// returned for IMMEDIATE injection into the exec argv — never logged.
+	ReadCredentialToken(name, path string) (string, error)
 }
 
 type dockerRuntime struct{}
@@ -353,7 +371,15 @@ func (dockerRuntime) Teardown(name, level string, cleanState bool, logw io.Write
 	// a non-allowlist container created none of these, so each is a clean no-op.
 	teardownEgressConfinement(name, logw, &r)
 	if cleanState {
-		for _, vol := range []string{agentHomeVolume(name), ghConfigVolume(name)} {
+		vols := []string{agentHomeVolume(name), ghConfigVolume(name)}
+		// Per-project credential volumes (ADR-0027 M1): `<name>-<agent>-cred`,
+		// discovered by name prefix/suffix so any declared agent's volume is wiped
+		// without coupling Teardown to the playbook (slice 1 has one claude
+		// adapter). Like the agent-home/gh volumes these hold human-provisioned
+		// credentials, so they are removed ONLY by the opt-in --clean-state, never
+		// a tier side effect.
+		vols = append(vols, discoverCredentialVolumes(name)...)
+		for _, vol := range vols {
 			if _, err := dockerLogged(logw, "volume", "rm", vol); err == nil {
 				r.Volumes = append(r.Volumes, vol)
 			}
@@ -635,6 +661,17 @@ func (dockerRuntime) Running(name string) (bool, error) {
 	return containerRunning(name), nil
 }
 
+// dockerVolumeLs lists docker volume names (read-only) — the discovery seam for
+// credential-volume teardown (ADR-0027). NOTE: integration-validated, not the
+// local gate.
+func dockerVolumeLs() ([]string, error) {
+	out, err := exec.Command("docker", "volume", "ls", "--format", "{{.Name}}").Output()
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(string(out)), nil
+}
+
 // containerRunning reports whether the named container's main process is still up.
 func containerRunning(name string) bool {
 	out, err := exec.Command("docker", "container", "inspect", "-f", "{{.State.Running}}", name).Output()
@@ -820,7 +857,7 @@ func (dockerRuntime) Start(name string) error {
 // plus a login shell — same path, one option). The argv is shell-quoted and
 // exec'd so the command — not a wrapper shell — receives signals and owns the
 // exit code. NOTE: integration-validated, not the local gate.
-func (dockerRuntime) Exec(name string, argv []string, workdir, user string, tty bool) (int, error) {
+func (dockerRuntime) Exec(name string, argv []string, workdir, user string, tty bool, credEnv []string) (int, error) {
 	quoted := make([]string, len(argv))
 	for i, a := range argv {
 		quoted[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
@@ -830,6 +867,14 @@ func (dockerRuntime) Exec(name string, argv []string, workdir, user string, tty 
 		dockerArgs = append(dockerArgs, "-t")
 	}
 	dockerArgs = append(dockerArgs, execUserArgs(user)...)
+	// Exec-time credential injection (M1, ADR-0027): `docker exec -e NAME=VALUE`,
+	// scoped to THIS process. CRITICAL: this is exec-`-e`, NEVER run-`-e` — an
+	// exec env persists nowhere (no Config.Env, no `docker inspect`), so the token
+	// reaches the agent without the ADR-0014 leak. The value is passed straight to
+	// docker's argv; it is never tee'd to a log (this path does not use dockerLogged).
+	for _, e := range credEnv {
+		dockerArgs = append(dockerArgs, "-e", e)
+	}
 	dockerArgs = append(dockerArgs, "-w", workdir, name,
 		"sh", "-lc", "exec "+strings.Join(quoted, " "))
 	c := exec.Command("docker", dockerArgs...)
@@ -842,6 +887,20 @@ func (dockerRuntime) Exec(name string, argv []string, workdir, user string, tty 
 		return -1, err // transport failure: docker never ran the command
 	}
 	return 0, nil
+}
+
+// ReadCredentialToken reads the M1 volume-token from inside the container (ADR-
+// 0027). `docker exec <name> cat <path>` — read-only, like readRoleMarker, but
+// DELIBERATELY NOT routed through dockerLogged: the token value must never be
+// tee'd to the diagnostic log. A read error (absent volume/token) propagates so
+// the caller fails closed. The returned value flows straight into the exec argv.
+// NOTE: integration-validated (docker host), not the local gate.
+func (dockerRuntime) ReadCredentialToken(name, path string) (string, error) {
+	out, err := exec.Command("docker", "exec", name, "cat", path).Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 func defaultRuntime() ContainerRuntime { return dockerRuntime{} }
@@ -917,6 +976,11 @@ func createRunArgs(spec ContainerSpec, hostCredsPath string, credsPresent bool) 
 	if hasTool(spec.Tools, "gh") {
 		args = append(args, "-v", ghConfigVolume(spec.Name)+":"+spec.home()+"/.config/gh")
 	}
+	// Per-project credential volume for the M1 (volume-token) adapter (ADR-0027):
+	// a leak-safe `-v` mount (NOT run-`-e`) at the fixed credMountPath. It only
+	// makes the human-provisioned token REACHABLE; the value is injected at EXEC
+	// time (credentialExecEnv) so it never enters Config.Env (the ADR-0014 leak).
+	args = append(args, credentialVolumeMounts(spec.Name, spec.CredentialVolumeAgents)...)
 	if spec.ProjectDir != "" {
 		args = append(args, "-v", spec.ProjectDir+":"+containerWorkspace(spec.Project))
 	}

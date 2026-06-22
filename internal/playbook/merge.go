@@ -66,7 +66,8 @@ func Merge(layers ...*Playbook) *Playbook {
 // later-wins applies at materialization), settings and trust are scalars —
 // last non-empty wins (Phase 1 keeps settings base-tier-only via Load, so in
 // practice the base value survives; trust is project-tier by doctrine but
-// any layer may author it).
+// any layer may author it). credential (ADR-0027) is the pointer analogue of
+// trust: any-tier last-NON-NIL-wins (a later declaration replaces the earlier).
 func mergeHarness(dst, src map[string]HarnessAgent) map[string]HarnessAgent {
 	if len(src) == 0 {
 		return dst
@@ -81,6 +82,14 @@ func mergeHarness(dst, src map[string]HarnessAgent) map[string]HarnessAgent {
 		}
 		if in.Trust != "" {
 			cur.Trust = in.Trust
+		}
+		// Credential mirrors Trust exactly (ADR-0027 §1): any-tier
+		// last-non-empty-wins — a later non-nil Credential REPLACES the earlier
+		// (whole replacement, no field-level merge, like the scalar Trust). NOT
+		// base-gated like Settings: an env-wide base default with a per-project
+		// override is the expected shape, and a nil src layer leaves it untouched.
+		if in.Credential != nil {
+			cur.Credential = in.Credential
 		}
 		cur.Hooks = appendDedup(cur.Hooks, in.Hooks)
 		cur.Skills = appendDedup(cur.Skills, in.Skills)

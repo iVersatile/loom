@@ -35,6 +35,21 @@ const (
 	EgressAllowlist = "allowlist"
 )
 
+// Credential adapter methods a `harness.<agent>.credential.method` may name
+// (ADR-0027 §1 — the FIXED consumer-adapter enum, no open-ended resolver). Only
+// CredVolumeToken (M1) and CredAPIKeyHelper (M2) are WIRED in slice 1; the rest
+// are valid-to-DECLARE tokens but FAIL-CLOSED at validate as "not yet supported"
+// — a declared credential method is NEVER silently no-op'd (the guardrail
+// principle: a credential you can't honor must fail LOUD, not run unauthenticated).
+const (
+	CredEnv              = "env"                 // exec-time NAME=value (slice 2+)
+	CredAPIKeyHelper     = "apiKeyHelper"        // M2: stdout-helper in settings.json (WIRED)
+	CredVolumeToken      = "volume-token"        // M1: per-project volume → exec-time -e (WIRED)
+	CredVolumeStoreHelp  = "volume-store+helper" // gh's ADR-0026 shape (described, not re-plumbed)
+	CredOAuthFile        = "oauth-file"          // Gemini ADC (slice 2+, the resolver gate)
+	CredInteractiveLogin = "interactive-login"   // human-seat fallback (slice 2+)
+)
+
 // Playbook is the union of both tiers' fields; Tier selects which apply, and
 // Validate enforces the tier-appropriate subset. Lists are intent-by-reference
 // (rules/dotfiles/hooks resolve against the config source); Tools are name@version
@@ -128,6 +143,29 @@ type HarnessAgent struct {
 	// Skills are skills/<name>/ directories materialized recursively to
 	// <agent home>/skills/<name>/.
 	Skills []string `json:"skills,omitempty"`
+	// Credential is the per-agent credential-acquisition declaration (ADR-0027
+	// §1 — the cross-class convention). A pointer so "absent" (no credential
+	// declared) is distinguishable from "present but empty" (the Networking /
+	// config_source precedent). Merged ANY-TIER last-non-empty-wins, exactly like
+	// Trust (a later non-nil Credential REPLACES the earlier) — NOT through the
+	// base-gated settings path. loom wires the MECHANISM only: it never authors,
+	// reads-into-logs, or commits the credential VALUE — that is a human trust act
+	// (real provisioning is out of loom's scope). Slice 1 wires two methods —
+	// apiKeyHelper (M2) and volume-token (M1); every other enum member is
+	// valid-to-declare but FAIL-CLOSED at validate (ADR-0027 slice 2+).
+	Credential *Credential `json:"credential,omitempty"`
+}
+
+// Credential is one agent's credential-acquisition declaration (ADR-0027 §1).
+// Method names a fixed consumer-adapter from the enum; Helper / Env carry the
+// per-method config. The VALUE is never here — Helper is an operator COMMAND
+// (e.g. `op read op://...`) loom never runs or reads the output of; Env is an
+// env var NAME to inject (e.g. CLAUDE_CODE_OAUTH_TOKEN), the value sourced from a
+// human-provisioned per-project volume at exec-time. loom holds neither.
+type Credential struct {
+	Method string `json:"method"`           // one of the Cred* enum
+	Helper string `json:"helper,omitempty"` // apiKeyHelper: the operator stdout-helper command
+	Env    string `json:"env,omitempty"`    // volume-token: the env var NAME to inject
 }
 
 // Networking is the declared egress posture (T20 S2a, ADR-0028). Egress is a

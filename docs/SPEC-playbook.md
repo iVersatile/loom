@@ -326,6 +326,60 @@ harness:
   runtime is rederivable cache: a home re-sync overwrites it, and that is
   accepted by ruling ("caches may die").
 
+### `harness.<agent>.credential` (added 2026-06-22, ADR-0027 slice 1)
+
+The per-agent credential-acquisition declaration — the cross-class **convention**
+(ADR-0027 §1). loom wires the **mechanism**, never the **value**: it never
+authors, reads-into-logs, or commits the credential. Real provisioning (the key,
+the token) is a **human trust act**, out of loom's scope. The container-per-project
+boundary isolates one project's credential from another's.
+
+```yaml
+harness:
+  claude:
+    settings: claude/settings.json     # M2 sets a key on this (below)
+    credential:                        # the credential declaration
+      method: apiKeyHelper             # the consumer adapter (enum, below)
+      helper: op read op://vault/key   # apiKeyHelper: an OPERATOR command
+                                       #   (loom never runs it / sees its output)
+    # or, the M1 shape:
+    # credential:
+    #   method: volume-token
+    #   env: CLAUDE_CODE_OAUTH_TOKEN    # the env var NAME injected at exec-time
+```
+
+- **Shape:** `{method, helper?, env?}`. `method` is required; `helper`/`env` are
+  per-method (see enum). The credential VALUE is never in the playbook — `helper`
+  is an operator command; `env` is a var NAME (the value is human-provisioned into
+  a per-project volume).
+- **Adapter enum** (ADR-0027 §1 — a FIXED set, no open-ended resolver): `env` ·
+  `apiKeyHelper` · `volume-token` · `volume-store+helper` (describes gh's ADR-0026
+  mechanism, not re-plumbed here) · `oauth-file` · `interactive-login`. **Slice 1
+  WIRES only `apiKeyHelper` (M2) and `volume-token` (M1)**; every other enum member
+  is valid-to-declare but **FAILS CLOSED** at validate ("not yet supported, slice
+  2+") — a declared credential is never silently no-op'd (the guardrail principle:
+  an unhonorable credential fails LOUD, never runs unauthenticated).
+- **Merge:** any-tier **last-non-empty(non-nil)-wins**, exactly like `trust:` (a
+  later declaration REPLACES the earlier, whole-replacement — no field-level merge).
+  NOT through the base-gated `settings:` path; an env-wide base default with a
+  per-project override is the expected shape.
+- **Validate:** `method` ∈ enum; `apiKeyHelper` requires `helper`; `volume-token`
+  requires `env`; an unwired method or unknown token is a hard error.
+- **M2 (`apiKeyHelper`):** the engine does a TARGETED key-set of the `apiKeyHelper`
+  key on the already-materialized `settings.json` — a declared **carve-out** (like
+  `trust:`), NOT the general key-merge Open question 1 still defers. The helper
+  command resolves the key from wherever the operator wires it; loom only places
+  the wiring.
+- **M1 (`volume-token`):** a per-project credential volume
+  (`<container>-<agent>-cred`, the `<container>-<service>` family) is mounted
+  read-only; at **exec-time** the engine reads the human-provisioned token and
+  injects it as `docker exec -e <env>=<token>` onto the **agent seat only** —
+  **NEVER `docker run -e`** (the ADR-0014 `Config.Env`/`docker inspect` leak). An
+  absent/empty token **fails closed** (no unauthenticated seat).
+- **Mechanically checked invariants** (ADR-0027 §1): `doctor`/`verify` grades
+  **slug-uniqueness** — the per-project credential volume key must be well-formed
+  and collision-free (two projects must not cross-wire onto one credential store).
+
 ## Devcontainer compatibility (ADR-0003)
 
 The playbook is a **superset** of what devcontainer models. Import maps a
