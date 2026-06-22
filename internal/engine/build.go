@@ -433,12 +433,16 @@ func agentInstalls(r *resolver.Resolution) []AgentInstall {
 	return out
 }
 
-// agentSource picks an agent's install mechanism. Phase 1: claude-code ships a
-// native installer; other declared agents are recorded but have no installer yet.
+// agentSource picks an agent's install mechanism. claude-code ships a native
+// installer (no Node); gemini (gemini-cli) installs via `npm i -g
+// @google/gemini-cli` (the nodejs tool provides node+npm). Other declared agents
+// are recorded but have no installer yet.
 func agentSource(name string) string {
 	switch name {
 	case "claude-code":
 		return "native-installer"
+	case "gemini":
+		return "npm-global"
 	default:
 		return ""
 	}

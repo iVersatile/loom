@@ -1,0 +1,73 @@
+{
+  "selectedAuthType": "gemini-api-key",
+  "sandbox": false,
+  "autoAccept": false,
+  "coreTools": [
+    "run_shell_command"
+  ],
+  "excludeTools": [
+    "run_shell_command(sudo)",
+    "run_shell_command(doas)",
+    "run_shell_command(git push --force)",
+    "run_shell_command(git push -f)",
+    "run_shell_command(git push --force-with-lease)",
+    "run_shell_command(git commit --no-verify)",
+    "run_shell_command(git commit -n)",
+    "run_shell_command(git -c core.hooksPath)",
+    "run_shell_command(curl)",
+    "run_shell_command(wget)",
+    "run_shell_command(nc)",
+    "run_shell_command(ncat)",
+    "run_shell_command(socat)",
+    "run_shell_command(ssh)",
+    "run_shell_command(scp)",
+    "run_shell_command(sftp)",
+    "run_shell_command(telnet)",
+    "run_shell_command(python -c)",
+    "run_shell_command(python3 -c)",
+    "run_shell_command(node -e)",
+    "run_shell_command(node --eval)",
+    "run_shell_command(perl -e)",
+    "run_shell_command(perl -E)",
+    "run_shell_command(rm -rf /)",
+    "run_shell_command(rm -fr /)",
+    "run_shell_command(rm -rf ~)",
+    "run_shell_command(rm -fr ~)",
+    "run_shell_command(--dangerously-skip-permissions)"
+  ],
+  "tools": {
+    "core": [
+      "run_shell_command"
+    ],
+    "exclude": [
+      "run_shell_command(sudo)",
+      "run_shell_command(doas)",
+      "run_shell_command(git push --force)",
+      "run_shell_command(git push -f)",
+      "run_shell_command(git push --force-with-lease)",
+      "run_shell_command(git commit --no-verify)",
+      "run_shell_command(git commit -n)",
+      "run_shell_command(git -c core.hooksPath)",
+      "run_shell_command(curl)",
+      "run_shell_command(wget)",
+      "run_shell_command(nc)",
+      "run_shell_command(ncat)",
+      "run_shell_command(socat)",
+      "run_shell_command(ssh)",
+      "run_shell_command(scp)",
+      "run_shell_command(sftp)",
+      "run_shell_command(telnet)",
+      "run_shell_command(python -c)",
+      "run_shell_command(python3 -c)",
+      "run_shell_command(node -e)",
+      "run_shell_command(node --eval)",
+      "run_shell_command(perl -e)",
+      "run_shell_command(perl -E)",
+      "run_shell_command(rm -rf /)",
+      "run_shell_command(rm -fr /)",
+      "run_shell_command(rm -rf ~)",
+      "run_shell_command(rm -fr ~)",
+      "run_shell_command(--dangerously-skip-permissions)"
+    ]
+  }
+}
