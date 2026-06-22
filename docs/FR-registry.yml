@@ -706,11 +706,12 @@ requirements:
       loom import <devcontainer.json> deterministically maps the schema-homed fields into
       a draft project playbook — forwardPorts/appPort -> ports, containerEnv/remoteEnv ->
       env (NAMES only, deduped) — and REPORTS the devcontainer image (loom enriches with
-      its own engine-level base per ADR-0012/0003, never mapping image to the playbook)
-      while DEFERRING features and commands; every non-mapped field is reported, never
+      its own engine-level base per ADR-0012/0003, never mapping image to the playbook);
+      every non-mapped field is REPORTED (features -> reported.unmapped_features per
+      FR-IMPORT-004, lifecycle commands -> reported.commands per FR-IMPORT-005), never
       silently dropped.
     source: SPEC-verbs.md#import
-    tests: [engine.TestImportMapsPortsAndEnv, engine.TestImportReportsImageDefersFeaturesCommands, engine.TestImportSanitizesName]
+    tests: [engine.TestImportMapsPortsAndEnv, engine.TestImportReportsImageAndCommands, engine.TestImportSanitizesName]
     status: active
   - id: FR-IMPORT-002
     kind: behavioral
@@ -748,9 +749,31 @@ requirements:
       — name@version when the feature's `version` option is a clean token, else the bare tool
       name, deduped + sorted — and surfaces UNRECOGNIZED/custom features in reported
       (unmapped_features) rather than guessing; `features` thereby leaves the DEFERRED set
-      (only `commands` remains deferred).
+      (commands are REPORTED per FR-IMPORT-005, so the deferred set is empty).
     source: SPEC-verbs.md#import
     tests: [engine.TestImportMapsKnownFeaturesToTools, engine.TestImportReportsUnknownFeatures, engine.TestImportFeatureNameBoundary, engine.TestImportMultiToolFeatureBareNames]
+    status: active
+  - id: FR-IMPORT-005
+    kind: behavioral
+    # Target Env: capture (REPORT) the devcontainer lifecycle commands losslessly into the
+    # draft's NON-EXECUTABLE reported.commands — NEVER an executable/mapped field, NEVER run.
+    # Auto-running an imported (untrusted) command is a code-execution surface the guardrails
+    # must not open (ADR-0005 worst-thing test); this is the "image is REPORTED, not mapped"
+    # precedent applied to commands. EXECUTION of imported commands is a separate, security-
+    # reviewed slice — explicitly out of scope. reported.commands is a DECLARED playbook schema
+    # field (schema.go) solely so a round-tripped imported draft re-parses under strict decode
+    # (#256); it is review DATA — Validate/Merge/build ignore it (Merge drops it from the
+    # effective playbook), so it can never reach an execution path.
+    statement: >-
+      loom import CAPTURES the devcontainer lifecycle commands (initializeCommand,
+      onCreateCommand, updateContentCommand, postCreateCommand, postStartCommand,
+      postAttachCommand — string|array|object forms) verbatim into the draft's non-executable
+      reported.commands, each tagged with its lifecycle hook, so the import is LOSSLESS and
+      surfaced for human translation; the commands are placed in NO executable/mapped field
+      and are NEVER auto-run by loom, and the draft (carrying reported.commands) re-parses
+      cleanly under strict decode and is dropped from the merged effective playbook.
+    source: SPEC-verbs.md#import
+    tests: [engine.TestImportCapturesLifecycleCommandsAsReported, engine.TestImportCapturesCommandFormsArrayObject, engine.TestImportReportedCommandsRoundTripStrictDecode, playbook.TestMergeDropsReported]
     status: active
 
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---

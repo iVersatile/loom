@@ -121,6 +121,46 @@ type Playbook struct {
 	Harness map[string]HarnessAgent `json:"harness,omitempty"`
 
 	ConfigSource *ConfigSource `json:"config_source,omitempty"`
+
+	// Reported is the LOSSLESS, NON-EXECUTABLE capture section a draft carries for
+	// HUMAN REVIEW (FR-IMPORT-005, ADR-0003 "import & enrich, never degrade-to").
+	// `loom import` writes here the devcontainer inputs that have NO mapped playbook
+	// home — today: the devcontainer LIFECYCLE COMMANDS (postCreateCommand etc.) —
+	// so the import is lossless and surfaced, the same role `reported.unmapped_features`
+	// plays for features. It is a DECLARED schema field SOLELY so a round-tripped
+	// imported draft re-parses under strict decode (parse.go); it is review DATA, not
+	// desired-state. The engine NEVER reads, runs, provisions, or merges it (Merge
+	// drops it — it is draft-only and out of the effective playbook): an imported
+	// command is untrusted input, and auto-running it would be a new code-execution
+	// surface that fails the "would the guardrails hold if you tried the worst thing?"
+	// test (ADR-0005). EXECUTION of imported commands is a separate, security-reviewed
+	// slice — never this field. A pointer so an authored (non-import) playbook with no
+	// reported: stays byte-identical to a pre-FR-IMPORT-005 build.
+	Reported *Reported `json:"reported,omitempty"`
+}
+
+// Reported is the draft's non-executable, human-review capture section
+// (FR-IMPORT-005). It is NOT consumed by build/plan/provision — it carries no
+// desired-state, only the imported inputs that need human translation. See the
+// Playbook.Reported doc for the security rationale (commands are captured, never
+// run).
+type Reported struct {
+	// Commands are the devcontainer LIFECYCLE commands captured verbatim from the
+	// imported devcontainer.json (postCreateCommand, onCreateCommand, …). Each
+	// carries the lifecycle Hook label + the command string(s) so a human can
+	// translate them into loom-native tools/setup. They are REPORTED data ONLY:
+	// loom never auto-runs an imported command (ADR-0005 worst-thing test).
+	Commands []ReportedCommand `json:"commands,omitempty"`
+}
+
+// ReportedCommand is one captured devcontainer lifecycle command (FR-IMPORT-005).
+// Hook is the devcontainer lifecycle hook it came from (e.g. "postCreateCommand");
+// Run holds the command's string form(s) — devcontainer commands are string | array
+// | object, all normalized to a list of literal command strings for human review.
+// This is review data: it maps to NO executable field and is NEVER run by loom.
+type ReportedCommand struct {
+	Hook string   `json:"hook"`
+	Run  []string `json:"run"`
 }
 
 // HarnessAgent is one agent's harness-home config. All fields are references
