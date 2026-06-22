@@ -55,15 +55,23 @@ func runHook(dir string, env []string, args ...string) error {
 	return c.Run()
 }
 
-// hermeticEnv returns the ambient environment with audited ALLOW_* overrides
-// and all GIT_* vars stripped, then pins git's config scope to nothing
-// (GIT_CONFIG_GLOBAL/SYSTEM=/dev/null). Every fixture process — git itself or
-// a hook that shells out to git — must build its env from this, so a test can
-// only ever act on the repo it explicitly targets (LL-006, LL-010).
+// hermeticEnv returns the ambient environment with audited ALLOW_* overrides,
+// all GIT_* vars, and all LOOM_* vars stripped, then pins git's config scope to
+// nothing (GIT_CONFIG_GLOBAL/SYSTEM=/dev/null). Every fixture process — git
+// itself or a hook that shells out to git — must build its env from this, so a
+// test can only ever act on the repo it explicitly targets (LL-006, LL-010).
+//
+// LOOM_* is stripped because the autonomy knobs (LOOM_AUTOPULL_CLASSES,
+// LOOM_SPAWN_*, LOOM_WAKE_*, LOOM_NOW, ...) are test-CONTROLLED: a test that
+// exercises the empty self-selection floor appends nothing, one that needs a
+// floor appends it explicitly. Without this strip, a seat running the autopull
+// trial (LOOM_AUTOPULL_CLASSES=exec in its env) makes `make gate`/pre-commit FAIL
+// on a clean tree — the gate must be env-independent (same doctrine as the GIT_*
+// scrub). Tests pass every LOOM_* they rely on via the env... overrides.
 func hermeticEnv() []string {
 	var out []string
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "ALLOW_") || strings.HasPrefix(kv, "GIT_") {
+		if strings.HasPrefix(kv, "ALLOW_") || strings.HasPrefix(kv, "GIT_") || strings.HasPrefix(kv, "LOOM_") {
 			continue
 		}
 		out = append(out, kv)
