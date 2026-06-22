@@ -32,6 +32,11 @@ var sourcePolicy = map[string]string{
 	"gh":            "go-install",
 	"lazygit":       "go-install",
 	"uv":            "uv-installer",
+	// nodejs: Node 20 + npm via the NodeSource setup script — NOT apt
+	// (debian:bookworm-slim ships Node 18, too old for gemini-cli's `engines`
+	// pin of Node >= 20). The gemini-cli prerequisite (the npm global install
+	// needs node+npm on PATH); see provisionScript's nodejs-20 branch.
+	"nodejs": "nodejs-20",
 }
 
 func sourceFor(tool string) string {

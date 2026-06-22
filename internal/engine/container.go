@@ -998,7 +998,7 @@ func createRunArgs(spec ContainerSpec, hostCredsPath string, credsPresent bool) 
 // prerequisites (ca-certificates, curl) first.
 func provisionScript(tools []ToolInstall, agents []AgentInstall) string {
 	var apt, goInstall []string
-	var needGo, needUv bool
+	var needGo, needUv, needNode bool
 	for _, t := range tools {
 		switch t.Source {
 		case "apt":
@@ -1012,6 +1012,8 @@ func provisionScript(tools []ToolInstall, agents []AgentInstall) string {
 			needGo = true
 		case "uv-installer":
 			needUv = true
+		case "nodejs-20":
+			needNode = true
 		}
 	}
 	sort.Strings(apt)
@@ -1060,6 +1062,17 @@ export GOMEMLIMIT=1GiB
 		// non-root runtime user), not the provisioning root's ~/.local/bin (adv-065).
 		b.WriteString("retry sh -c 'curl -fsSL https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh'\n")
 	}
+	if needNode {
+		// Node 20 + npm via the NodeSource setup script (debian:bookworm-slim's apt
+		// nodejs is v18, below gemini-cli's Node>=20 `engines` pin). NodeSource adds
+		// its apt repo then `apt-get install nodejs` lands node+npm in /usr/bin —
+		// already on the default login PATH for the non-root runtime user (adv-065).
+		// The gemini-cli prerequisite; runs BEFORE the agent-install loop so
+		// `npm install -g @google/gemini-cli` (agentInstallCmd) has npm on PATH.
+		b.WriteString("retry sh -c 'curl -fsSL https://deb.nodesource.com/setup_20.x | bash -'\n")
+		b.WriteString("retry apt-get install -y --no-install-recommends nodejs\n")
+		b.WriteString("apt-get clean && rm -rf /var/lib/apt/lists/*\n")
+	}
 	// Install declared agent harnesses (T8). claude-code's native installer needs
 	// no Node; it lands at root's ~/.local/bin (provision runs as root, Model A),
 	// then agentInstallCmd relocates the BINARY to the SHARED /usr/local/bin so the
@@ -1095,6 +1108,16 @@ func agentInstallCmd(a AgentInstall) string {
 	case "claude-code":
 		return "retry sh -c 'curl -fsSL https://claude.ai/install.sh | bash'\n" +
 			"cp -L \"$HOME/.local/bin/claude\" /usr/local/bin/claude && chmod 0755 /usr/local/bin/claude\n"
+	case "gemini":
+		// gemini-cli via npm global (the nodejs tool installed node+npm above).
+		// `npm config set prefix /usr/local` puts the global bin in the SHARED,
+		// world-exec /usr/local/bin (on the default login PATH for every user) —
+		// the adv-065 reachability fix, the npm analogue of the claude relocate:
+		// a non-root runtime user must be able to run `gemini`. The CLI's config
+		// (~/.gemini/settings.json) is the home-synced dotfile (materializeHarness),
+		// not installed here — only the binary is provisioned.
+		return "npm config set prefix /usr/local\n" +
+			"retry npm install -g @google/gemini-cli\n"
 	default:
 		return ""
 	}

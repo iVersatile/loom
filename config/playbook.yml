@@ -2,8 +2,14 @@ loom: 1
 tier: base
 
 # Agent harnesses available in every project's container.
+# gemini (gemini-cli) is a FULL PEER of claude-code (same tier): installed via
+# npm (needs the nodejs tool below), authed by the volume-token credential
+# (GEMINI_API_KEY), and command-guarded by harness.gemini.settings (the tightest
+# deny the tool supports — see the loud caveat there). agentInstallCmd installs
+# it; agentSource maps it to npm-global.
 agents:
   - claude-code
+  - gemini
 
 # Tools shared across all projects.
 # golangci-lint: a `make gate` dependency (Makefile hard-fails lint without it);
@@ -14,6 +20,13 @@ tools:
   - ripgrep
   - gitleaks
   - golangci-lint
+  # nodejs: Node.js 20 + npm — the PREREQUISITE for gemini-cli (installed via
+  # `npm i -g @google/gemini-cli`; gemini-cli's package.json pins Node >= 20).
+  # debian:bookworm-slim's apt nodejs is v18 (too old), so this resolves to the
+  # `nodejs-20` source (the official NodeSource setup script), NOT apt — see
+  # resolver.sourcePolicy + provisionScript. claude-code needs NO Node (native
+  # installer); this entry exists solely for the gemini peer.
+  - nodejs
   # gh: env-tier git-controller/VCS capability for the seat (advisor-in-loom
   # T34, Slice B) — backs the `!gh auth git-credential` helper. go-install
   # source (loom-dev has the Go toolchain); see resolver sourcePolicy +
@@ -62,6 +75,29 @@ hooks:
 # home. session-snapshot is not declared: its content design is parked
 # (judgment-trial C4).
 harness:
+  # gemini (gemini-cli) — a FULL PEER of claude, at the same tier. Mirrors the
+  # claude STRUCTURE (settings + credential), NOT claude's claude-specific hooks:
+  # gemini-cli has a DIFFERENT config schema (~/.gemini/settings.json) and — to
+  # the best of current knowledge (Jan 2026 cutoff; web unavailable at build) —
+  # NO PreToolUse-equivalent script hook that can inspect command CONTENT and
+  # block on exit code the way guard-bash does. So gemini's command deny-floor is
+  # carried ENTIRELY by settings.json `excludeTools` (prefix-scoped denials; the
+  # verified gemini-cli key), NOT
+  # by a hooks: list here (a gemini hooks: list would dangle — there is no gemini
+  # hook mechanism to register it into). See the loud SECURITY caveat in
+  # config/dotfiles/gemini/settings.json.
+  #
+  # credential: volume-token (M1, ADR-0027) injects GEMINI_API_KEY at EXEC time
+  # from the per-project credential volume — same leak-safe adapter claude's docs
+  # describe, the path T15 slice 1 reserved for gemini (OAuth/ADC is DEFERRED —
+  # NOT built here). gemini is the only volume-token agent, so the slice-1
+  # "first sorted M1 agent" injection selects it cleanly (claude uses the host
+  # creds mount, no credential: block).
+  gemini:
+    settings: gemini/settings.json
+    credential:
+      method: volume-token
+      env: GEMINI_API_KEY
   claude:
     settings: claude/settings.json
     hooks:
