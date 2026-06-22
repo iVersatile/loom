@@ -46,12 +46,25 @@ func sessionRole(pb *playbook.Playbook) string {
 
 // noEgress maps the resolved networking posture onto the ContainerSpec egress cut
 // (T20 S2a, ADR-0028). Only egress: none turns it on — it reuses S1's existing
-// --network none MECHANISM (the single behavioral mapping in this slice). off/unset
-// leave egress unchanged (full outbound, Phase-1 default); allowlist never reaches
-// here (validate fail-closes it as unimplemented — S2b). Validate runs in Load
-// before this, so a non-none/off/allowlist value cannot survive to here.
+// --network none MECHANISM. off/unset leave egress unchanged (full outbound,
+// Phase-1 default); allowlist does NOT cut all egress (it confines via the proxy
+// sidecar — egressPolicy, NoEgress stays false). Validate runs in Load before
+// this, so a non-none/off/allowlist value cannot survive to here.
 func noEgress(pb *playbook.Playbook) bool {
 	return pb.Networking != nil && pb.Networking.Egress == playbook.EgressNone
+}
+
+// egressPolicy maps the merged networking: section onto the resolved EgressPolicy
+// the engine confinement consumes (T20 S2b, ADR-0028 Amendment 1). Posture is the
+// merged egress scalar ("" for an unset/absent section); Allow is the declared
+// allow: list (the load-bearing floor is union'd in at confinement time,
+// resolveEgressAllowlist). Only the allowlist posture drives the proxy-sidecar
+// confinement; none/off carry no allowlist mechanism (NoEgress / default bridge).
+func egressPolicy(pb *playbook.Playbook) EgressPolicy {
+	if pb.Networking == nil {
+		return EgressPolicy{}
+	}
+	return EgressPolicy{Posture: pb.Networking.Egress, Allow: pb.Networking.Allow}
 }
 
 // containerVersions adapts the runtime's in-container probe to
@@ -251,6 +264,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		Home:       homeForUser(pb.User), // resolved $HOME; consumed by the engine in PR 3
 		Role:       role,                 // ADR-0019 PR4 §5: declarative role: → /var/lib/loom/role marker
 		NoEgress:   noEgress(pb),         // T20 S2a/ADR-0028: networking.egress: none → --network none (the S1 primitive)
+		Egress:     egressPolicy(pb),     // T20 S2b/ADR-0028 A1: networking.egress: allowlist → proxy-sidecar confinement
 		Force:      opts.Force, LogW: logw,
 	})
 	if err != nil {

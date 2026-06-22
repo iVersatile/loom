@@ -168,6 +168,10 @@ type Removed struct {
 	Containers []string `json:"containers"`
 	Volumes    []string `json:"volumes"`
 	Images     []string `json:"images"`
+	// Networks are the per-container egress objects removed (T20 S2b, ADR-0028 A1):
+	// the internal + external networks of an `egress: allowlist` confinement. Empty
+	// for every other posture (off/none/unset create no networks).
+	Networks []string `json:"networks"`
 }
 
 type TeardownResult struct {
