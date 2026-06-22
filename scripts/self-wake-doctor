@@ -88,6 +88,18 @@ case "$ap" in
 	*)                say WARN "gate:autopilot" "unrecognized first inbox line: ${ap:-<empty>}" ;;
 esac
 
+# Self-selection floor: promote-next only mints a backlog row whose class is on
+# this allow-list (LOOM_AUTOPULL_CLASSES, space/comma list; default EMPTY => nothing
+# auto-pulls, every READY row is CONFIRM-REQUIRED). The single most common reason a
+# wake does not fire — readiness-decide IGNORES this floor, so a row can read READY
+# (below) yet never pull. Empty is a deliberate default, not a malfunction => WARN.
+floor=$(printf '%s' "${LOOM_AUTOPULL_CLASSES:-}" | tr ',' ' ' | tr -s ' ')
+if [ -n "$(printf '%s' "$floor" | tr -d ' ')" ]; then
+	say OK   "gate:autopull-floor" "floor open: $floor (LOOM_AUTOPULL_CLASSES)"
+else
+	say WARN "gate:autopull-floor" "LOOM_AUTOPULL_CLASSES empty — self-selection floor CLOSED; READY rows are CONFIRM-REQUIRED, nothing auto-pulls (set =exec to arm)"
+fi
+
 # Empty-tick budget: ticks vs MAX_EMPTY. At/over the bound the next empty poll is
 # IDLE-STOP (give up, no re-arm) — flag when close so the give-up isn't a surprise.
 t=$(cat "$TICKS" 2>/dev/null); case "$t" in *[!0-9]*|"") t=0 ;; esac

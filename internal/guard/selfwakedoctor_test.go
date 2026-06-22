@@ -171,6 +171,30 @@ func TestSelfWakeDoctorGates(t *testing.T) {
 		out, code := runSelfWakeDoctor(t, root, "LOOM_NOW=1000000")
 		mustWarn(t, out, code, "gate:rate", "at limit")
 	})
+
+	t.Run("autopull-floor empty ⇒ WARN", func(t *testing.T) {
+		root := selfWakeRoot(t, execRow)
+		out, code := runSelfWakeDoctor(t, root) // no LOOM_AUTOPULL_CLASSES => floor closed
+		mustWarn(t, out, code, "gate:autopull-floor", "CLOSED")
+	})
+
+	t.Run("autopull-floor set ⇒ OK", func(t *testing.T) {
+		root := selfWakeRoot(t, execRow)
+		out, code := runSelfWakeDoctor(t, root, "LOOM_AUTOPULL_CLASSES=exec")
+		if code != 0 {
+			t.Fatalf("want exit 0, got %d:\n%s", code, out)
+		}
+		line := ""
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, "gate:autopull-floor") {
+				line = l
+				break
+			}
+		}
+		if !strings.HasPrefix(line, "OK") || !strings.Contains(line, "exec") {
+			t.Errorf("want OK gate:autopull-floor containing exec, got line: %q\nfull:\n%s", line, out)
+		}
+	})
 }
 
 // TestSelfWakeDoctorReadiness pins ADD 1: the readiness section invokes the pure-
