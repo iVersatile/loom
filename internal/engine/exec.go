@@ -104,9 +104,21 @@ func execImpl(opts ExecOpts, rt ContainerRuntime, now func() time.Time) (ExecRes
 		}
 	}
 
+	// Exec-time credential injection (M1 volume-token, ADR-0027): resolve the
+	// per-project token from the credential volume via the runtime's mockable
+	// read-seam and inject it as `docker exec -e ENV=TOKEN` onto the AGENT seat
+	// ONLY. This is exec-`-e`, never run-`-e` — the token never enters Config.Env
+	// (the ADR-0014 leak). FAIL-CLOSED: a missing/empty token errors here and the
+	// verb refuses to run rather than open an unauthenticated seat (no silent
+	// degrade). A non-M1 playbook resolves to no env and this is a clean no-op.
+	credEnv, cerr := credentialExecEnv(rt, cname, pb.Harness)
+	if cerr != nil {
+		return ExecResult{ExitCode: 1}, fmt.Errorf("exec: %w", cerr)
+	}
+
 	// Model A (T10/ADR-0019 amended): entry verbs run AS the configured user
 	// (`docker exec -u <user>`); unset/root = the container default (root).
-	exit, runErr := rt.Exec(cname, opts.Command, containerWorkspace(pb.Name), pb.User, opts.TTY)
+	exit, runErr := rt.Exec(cname, opts.Command, containerWorkspace(pb.Name), pb.User, opts.TTY, credEnv)
 	if runErr != nil {
 		// Transport-level failure (docker itself, not the command): no exit
 		// code to propagate.

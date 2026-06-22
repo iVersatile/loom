@@ -161,6 +161,15 @@ func doctorImpl(opts DoctorOpts, rt ContainerRuntime) (DoctorResult, error) {
 		res.Checks = append(res.Checks, c)
 	}
 
+	// Credential slug-uniqueness (ADR-0027 invariant #1, mechanically checked):
+	// the per-project credential volume key isolates one project's credential from
+	// another's; this fails closed on a slug that is malformed or could collide
+	// (cross-wiring two projects onto one credential store). Host-side + static;
+	// graded only when an M1 (volume-token) credential is declared.
+	if c, ok := credentialSlugChecks(*pb); ok {
+		res.Checks = append(res.Checks, c)
+	}
+
 	// Container tier: state first; tools are graded only against a real
 	// container, never the host PATH.
 	cname := containerName(pb.Name)

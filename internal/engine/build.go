@@ -190,6 +190,15 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		return res, fmt.Errorf("materialize harness: %w", err)
 	}
 	mats = append(mats, hmats...)
+	// M2 credential adapter (ADR-0027 apiKeyHelper): a TARGETED key-set of the
+	// apiKeyHelper key on the just-materialized settings.json — a declared
+	// carve-out (like trust), NOT a key-merge. The helper is an operator COMMAND
+	// (config); loom never runs it or sees its output. No-op for a non-M2 build.
+	cmats, err := applyAPIKeyHelper(pb.Harness, home)
+	if err != nil {
+		return res, fmt.Errorf("materialize credential (apiKeyHelper): %w", err)
+	}
+	mats = append(mats, cmats...)
 	// T4: engine-generated PATH dotfiles ride the same staging dir — one
 	// dotfile dir owns shell config; the provision script no longer appends
 	// PATH lines to shell-init files.
@@ -265,7 +274,11 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		Role:       role,                 // ADR-0019 PR4 §5: declarative role: → /var/lib/loom/role marker
 		NoEgress:   noEgress(pb),         // T20 S2a/ADR-0028: networking.egress: none → --network none (the S1 primitive)
 		Egress:     egressPolicy(pb),     // T20 S2b/ADR-0028 A1: networking.egress: allowlist → proxy-sidecar confinement
-		Force:      opts.Force, LogW: logw,
+		// M1 credential adapter (ADR-0027 volume-token): agents needing the
+		// per-project credential volume MOUNTED at create. The token itself is
+		// injected at EXEC time (exec.go), never on run — no Config.Env leak.
+		CredentialVolumeAgents: volumeTokenAgentNames(pb.Harness),
+		Force:                  opts.Force, LogW: logw,
 	})
 	if err != nil {
 		return res, fmt.Errorf("container step: %w", err)

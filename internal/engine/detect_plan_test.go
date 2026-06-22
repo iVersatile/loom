@@ -44,6 +44,8 @@ type fakeRuntime struct {
 	execErr         error     // canned transport error for Exec
 	startErr        error     // canned error for Start
 	execRecord      *execCall // when set, Start/Exec record into it
+	credToken       string    // canned M1 volume-token (ADR-0027) — FAKE-TOKEN in tests
+	credTokenErr    error     // canned token-read error (fail-closed: absent volume)
 }
 
 // teardownArgs captures what the teardown verb asked of the runtime — the
@@ -64,6 +66,7 @@ type execCall struct {
 	user    string
 	started bool
 	tty     bool
+	credEnv []string // exec-time credential -e injections (ADR-0027 M1)
 }
 
 func (r fakeRuntime) Exists(string) (bool, error) { return r.exists, r.err }
@@ -129,12 +132,20 @@ func (r fakeRuntime) Start(name string) error {
 	return r.startErr
 }
 
-func (r fakeRuntime) Exec(name string, argv []string, workdir, user string, tty bool) (int, error) {
+func (r fakeRuntime) Exec(name string, argv []string, workdir, user string, tty bool, credEnv []string) (int, error) {
 	if r.execRecord != nil {
 		r.execRecord.name, r.execRecord.argv, r.execRecord.workdir = name, argv, workdir
 		r.execRecord.user, r.execRecord.tty = user, tty
+		r.execRecord.credEnv = credEnv
 	}
 	return r.execExit, r.execErr
+}
+
+// ReadCredentialToken returns the canned M1 token (ADR-0027) — the mockable seam
+// that lets exec tests assert injection WITHOUT a real secret. credTokenErr
+// drives the fail-closed (absent-volume) path.
+func (r fakeRuntime) ReadCredentialToken(_, _ string) (string, error) {
+	return r.credToken, r.credTokenErr
 }
 
 // The fixture playbook resolves to tools: git, jq, go@1.26, gopls.
