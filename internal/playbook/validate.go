@@ -13,18 +13,27 @@ import (
 // yield `docker exec -e FOO=BAR=token`).
 var envVarNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// homeRelPathCharsetRe is the allowlist a HOME-relative oauth-file mount path must
+// match: ONLY [A-Za-z0-9._/-]. Anything outside this set is rejected. This subsumes
+// the whitespace check and, critically, the docker-mount-spec separators (':' ',')
+// plus '~' / ';' / '$' — a path like `.gemini:ro` or `x:/etc/cron.d` would otherwise
+// validate and corrupt the `-v vol:<home>/<path>:rw` derivation. Legitimate paths
+// (`.gemini`, `.config/gcloud`) match.
+var homeRelPathCharsetRe = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+
 // validHomeRelPath reports whether p is a safe HOME-relative mount path for the
 // oauth-file adapter: non-empty after trim, no leading '/' (an absolute path would
-// mount outside $HOME, escaping the per-project home boundary), and no '..' segment
-// (traversal out of $HOME). It also rejects whitespace, which would corrupt the
-// `-v vol:<home>/<path>:rw` derivation. Kept here (not the engine) so a malformed
-// path fails at validate, before any container is built.
+// mount outside $HOME, escaping the per-project home boundary), no '..' segment
+// (traversal out of $HOME), and every character in the allowlist [A-Za-z0-9._/-]
+// (rejecting whitespace and the docker-mount separators ':' ',' plus '~' ';' '$',
+// which would corrupt the `-v vol:<home>/<path>:rw` derivation). Kept here (not the
+// engine) so a malformed path fails at validate, before any container is built.
 func validHomeRelPath(p string) bool {
 	p = strings.TrimSpace(p)
 	if p == "" || strings.HasPrefix(p, "/") {
 		return false
 	}
-	if strings.ContainsAny(p, " \t\r\n") {
+	if !homeRelPathCharsetRe.MatchString(p) {
 		return false
 	}
 	for _, seg := range strings.Split(p, "/") {
@@ -210,6 +219,12 @@ func (pb *Playbook) Validate() error {
 // and is never authored/read/logged by loom (the human trust act, out of scope).
 func validateCredential(agent string, c *Credential) []string {
 	var errs []string
+	// path: is meaningful ONLY for oauth-file. On any other method it is dead data
+	// (silently ignored), which violates the fail-loud posture — reject it so a
+	// misplaced path: cannot lurk unhonored on a volume-token/apiKeyHelper/etc.
+	if strings.TrimSpace(c.Path) != "" && c.Method != CredOAuthFile {
+		errs = append(errs, fmt.Sprintf("harness.%s.credential: path: is only valid for method %q (got %q)", agent, CredOAuthFile, c.Method))
+	}
 	switch c.Method {
 	case CredAPIKeyHelper:
 		if strings.TrimSpace(c.Helper) == "" {

@@ -119,14 +119,14 @@ func oauthFileCredentialChecks(rt credFilePresenceProbe, container, home string,
 		switch {
 		case err != nil:
 			checks = append(checks, Check{Name: name, OK: false, Detail: fmt.Sprintf(
-				"could not probe the oauth-file credential at %s (%v) — refusing to assume it is present (ADR-0027 fail-closed)", credsFile, err)})
+				"could not probe the oauth-file credential (Gemini's %s) at %s (%v) — refusing to assume it is present (ADR-0027 fail-closed)", oauthCredsFileName, credsFile, err)})
 		case !present:
 			checks = append(checks, Check{Name: name, OK: false, Detail: fmt.Sprintf(
-				"oauth-file credential for agent %q is missing or empty at %s — provision it (a one-time browser login into the per-project volume %s) or remove the credential: declaration; refusing to pass an unprovisioned credential (ADR-0027 fail-closed)",
-				a.Agent, credsFile, credentialVolume(container, a.Agent))})
+				"oauth-file credential for agent %q is missing or empty at %s — this check probes Gemini's %s specifically (gcloud-ADC's application_default_credentials.json is the follow-on c1 slice); provision it (a one-time browser login into the per-project volume %s) or remove the credential: declaration; refusing to pass an unprovisioned credential (ADR-0027 fail-closed)",
+				a.Agent, credsFile, oauthCredsFileName, credentialVolume(container, a.Agent))})
 		default:
 			checks = append(checks, Check{Name: name, OK: true, Detail: fmt.Sprintf(
-				"oauth-file credential present + non-empty at %s (volume %s, :rw)", credsFile, credentialVolume(container, a.Agent))})
+				"oauth-file credential present + non-empty at %s (Gemini's %s, volume %s, :rw)", credsFile, oauthCredsFileName, credentialVolume(container, a.Agent))})
 		}
 	}
 	return checks, true
