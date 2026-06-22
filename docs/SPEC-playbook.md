@@ -326,7 +326,7 @@ harness:
   runtime is rederivable cache: a home re-sync overwrites it, and that is
   accepted by ruling ("caches may die").
 
-### `harness.<agent>.credential` (added 2026-06-22, ADR-0027 slice 1)
+### `harness.<agent>.credential` (added 2026-06-22, ADR-0027 slice 1; `oauth-file` wired slice 2 2026-06-22)
 
 The per-agent credential-acquisition declaration — the cross-class **convention**
 (ADR-0027 §1). loom wires the **mechanism**, never the **value**: it never
@@ -348,15 +348,16 @@ harness:
     #   env: CLAUDE_CODE_OAUTH_TOKEN    # the env var NAME injected at exec-time
 ```
 
-- **Shape:** `{method, helper?, env?}`. `method` is required; `helper`/`env` are
-  per-method (see enum). The credential VALUE is never in the playbook — `helper`
-  is an operator command; `env` is a var NAME (the value is human-provisioned into
-  a per-project volume).
+- **Shape:** `{method, helper?, env?, path?}`. `method` is required; `helper`/`env`/
+  `path` are per-method (see enum). The credential VALUE is never in the playbook —
+  `helper` is an operator command; `env` is a var NAME (the value is human-provisioned
+  into a per-project volume); `path` is oauth-file-only (a HOME-relative mount dir).
 - **Adapter enum** (ADR-0027 §1 — a FIXED set, no open-ended resolver): `env` ·
   `apiKeyHelper` · `volume-token` · `volume-store+helper` (describes gh's ADR-0026
-  mechanism, not re-plumbed here) · `oauth-file` · `interactive-login`. **Slice 1
-  WIRES only `apiKeyHelper` (M2) and `volume-token` (M1)**; every other enum member
-  is valid-to-declare but **FAILS CLOSED** at validate ("not yet supported, slice
+  mechanism, not re-plumbed here) · `oauth-file` · `interactive-login`. **Wired
+  adapters: `apiKeyHelper` (M2), `volume-token` (M1), and `oauth-file` (M3, slice
+  2)**; the remaining members (`env`, `volume-store+helper`, `interactive-login`)
+  are valid-to-declare but **FAIL CLOSED** at validate ("not yet supported, slice
   2+") — a declared credential is never silently no-op'd (the guardrail principle:
   an unhonorable credential fails LOUD, never runs unauthenticated).
 - **Merge:** any-tier **last-non-empty(non-nil)-wins**, exactly like `trust:` (a
@@ -364,7 +365,9 @@ harness:
   NOT through the base-gated `settings:` path; an env-wide base default with a
   per-project override is the expected shape.
 - **Validate:** `method` ∈ enum; `apiKeyHelper` requires `helper`; `volume-token`
-  requires `env`; an unwired method or unknown token is a hard error.
+  requires `env`; an unwired method or unknown token is a hard error. `oauth-file`
+  accepts an optional HOME-relative `path` (allowlisted charset `[A-Za-z0-9._/-]`,
+  no `..`/leading-`/`, default `.gemini`); a `path` on any other method is an error.
 - **M2 (`apiKeyHelper`):** the engine does a TARGETED key-set of the `apiKeyHelper`
   key on the already-materialized `settings.json` — a declared **carve-out** (like
   `trust:`), NOT the general key-merge Open question 1 still defers. The helper
@@ -376,6 +379,15 @@ harness:
   injects it as `docker exec -e <env>=<token>` onto the **agent seat only** —
   **NEVER `docker run -e`** (the ADR-0014 `Config.Env`/`docker inspect` leak). An
   absent/empty token **fails closed** (no unauthenticated seat).
+- **M3 (`oauth-file`):** the same per-project credential volume
+  (`<container>-<agent>-cred`) is mounted **read-WRITE** at the agent's HOME path
+  (`$HOME/<path>`, default `$HOME/.gemini`) so the agent's CLI can refresh the OAuth
+  creds file in place — the one divergence from M1's `:ro`. loom places nothing and
+  reads nothing: a human does the one-time browser login into the volume; the engine
+  never reads the creds body. `doctor`/`verify` grades the creds file **present +
+  non-empty** (existence only, never the contents); a missing/empty file **fails
+  closed**. (The present check probes Gemini's `oauth_creds.json`; gcloud-ADC's
+  `application_default_credentials.json` is the follow-on c1 slice.)
 - **Mechanically checked invariants** (ADR-0027 §1): `doctor`/`verify` grades
   **slug-uniqueness** — the per-project credential volume key must be well-formed
   and collision-free (two projects must not cross-wire onto one credential store).
