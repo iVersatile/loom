@@ -1,7 +1,6 @@
 package engine
 
 import (
-	_ "embed"
 	"fmt"
 	"io"
 	"os"
@@ -10,23 +9,21 @@ import (
 	"strings"
 )
 
-// egressProxySource is loom's shipped egress-gatekeeper proxy, embedded as
-// SOURCE (T20 S2b, ADR-0028 Amendment 1). At sidecar startup the engine writes
-// this source into the sidecar and runs it with `go run /egressproxy.go` — the
-// sidecar uses loom's base image, which BAKES the Go toolchain (ADR-0012), so a
-// single stdlib-only standalone file needs no go.mod. Embedding the source (not a
-// prebuilt per-arch binary) keeps the build graph a single Go module and makes
-// the proxy reproducible from the tree on every arch the base image supports.
-// The proxy itself is the proven #249 gatekeeper (testdata→shipped), unchanged in
-// behavior: explicit-CONNECT + plain-HTTP forward, allow-by-hostname, deny→403,
-// stderr decision logs.
-//
-//go:embed egressproxy/main.go
-var egressProxySource string
+// egressProxyContainerPath is where the loom binary is `docker cp`'d inside the
+// sidecar (DELIVERY A). The sidecar then runs `/loom __egress-proxy` — a hidden
+// loom subcommand that calls egress.RunProxy — so the sidecar image needs NO Go
+// toolchain (the previous delivery `go run` the embedded source, requiring Go in
+// the base image; debian:bookworm-slim and most project bases lack it).
+const egressProxyContainerPath = "/loom"
 
-// egressProxyPath is where the embedded proxy source is written inside the
-// sidecar before `go run`.
-const egressProxyPath = "/egressproxy.go"
+// egressProxyBinary is an overridable seam returning the path to a loom binary
+// that carries the `__egress-proxy` subcommand. In PRODUCTION this is the running
+// loom CLI (os.Executable()). In the INTEGRATION TEST the running executable is
+// the TEST binary (which has no subcommands), so the canary overrides this to a
+// freshly `go build`-ed real loom binary (the CI test runner has Go on the host).
+// Keeping the seam here (not behind a build tag) lets the test reassign it
+// without a parallel code path.
+var egressProxyBinary = func() (string, error) { return os.Executable() }
 
 // egressProxyPort is the port the sidecar proxy listens on (and the port the
 // project container's HTTP(S)_PROXY env points at).
@@ -163,16 +160,17 @@ func provisionEnvArgs(clearProxyEnv bool) []string {
 	return args
 }
 
-// egressProxyRunCmd is the command the sidecar runs to start the proxy: `go run`
-// the embedded source with the resolved allowlist in ALLOW and the listen port in
-// LISTEN. The base image bakes the Go toolchain (ADR-0012), so a stdlib-only
-// single file needs no go.mod. ALLOW is comma-joined (the proxy splits on ",").
-func egressProxyRunCmd(allow []string) []string {
+// egressProxyExecArgs is the `docker exec -d` arg vector that starts the proxy
+// in the sidecar (DELIVERY A): the copied-in loom binary's hidden `__egress-proxy`
+// subcommand, with the resolved allowlist in ALLOW and the listen port in LISTEN.
+// No Go toolchain in the sidecar — the loom binary IS the proxy. ALLOW is
+// comma-joined (the subcommand splits on ",").
+func egressProxyExecArgs(sidecar string, allow []string) []string {
 	return []string{
-		"env",
-		"ALLOW=" + strings.Join(allow, ","),
-		"LISTEN=:" + egressProxyPort,
-		"go", "run", egressProxyPath,
+		"exec", "-d",
+		"-e", "ALLOW=" + strings.Join(allow, ","),
+		"-e", "LISTEN=:" + egressProxyPort,
+		sidecar, egressProxyContainerPath, "__egress-proxy",
 	}
 }
 
@@ -188,9 +186,10 @@ func egressProxyRunCmd(allow []string) []string {
 // fresh project container):
 //  1. create two per-container networks: an `--internal` one (no route off-box)
 //     and a normal bridge for the sidecar's real internet;
-//  2. create the sidecar on the bridge, join it to the internal network, write
-//     the embedded proxy source in, and `go run` it (background) with ALLOW set
-//     to the resolved allowlist (declared ∪ load-bearing floor);
+//  2. create the sidecar on the bridge, join it to the internal network, `docker
+//     cp` the loom binary in, and run its hidden `__egress-proxy` subcommand
+//     (background, DELIVERY A) with ALLOW set to the resolved allowlist (declared
+//     ∪ load-bearing floor). No Go in the sidecar — the loom binary IS the proxy;
 //  3. CUT the project container over: disconnect it from the default bridge and
 //     connect it to the internal network as its SOLE route. A raw socket now has
 //     nowhere to go but the sidecar — the route is the fence (mechanism, not the
@@ -234,13 +233,20 @@ func ensureEgressConfinement(name string, policy EgressPolicy, image string, log
 	if out, err := dockerLogged(logw, "network", "connect", intNet, sidecar); err != nil {
 		return fmt.Errorf("egress: join sidecar %s to %s: %v: %s", sidecar, intNet, err, out)
 	}
-	// Write the embedded proxy source into the sidecar, then `go run` it in the
-	// background. The base image bakes the Go toolchain (ADR-0012) — a stdlib-only
-	// single file needs no go.mod.
-	if err := writeProxySource(sidecar, logw); err != nil {
-		return err
+	// Copy the loom binary into the sidecar and run its hidden `__egress-proxy`
+	// subcommand in the background (DELIVERY A). No Go toolchain in the sidecar:
+	// the loom binary IS the proxy. The binary's arch must match the container's
+	// (host-arch on Docker Desktop, where the engine and the container share the
+	// daemon's arch); the loom CLI builds CGO-free/static so it runs on any glibc
+	// base (debian:bookworm-slim included).
+	bin, err := egressProxyBinary()
+	if err != nil {
+		return fmt.Errorf("egress: locate loom binary for the proxy sidecar: %w", err)
 	}
-	if out, err := dockerLogged(logw, append([]string{"exec", "-d", sidecar}, egressProxyRunCmd(allow)...)...); err != nil {
+	if out, err := dockerLogged(logw, "cp", bin, sidecar+":"+egressProxyContainerPath); err != nil {
+		return fmt.Errorf("egress: cp loom binary into %s: %v: %s", sidecar, err, out)
+	}
+	if out, err := dockerLogged(logw, egressProxyExecArgs(sidecar, allow)...); err != nil {
 		return fmt.Errorf("egress: start proxy in sidecar %s: %v: %s", sidecar, err, out)
 	}
 
@@ -252,28 +258,6 @@ func ensureEgressConfinement(name string, policy EgressPolicy, image string, log
 	}
 	if out, err := dockerLogged(logw, "network", "connect", intNet, name); err != nil {
 		return fmt.Errorf("egress: connect %s to %s: %v: %s", name, intNet, err, out)
-	}
-	return nil
-}
-
-// writeProxySource writes the embedded proxy source into the sidecar at
-// egressProxyPath via `docker cp` of a host tempfile (more robust than piping on
-// stdin — the provision() precedent). NOTE: integration-validated.
-func writeProxySource(sidecar string, logw io.Writer) error {
-	tmp, err := os.CreateTemp("", "loom-egressproxy-*.go")
-	if err != nil {
-		return fmt.Errorf("egress: proxy tmp: %w", err)
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.WriteString(egressProxySource); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("egress: write proxy source: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("egress: close proxy source: %w", err)
-	}
-	if out, err := dockerLogged(logw, "cp", tmp.Name(), sidecar+":"+egressProxyPath); err != nil {
-		return fmt.Errorf("egress: cp proxy source into %s: %v: %s", sidecar, err, out)
 	}
 	return nil
 }

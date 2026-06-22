@@ -1,6 +1,6 @@
-// Command egressproxy is loom's shipped egress gatekeeper (T20 S2b, ADR-0028
-// Amendment 1). It is a tiny, stdlib-only HTTP forward proxy that confines a
-// project container's outbound traffic to a per-HOSTNAME allowlist.
+// Package egress holds loom's shipped egress gatekeeper — a tiny, stdlib-only
+// HTTP forward proxy that confines a project container's outbound traffic to a
+// per-HOSTNAME allowlist (T20 S2b, ADR-0028 Amendment 1).
 //
 // MECHANISM, not trust (ADR-0028 §3 / Amendment 1 R1). The project container is
 // placed on an `--internal` docker network with NO route off-box; this proxy
@@ -13,14 +13,16 @@
 // It is an EXPLICIT-CONNECT proxy: it never decrypts TLS (no MITM CA), so the
 // allowlist match is by the hostname the client self-describes on the
 // `CONNECT host:443` line (or the plain-HTTP proxy request line). This is the
-// proven shape from the #249 real-docker proof (TestT20S2bProxyEgressAllowlist),
-// promoted here to a loom-shipped component the engine embeds and runs in the
-// sidecar (`go run` against the base image's baked Go toolchain, ADR-0012).
+// proven shape from the #249 real-docker proof (TestT20S2bProxyEgressAllowlist).
 //
-// It is deliberately minimal and well-logged so every allow/deny decision is
-// visible on stderr (`docker logs <sidecar>`) — the observe-then-enforce surface
-// Amendment 1 R3 calls for.
-package main
+// DELIVERY A (this rework): the proxy is a PACKAGE (not a standalone `main`
+// embedded as source and `go run` in the sidecar). The engine runs it inside the
+// sidecar via the loom binary's hidden `__egress-proxy` subcommand — so the
+// sidecar image needs NO Go toolchain (the previous delivery required Go in the
+// base image; debian:bookworm-slim and most project bases lack it). The behavior
+// is unchanged: explicit-CONNECT + plain-HTTP forward, allow-by-hostname,
+// deny→403, stderr decision logs.
+package egress
 
 import (
 	"fmt"
@@ -28,12 +30,8 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 )
-
-// allowed holds the set of permitted hostnames (no port), read from ALLOW.
-var allowed = map[string]bool{}
 
 // hostOnly strips any ":port" suffix and returns the bare hostname.
 func hostOnly(hostport string) string {
@@ -43,21 +41,44 @@ func hostOnly(hostport string) string {
 	return hostport
 }
 
-func main() {
-	listen := os.Getenv("LISTEN")
+// proxy is the per-run gatekeeper: an allow-set plus the HTTP handler closures
+// that consult it. Holding the set on a value (not a package global) keeps
+// RunProxy free of hidden state and makes the allow/deny logic unit-testable.
+type proxy struct {
+	allowed map[string]bool
+}
+
+// newProxy builds a gatekeeper from a hostname allowlist (port stripped, blanks
+// dropped, deduped via the set).
+func newProxy(allow []string) *proxy {
+	p := &proxy{allowed: map[string]bool{}}
+	for _, h := range allow {
+		if h = strings.TrimSpace(h); h != "" {
+			p.allowed[hostOnly(h)] = true
+		}
+	}
+	return p
+}
+
+// allows reports whether a hostport's bare hostname is on the allowlist. This is
+// the single decision point both handlers (and the unit test) consult.
+func (p *proxy) allows(hostport string) bool {
+	return p.allowed[hostOnly(hostport)]
+}
+
+// RunProxy starts the egress gatekeeper, listening on `listen` (e.g. ":8080")
+// and permitting outbound only to the hostnames in `allow`. It blocks, returning
+// the ListenAndServe error. Decisions are logged to the default logger (stderr,
+// surfaced by `docker logs <sidecar>`) — the observe-then-enforce surface
+// Amendment 1 R3 calls for.
+func RunProxy(allow []string, listen string) error {
 	if listen == "" {
 		listen = ":8080"
 	}
-	for _, h := range strings.Split(os.Getenv("ALLOW"), ",") {
-		if h = strings.TrimSpace(h); h != "" {
-			allowed[h] = true
-		}
-	}
-	log.SetOutput(os.Stderr)
-	log.Printf("egressproxy: listen=%s allow=%v", listen, keys(allowed))
-
-	srv := &http.Server{Addr: listen, Handler: http.HandlerFunc(handle)}
-	log.Fatal(srv.ListenAndServe())
+	p := newProxy(allow)
+	log.Printf("egressproxy: listen=%s allow=%v", listen, keys(p.allowed))
+	srv := &http.Server{Addr: listen, Handler: http.HandlerFunc(p.handle)}
+	return srv.ListenAndServe()
 }
 
 func keys(m map[string]bool) []string {
@@ -70,20 +91,20 @@ func keys(m map[string]bool) []string {
 
 // handle dispatches forward-proxy requests: CONNECT for HTTPS tunnels, anything
 // else as a plain-HTTP forward request.
-func handle(w http.ResponseWriter, r *http.Request) {
+func (p *proxy) handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodConnect {
-		handleConnect(w, r)
+		p.handleConnect(w, r)
 		return
 	}
-	handleHTTP(w, r)
+	p.handleHTTP(w, r)
 }
 
 // handleHTTP forwards a plain-HTTP proxy request (client line is
 // `GET http://host/path`): allow → forward to origin and copy the response;
 // deny → 403 with a clear body.
-func handleHTTP(w http.ResponseWriter, r *http.Request) {
+func (p *proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	host := hostOnly(r.Host)
-	if !allowed[host] {
+	if !p.allows(r.Host) {
 		log.Printf("egressproxy: DENY http host=%q", host)
 		http.Error(w, fmt.Sprintf("egress denied: %s not in allowlist", host), http.StatusForbidden)
 		return
@@ -117,9 +138,9 @@ func handleHTTP(w http.ResponseWriter, r *http.Request) {
 // handleConnect tunnels HTTPS: the client sends `CONNECT host:443`; allow →
 // dial the origin, reply 200, and bidirectionally copy; deny → 403. No TLS is
 // decrypted (the hostname is self-described by the CONNECT line).
-func handleConnect(w http.ResponseWriter, r *http.Request) {
+func (p *proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	host := hostOnly(r.Host)
-	if !allowed[host] {
+	if !p.allows(r.Host) {
 		log.Printf("egressproxy: DENY connect host=%q", host)
 		http.Error(w, fmt.Sprintf("egress denied: %s not in allowlist", host), http.StatusForbidden)
 		return

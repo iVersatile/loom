@@ -2,68 +2,102 @@
 
 // Integration tier (RULES §7): real docker-backed e2e. Compiled only under
 // `-tags integration` (make gate-integration / CI); skips cleanly when no daemon
-// is present. Mirrors the S1/S2a canaries (integration_egress_test.go) — same
-// build tag, same docker-shelling + defer-cleanup discipline.
+// (or no host Go toolchain) is present. Mirrors the S1/S2a canaries
+// (integration_egress_test.go) — same build tag, same docker-shelling +
+// defer-cleanup discipline.
 //
-// T20 slice S2b — the egress ALLOWLIST mechanism LIVE PROOF (proof-of-mechanism,
-// NOT a fr-cited feature test; the engine-seam unit tests are the fr-cited ones).
+// T20 slice S2b — the egress ALLOWLIST mechanism LIVE PROOF, on DELIVERY A (the
+// proxy ships as a hidden subcommand of the loom binary, not `go run` source).
 // Where the proven #249 canary (.scratch spike) drove the proxy-sidecar shape by
 // SHELLING docker directly, THIS canary drives it through loom's OWN engine path:
 // it builds a ContainerSpec carrying EgressPolicy{Posture: allowlist} and calls
 // dockerRuntime{}.Ensure(spec) — so the production provision-then-restrict +
-// ensureEgressConfinement code (two networks + sidecar + `go run` embedded proxy +
-// cut-over) is what's under test, not a hand-rolled docker dance.
+// ensureEgressConfinement code (two networks + sidecar + `docker cp` loom +
+// `loom __egress-proxy` + cut-over) is what's under test, not a hand-rolled dance.
 //
-// Three assertions, mirroring the #249 proof, run by `docker exec curl` in the
-// realized project container:
-//   - ALLOW : curl http://example.com/ THROUGH the proxy → 2xx/3xx (example.com is
-//     the declared allow: host).
-//   - DENY  : curl http://example.org/ THROUGH the proxy → 403 from the gatekeeper
-//     (a non-allowlisted host blocked by name).
-//   - BYPASS-DEAD (load-bearing): curl --noproxy '*' DIRECT → fails. The container
-//     is on an `--internal` network with no NAT, so a raw socket has nowhere to go.
-//     This is the `go test`/`/dev/tcp` exfil path T20 exists to close.
+// WHY THIS NOW RUNS (NOT SKIPS) ON THE PLAIN debian:bookworm-slim CI BASE:
+// Delivery A removed the two reasons the old canary skipped. (1) No Go in the
+// sidecar: the engine `docker cp`s the loom binary in and runs its hidden
+// `__egress-proxy` subcommand, so the base image needs no Go toolchain. (2) No
+// curl in the project container: the probe is `loom __http-get`, the loom binary
+// `docker cp`'d into the project container too. The loom CLI builds CGO-free
+// (CGO_ENABLED=0, no `import "C"` anywhere in-tree) → a static binary that runs on
+// debian-slim's glibc. The ONLY remaining skip is the host preconditions: a docker
+// daemon, and Go on the host to `go build` the loom binary the test cp's in (the
+// running test binary is NOT a loom binary — it has no `__egress-proxy`).
 //
-// REQUIREMENTS / why it can SKIP:
-//   - The sidecar runs the embedded proxy via `go run` against the base image's
-//     baked Go toolchain (ADR-0012). The default debian:bookworm-slim has NO Go, so
-//     this canary REQUIRES LOOM_BASE_IMAGE to point at the loom-base image (the CI
-//     integration job sets it). Absent Go in the base image, the proxy never starts
-//     and the canary SKIPs rather than false-failing.
-//   - The assertions need `curl` in the project container. The engine only
-//     provisions when the spec has tools/agents (this minimal spec has none), so the
-//     base image must carry curl. If curl is absent the canary SKIPs (honest about
-//     its base-image dependency rather than failing on a missing probe tool).
+// Three assertions, mirroring the #249 proof, run by `docker exec /loom __http-get`
+// in the realized project container:
+//   - ALLOW : __http-get http://example.com/ THROUGH the proxy → 2xx/3xx
+//     (example.com is the declared allow: host).
+//   - DENY  : __http-get http://example.org/ THROUGH the proxy → the proxy 403s,
+//     surfaced to the probe (non-2xx/3xx or a transport-visible block).
+//   - BYPASS-DEAD (load-bearing): __http-get --no-proxy DIRECT → FAILS. The
+//     container is on an `--internal` network with no NAT, so a raw socket has
+//     nowhere to go. This is the `go test`/`/dev/tcp` exfil path T20 exists to close.
 package engine
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-// curlInApp runs curl inside the project container, returning the HTTP status
-// code curl printed (-w '%{http_code}') plus curl's exit error (nil on a clean
-// transfer to the proxy). Used for the ALLOW/DENY assertions, where curl itself
-// succeeds (the proxy answers, even a 403).
-func curlInApp(t *testing.T, app string, curlArgs ...string) (code string, err error) {
+// buildLoomBinary `go build`s the real loom CLI into a tempfile and returns its
+// path. The integration test runner HAS Go on the host (the only remaining skip
+// gate); the running TEST binary is not a loom binary, so the engine's
+// egressProxyBinary seam (default os.Executable()) must be pointed at a freshly
+// built loom that carries the `__egress-proxy` / `__http-get` subcommands.
+func buildLoomBinary(t *testing.T) string {
 	t.Helper()
-	args := append([]string{"exec", app, "curl"}, curlArgs...)
+	out := filepath.Join(t.TempDir(), "loom")
+	cmd := exec.Command("go", "build", "-o", out, "github.com/iVersatile/loom/cmd/loom")
+	// Force CGO off so the cp'd binary is fully static and runs on the plain
+	// debian:bookworm-slim sidecar/project images regardless of the host's default
+	// CGO setting (loom imports no cgo, so this only pins determinism: a static
+	// ELF with no dynamic loader / glibc dependency).
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build loom for the integration canary failed: %v\n%s", err, combined)
+	}
+	return out
+}
+
+// httpGetInApp runs `/loom __http-get <args>` inside the project container (the
+// loom binary is cp'd in by the test). Returns the status code the probe printed
+// (clean transfer — even a proxy 403 surfaces as a non-2xx code or a transport
+// error per --no-proxy) plus the exec error (non-nil on a transport failure: the
+// BYPASS-DEAD path). NOTE: the engine sets HTTP(S)_PROXY on the container, which
+// __http-get honors via http.ProxyFromEnvironment by default.
+func httpGetInApp(t *testing.T, app string, getArgs ...string) (code string, err error) {
+	t.Helper()
+	args := append([]string{"exec", app, "/loom", "__http-get"}, getArgs...)
 	out, err := exec.Command("docker", args...).CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
 
 // TestT20S2bEngineEgressAllowlist drives the allowlist confinement end to end
-// through loom's engine and proves the three mechanism assertions on real docker.
+// through loom's engine and proves the three mechanism assertions on real docker,
+// on the plain debian:bookworm-slim base (no Go, no curl in the images).
 func TestT20S2bEngineEgressAllowlist(t *testing.T) {
 	requireDocker(t)
 	if _, err := exec.LookPath("go"); err != nil {
-		// The build host needs Go to compile/`go run` nothing here — the sidecar
-		// runs go run INSIDE the base image — but keep parity with the #249 canary's
-		// guard; the real gate is the base image carrying Go (checked below).
-		t.Skip("go toolchain not available on the build host")
+		// The ONLY remaining skip beyond docker: the host needs Go to `go build` the
+		// loom binary this test cp's into the sidecar + project container (the running
+		// test binary is not a loom binary). CI's integration runner has Go on the host.
+		t.Skip("go toolchain not available on the host to build the loom binary the canary cp's into the containers")
 	}
+
+	// Build the real loom binary and point the engine's binary-path seam at it: in
+	// production ensureEgressConfinement cp's os.Executable() (the running loom CLI),
+	// but here os.Executable() is the TEST binary (no __egress-proxy subcommand).
+	loomBin := buildLoomBinary(t)
+	origBinary := egressProxyBinary
+	egressProxyBinary = func() (string, error) { return loomBin, nil }
+	t.Cleanup(func() { egressProxyBinary = origBinary })
 
 	name := containerName("t20s2b-allowlist")
 	intNet := egressInternalNetwork(name)
@@ -87,81 +121,85 @@ func TestT20S2bEngineEgressAllowlist(t *testing.T) {
 	// Drive the WHOLE confinement through the engine: an allowlist spec with
 	// example.com declared. resolveEgressAllowlist unions in the load-bearing floor;
 	// Ensure provisions (no-op here — no tools) then ensureEgressConfinement builds
-	// the two networks + sidecar + `go run` proxy + cuts the container over to the
-	// internal-only network. example.com is the host we ASSERT reachable, and it is
-	// exactly the declared allow: entry (so the assertion targets a host that is
-	// provably in the resolved allowlist, not merely in the floor).
+	// the two networks + sidecar + cp's loom in + runs `loom __egress-proxy` + cuts
+	// the container over to the internal-only network. example.com is the host we
+	// ASSERT reachable, and it is exactly the declared allow: entry.
 	spec := minimalEgressSpec(name, false)
 	spec.Project = "t20s2b"
 	spec.Egress = EgressPolicy{Posture: "allowlist", Allow: []string{"example.com"}}
 
 	if _, err := (dockerRuntime{}).Ensure(spec); err != nil {
-		// A base image without Go cannot `go run` the sidecar proxy — that surfaces
-		// as an Ensure error. Skip rather than fail: the canary's precondition (a
-		// Go-bearing base image, ADR-0012) is not met. CI sets LOOM_BASE_IMAGE.
-		t.Skipf("Ensure(allowlist) failed — base image likely lacks the Go toolchain the sidecar needs (set LOOM_BASE_IMAGE to the loom-base image): %v", err)
-	}
-
-	// The assertions need curl in the project container. The minimal spec installs
-	// no tools, so curl must be baked into the base image. If it is not, skip — a
-	// missing probe tool is not a confinement failure.
-	if _, err := curlInApp(t, name, "--version"); err != nil {
-		t.Skipf("curl not present in the project container (base image does not bake it); cannot run the reachability assertions: %v", err)
-	}
-
-	// Give the `go run`-compiled proxy a moment to come up (first `go run` compiles).
-	// Poll the sidecar's listen port from inside the project container via the proxy
-	// URL up to a bounded number of tries before the assertions.
-	proxyReady := false
-	for i := 0; i < 30; i++ {
-		if _, err := curlInApp(t, name, "-sS", "--max-time", "3", "-o", "/dev/null",
-			"-w", "%{http_code}", "http://example.com/"); err == nil {
-			proxyReady = true
-			break
+		// Delivery A removed the Go-in-base precondition; a failure here is a REAL
+		// confinement failure, not a skippable missing-toolchain case. Fail loudly.
+		dumpProxyLogs := func() {
+			out, _ := exec.Command("docker", "logs", sidecar).CombinedOutput()
+			t.Logf("=== %s logs (proxy stderr) ===\n%s", sidecar, out)
 		}
-		_ = exec.Command("sh", "-c", "sleep 1").Run()
+		dumpProxyLogs()
+		t.Fatalf("Ensure(allowlist) failed (delivery A: no Go/curl needed — this is a real confinement bug): %v", err)
 	}
+
 	dumpProxyLogs := func() {
 		out, _ := exec.Command("docker", "logs", sidecar).CombinedOutput()
 		t.Logf("=== %s logs (proxy stderr) ===\n%s", sidecar, out)
 	}
+
+	// Copy the loom binary into the PROJECT container too: the connectivity probe is
+	// `loom __http-get`, so neither image needs curl. The container is already on the
+	// internal-only network (cut over by Ensure); `docker cp` works regardless of
+	// network attachment (it streams via the daemon, not the container's network).
+	if out, err := exec.Command("docker", "cp", loomBin, name+":/loom").CombinedOutput(); err != nil {
+		t.Fatalf("cp loom binary into project container %s failed: %v\n%s", name, err, out)
+	}
+
+	// Give the detached `loom __egress-proxy` a moment to bind its listener. Poll
+	// example.com (the declared allow) through the proxy up to a bounded number of
+	// tries before the assertions.
+	proxyReady := false
+	for i := 0; i < 30; i++ {
+		if code, err := httpGetInApp(t, name, "http://example.com/"); err == nil {
+			if n, cerr := strconv.Atoi(code); cerr == nil && n >= 200 && n <= 399 {
+				proxyReady = true
+				break
+			}
+		}
+		_ = exec.Command("sh", "-c", "sleep 1").Run()
+	}
 	if !proxyReady {
 		dumpProxyLogs()
-		t.Fatalf("the egress proxy sidecar never became reachable through the confinement (go run may have failed to compile/start)")
+		t.Fatalf("the egress proxy sidecar never became reachable through the confinement (loom __egress-proxy may have failed to start)")
 	}
 
 	// ALLOW: example.com (the declared allow: host) is reachable THROUGH the proxy.
 	// example.com may answer 200 or redirect (3xx); accept 200-399.
-	code, err := curlInApp(t, name,
-		"-sS", "--max-time", "10", "-o", "/dev/null", "-w", "%{http_code}", "http://example.com/")
+	code, err := httpGetInApp(t, name, "http://example.com/")
 	if err != nil {
 		dumpProxyLogs()
-		t.Fatalf("ALLOW: curl http://example.com/ THROUGH proxy failed (exit err=%v, code=%q) — the declared allowlisted host should be reachable", err, code)
+		t.Fatalf("ALLOW: __http-get http://example.com/ THROUGH proxy failed (err=%v, out=%q) — the declared allowlisted host should be reachable", err, code)
 	}
 	if n, cerr := strconv.Atoi(code); cerr != nil || n < 200 || n > 399 {
 		dumpProxyLogs()
-		t.Errorf("ALLOW: curl http://example.com/ got HTTP %q, want 200-399 (reachable through the gatekeeper)", code)
+		t.Errorf("ALLOW: __http-get http://example.com/ got %q, want a 200-399 status (reachable through the gatekeeper)", code)
 	}
 
 	// DENY: example.org is NOT in the resolved allowlist → the proxy answers 403.
-	// curl succeeds at the transport level (it got an HTTP response from the proxy).
-	code, err = curlInApp(t, name,
-		"-sS", "--max-time", "10", "-o", "/dev/null", "-w", "%{http_code}", "http://example.org/")
+	// For a plain-HTTP forward the proxy returns a 403 RESPONSE (clean transfer), so
+	// __http-get prints "403". (No --no-proxy here: the probe goes via the proxy.)
+	code, err = httpGetInApp(t, name, "http://example.org/")
 	if err != nil {
 		dumpProxyLogs()
-		t.Fatalf("DENY: curl http://example.org/ THROUGH proxy errored (exit err=%v, code=%q) — expected a clean 403 from the proxy", err, code)
+		t.Fatalf("DENY: __http-get http://example.org/ THROUGH proxy errored (err=%v, out=%q) — expected a clean 403 status from the proxy", err, code)
 	}
 	if code != "403" {
 		dumpProxyLogs()
-		t.Errorf("DENY: curl http://example.org/ got HTTP %q, want 403 (the gatekeeper blocks a non-allowlisted host by name)", code)
+		t.Errorf("DENY: __http-get http://example.org/ got %q, want 403 (the gatekeeper blocks a non-allowlisted host by name)", code)
 	}
 
-	// BYPASS-DEAD (load-bearing): a DIRECT connection that ignores the proxy has
-	// nowhere to go — the `--internal` network has no NAT. curl MUST fail.
-	code, err = curlInApp(t, name,
-		"-sS", "--max-time", "8", "--noproxy", "*", "-o", "/dev/null", "-w", "%{http_code}", "http://example.com/")
+	// BYPASS-DEAD (load-bearing): a DIRECT connection (--no-proxy ignores HTTP(S)_PROXY)
+	// has nowhere to go — the `--internal` network has no NAT. __http-get MUST error.
+	code, err = httpGetInApp(t, name, "--no-proxy", "http://example.com/")
 	if err == nil {
 		dumpProxyLogs()
-		t.Errorf("BYPASS-DEAD: DIRECT curl http://example.com/ (--noproxy '*') SUCCEEDED (code=%q) — the internal network has a route out; the gatekeeper is bypassable. This is the exfil path T20 must close.", code)
+		t.Errorf("BYPASS-DEAD: DIRECT __http-get http://example.com/ (--no-proxy) SUCCEEDED (out=%q) — the internal network has a route out; the gatekeeper is bypassable. This is the exfil path T20 must close.", code)
 	}
 }

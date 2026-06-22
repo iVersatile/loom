@@ -55,6 +55,11 @@ func newRootCmd() *cobra.Command {
 		newExecCmd(),
 		newShellCmd(),
 		newImportCmd(),
+		// HIDDEN internal subcommands (`__` prefix): loom-to-sidecar/probe plumbing
+		// for the egress allowlist (DELIVERY A, T20 S2b). Not user verbs — Hidden
+		// from help and deliberately absent from SPEC-verbs.md / SpecConformance.
+		newEgressProxyCmd(),
+		newHTTPGetCmd(),
 	)
 	return root
 }
