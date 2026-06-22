@@ -24,6 +24,46 @@ func tempProject(t *testing.T) string {
 	return dst
 }
 
+// guardsOnlyPlaybook is the lighter loom.yml tempGuardsProject writes — the shared
+// fixture (above) MINUS the Go toolchain (`stack: go` and its go@1.26/gopls/
+// go/strict). The role-deny guards are declared in config/playbook.yml's harness:
+// block, which is independent of the stack, so they still materialize. Everything
+// else (base image, loom overlay, ports, env, ci, config_source) is unchanged so
+// the built container still resembles the real guard deployment.
+const guardsOnlyPlaybook = `loom: 1
+tier: project
+name: loom
+extends: base
+overlay: loom
+ports:
+  - 8080
+env:
+  - ANTHROPIC_API_KEY
+ci:
+  - ci
+config_source:
+  type: local
+  path: ./config
+`
+
+// tempGuardsProject is a LIGHTER variant of tempProject for the guards e2e
+// (TestE2EGuardsBlockByRole, FR-GUARD-E2E): it copies the shared fixture, then
+// overwrites loom.yml to DROP the Go toolchain. The guards e2e only needs the
+// role-deny guards materialized — it never compiles Go — so provisioning the
+// go@1.26 toolchain (a tarball download + `go install gopls`) was pure weight on
+// the e2e build container, inflating the container-cgroup memory that OOM-kills
+// (exit 137) the CI integration gate mid-provisioning (#75 mitigation #2). The
+// shared tempProject stays heavy on purpose: the toolchain-resolution tests
+// (detect_plan/doctor/build) depend on go@1.26 in that fixture.
+func tempGuardsProject(t *testing.T) string {
+	t.Helper()
+	root := tempProject(t)
+	if err := os.WriteFile(filepath.Join(root, "loom.yml"), []byte(guardsOnlyPlaybook), 0o644); err != nil {
+		t.Fatalf("write guards-only loom.yml: %v", err)
+	}
+	return root
+}
+
 func fixedClock() time.Time { return time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC) }
 
 func TestBuildWritesLockMaterializesAndAudits(t *testing.T) {
