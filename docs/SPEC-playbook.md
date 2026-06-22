@@ -388,6 +388,36 @@ playbook fields); the two-tier base, rules, hooks, and AI-context are *added* on
 top (Loom's value layer). Export (later, lossy) emits a `devcontainer.json` from
 the environment fields only; policy/intent do not map and stay in repo docs.
 
+### `commands` mapping (added 2026-06-22, T37 / ADR-0003 — declarative-only)
+
+Devcontainer **lifecycle commands** (`onCreateCommand`, `updateContentCommand`,
+`postCreateCommand`, `postStartCommand`, `postAttachCommand`) are imported under
+a strict **declarative-only** contract. Import is a translator into *declarative*
+playbook fields, never a runner:
+
+- **Recognized → declarative field.** A lifecycle command that is
+  *deterministically* recognizable as a declarative intent is mapped to the
+  matching declarative field — e.g. a clean package install
+  (`apt-get install -y X`, `npm i -g Y`) maps to `tools:` (the same recognized-
+  to-mapped discipline as `features:` → `tools:`, FR-IMPORT-004). Only
+  unambiguous patterns map; partial/compound/conditional commands do **not**.
+- **Everything else → `reported.commands` (captured, never executed).** Any
+  command that is not deterministically recognizable is captured **verbatim**
+  into `reported.commands` (lifecycle `hook` label + command string(s)) for human
+  review — the lossless, non-executable capture section (FR-IMPORT-005). The
+  engine **never reads, runs, provisions, or merges** `reported`.
+- **No execution surface is introduced by import.** Import produces **only
+  declarative fields**; it never emits a runnable field, and `reported.commands`
+  is **never auto-promoted** into anything loom executes. There is deliberately
+  **no `setup:`/`provision:`/`run:` field** for arbitrary imported shell — adding
+  one would be a separate, security-reviewed decision (its own ADR + convergence),
+  not a side effect of import. This upholds the supply-chain posture that kept
+  imported content non-executable (cf. the rejected `.env` auto-load consumer).
+- **AI enrich is propose-only.** The `import-enrich` skill may *propose* further
+  command→`tools:` translations into the **draft** (flagged, low-confidence), but
+  proposals are human-reviewed edits to the draft — never an engine auto-apply,
+  and never a promotion of `reported.commands` to an executable field.
+
 ## Frozen decisions (2026-06-08, addendum)
 
 - **`rules:` resolution (was open Q1-remaining).** Frozen: **explicit-by-reference**.
