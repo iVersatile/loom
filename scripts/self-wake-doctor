@@ -1,0 +1,173 @@
+#!/bin/sh
+# self-wake-doctor — ADR-0022 shape A: a READ-ONLY health check for the Writer's
+# self-wake subsystem. Answers "is the self-wake loop wired soundly, is anything
+# gating it, and is there actually pullable work?" WITHOUT actuating it.
+#
+# READ-ONLY CONTRACT: this script mutates NOTHING. It stats files, reads counters,
+# greps, and invokes ONLY readiness-decide — a PURE awk read over docs/PLAN.md that
+# mints nothing. It NEVER runs the MUTATING helpers: self-wake-tick -> spawn-loop
+# has side effects (promote-next mints an envelope, the empty-tick counter is
+# bumped, spawn-guard appends a ledger line on a grant). So the doctor never runs
+# the tick. For the live (mutating) verdict, run `scripts/self-wake-tick` directly.
+#
+# Path resolution MIRRORS self-wake-tick exactly (same LOOM_ROOT / LOOM_WAKE_*
+# precedence) so the doctor diagnoses the SAME files the live loop will read.
+#
+# OUTPUT: one `OK|WARN|FAIL  <area>  <detail>` line per check. Exit status:
+#   0 = no FAIL (WARNs allowed)   1 = one or more FAIL (the loop cannot run soundly)
+# WARN = the loop runs but a soft/standing caveat applies (e.g. HALT set, near the
+# empty-tick give-up bound, agent-writable external-truth files). FAIL = a hard
+# break (a helper missing/non-exec, the backlog source or inbox absent). Readiness
+# rows are reportorial OK lines (an idle/blocked backlog is NOT a doctor fault).
+#
+# Env: same LOOM_WAKE_* / LOOM_SPAWN_* / LOOM_WAKE_WORK_DELAY/IDLE_DELAY/MAX_EMPTY
+# overrides as the live loop — the doctor reports the EFFECTIVE values.
+
+ROOT="${LOOM_ROOT:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
+SELF_DIR=$(dirname "$0")
+
+PLAN="${LOOM_WAKE_PLAN:-$ROOT/docs/PLAN.md}"
+MERGED="${LOOM_WAKE_MERGED:-$ROOT/.scratch/inbox/.merged-prs}"
+INBOX="${LOOM_WAKE_INBOX:-$ROOT/.scratch/inbox/loom-author.md}"
+LEDGER="${LOOM_WAKE_LEDGER:-$ROOT/.scratch/inbox/.spawn-log}"
+HALT="${LOOM_WAKE_HALT:-$ROOT/.scratch/inbox/HALT}"
+TICKS="${LOOM_WAKE_TICKS:-$ROOT/.scratch/inbox/.wake-ticks}"
+
+WORK_DELAY="${LOOM_WAKE_WORK_DELAY:-60}"
+IDLE_DELAY="${LOOM_WAKE_IDLE_DELAY:-1800}"
+MAX_EMPTY="${LOOM_WAKE_MAX_EMPTY:-5}"
+SPAWN_MAX="${LOOM_SPAWN_MAX:-3}"
+SPAWN_WINDOW="${LOOM_SPAWN_WINDOW:-3600}"
+
+rc=0
+say() { printf '%-4s  %-18s  %s\n' "$1" "$2" "$3"; [ "$1" = FAIL ] && rc=1; return 0; }
+
+# clamp mirrors spawn-loop (report the value the loop would actually emit).
+clamp() {
+	d="$1"
+	case "$d" in *[!0-9]*|"") d=1800 ;; esac
+	[ "$d" -lt 60 ] && d=60
+	[ "$d" -gt 3600 ] && d=3600
+	printf '%s' "$d"
+}
+
+echo "self-wake-doctor — root: $ROOT"
+echo
+
+# 1. HELPERS — the chain self-wake-tick -> spawn-loop -> {promote-next,
+#    readiness-decide, spawn-guard}. A missing/non-exec link is a hard FAIL.
+for h in self-wake-tick spawn-loop promote-next readiness-decide spawn-guard; do
+	p="$SELF_DIR/$h"
+	if [ ! -e "$p" ]; then say FAIL "helper:$h" "missing ($p)"
+	elif [ ! -x "$p" ]; then say WARN "helper:$h" "present but not executable"
+	else say OK "helper:$h" "present + executable"
+	fi
+done
+
+# 2. PATHS — the files the loop reads. PLAN (backlog source) and INBOX (drain
+#    target) are load-bearing => FAIL if absent. The .scratch state files are
+#    create-on-demand => absence is benign.
+[ -r "$PLAN" ]  && say OK   "path:plan"   "$PLAN" || say FAIL "path:plan"  "unreadable backlog source ($PLAN)"
+[ -r "$INBOX" ] && say OK   "path:inbox"  "$INBOX" || say FAIL "path:inbox" "unreadable inbox ($INBOX)"
+[ -e "$MERGED" ] && say OK  "path:merged" "$MERGED" || say WARN "path:merged" "absent — refill sees no merged-PR truth yet"
+[ -e "$LEDGER" ] && say OK  "path:ledger" "$LEDGER" || say OK  "path:ledger" "absent — zero prior grants (first wake is clean)"
+
+# 3. GATES — what would steer the next verdict.
+
+# HALT-first: present => every wake is NO-WAKE. A standing WARN, not a FAIL (HALT
+# is a deliberate human control, not a malfunction).
+if [ -e "$HALT" ]; then say WARN "gate:halt" "HALT sentinel PRESENT — all wakes blocked (NO-WAKE)"
+else say OK "gate:halt" "no HALT — wakes permitted"
+fi
+
+# AUTOPILOT posture (informational — the drain/loop autonomy switch, T23/flips.log).
+ap=$(head -1 "$INBOX" 2>/dev/null)
+case "$ap" in
+	"AUTOPILOT: on")  say OK   "gate:autopilot" "on" ;;
+	"AUTOPILOT: off") say WARN "gate:autopilot" "off — self-wake is disarmed posture" ;;
+	*)                say WARN "gate:autopilot" "unrecognized first inbox line: ${ap:-<empty>}" ;;
+esac
+
+# Self-selection floor: promote-next only mints a backlog row whose class is on
+# this allow-list (LOOM_AUTOPULL_CLASSES, space/comma list; default EMPTY => nothing
+# auto-pulls, every READY row is CONFIRM-REQUIRED). The single most common reason a
+# wake does not fire — readiness-decide IGNORES this floor, so a row can read READY
+# (below) yet never pull. Empty is a deliberate default, not a malfunction => WARN.
+floor=$(printf '%s' "${LOOM_AUTOPULL_CLASSES:-}" | tr ',' ' ' | tr -s ' ')
+if [ -n "$(printf '%s' "$floor" | tr -d ' ')" ]; then
+	say OK   "gate:autopull-floor" "floor open: $floor (LOOM_AUTOPULL_CLASSES)"
+else
+	say WARN "gate:autopull-floor" "LOOM_AUTOPULL_CLASSES empty — self-selection floor CLOSED; READY rows are CONFIRM-REQUIRED, nothing auto-pulls (set =exec to arm)"
+fi
+
+# Empty-tick budget: ticks vs MAX_EMPTY. At/over the bound the next empty poll is
+# IDLE-STOP (give up, no re-arm) — flag when close so the give-up isn't a surprise.
+t=$(cat "$TICKS" 2>/dev/null); case "$t" in *[!0-9]*|"") t=0 ;; esac
+if [ "$t" -ge "$MAX_EMPTY" ]; then
+	say WARN "gate:empty-ticks" "$t/$MAX_EMPTY — next empty poll => IDLE-STOP (no re-arm)"
+elif [ "$t" -ge $((MAX_EMPTY - 1)) ]; then
+	say WARN "gate:empty-ticks" "$t/$MAX_EMPTY — one empty poll from IDLE-STOP"
+else
+	say OK   "gate:empty-ticks" "$t/$MAX_EMPTY consecutive empty polls"
+fi
+
+# Rate budget: count epoch grants within the window (mirrors spawn-guard's awk).
+# Read-only: we never append. NOW from LOOM_NOW or wall clock (shell only — never
+# in a workflow script).
+now="${LOOM_NOW:-$(date +%s 2>/dev/null)}"
+if [ -e "$LEDGER" ] && [ -r "$LEDGER" ] && [ -n "$now" ]; then
+	used=$(awk -v now="$now" -v w="$SPAWN_WINDOW" '$1 ~ /^[0-9]+$/ && $1+0 >= now-w {c++} END{print c+0}' "$LEDGER" 2>/dev/null)
+	if [ "${used:-0}" -ge "$SPAWN_MAX" ]; then
+		say WARN "gate:rate" "$used/$SPAWN_MAX grants in ${SPAWN_WINDOW}s — at limit (next work-wake => WAKE-BACKOFF)"
+	else
+		say OK   "gate:rate" "$used/$SPAWN_MAX grants in ${SPAWN_WINDOW}s window"
+	fi
+elif [ -e "$LEDGER" ] && [ ! -r "$LEDGER" ]; then
+	say FAIL "gate:rate" "ledger present but unreadable — spawn-guard fails closed (DENY-RATE)"
+else
+	say OK   "gate:rate" "0/$SPAWN_MAX grants (no ledger)"
+fi
+
+# 4. CADENCE — the clamped delays the loop will emit (echo the effective bounds).
+say OK "cadence:work" "$(clamp "$WORK_DELAY")s (WAKE)"
+say OK "cadence:idle" "$(clamp "$IDLE_DELAY")s (WAKE-POLL / WAKE-BACKOFF)"
+
+# 5. READINESS — is there actually pullable work? readiness-decide is a PURE READ
+#    (an awk filter over docs/PLAN.md's fenced queue; mints NOTHING — only
+#    self-wake-tick/promote-next mutate), so invoking it keeps the read-only
+#    contract. Per-row verdict + the trial's headline signal: any [class:exec] row
+#    READY. By construction readiness-decide gates READY on the [class:exec] tag,
+#    so a READY row IS an exec-ready row. An idle/blocked backlog is NOT a fault —
+#    these are reportorial OK lines.
+if [ -r "$PLAN" ]; then
+	rd=$(sh "$SELF_DIR/readiness-decide" "$PLAN" "$MERGED" 2>/dev/null)
+	printf '%s\n' "$rd" | while IFS= read -r line; do
+		[ -n "$line" ] && say OK "readiness" "$line"
+	done
+	# READY count: ": READY" excludes ": NOT-EXEC-READY" (different prefix), so this
+	# counts only genuine READY rows (each gated on [class:exec] by readiness-decide).
+	nready=$(printf '%s\n' "$rd" | grep -c ': READY')
+	if [ "${nready:-0}" -gt 0 ]; then
+		say OK "readiness:exec" "$nready [class:exec] row(s) READY — pullable work exists"
+	else
+		say OK "readiness:exec" "no READY row — idle/blocked backlog (not a fault)"
+	fi
+else
+	say WARN "readiness" "PLAN unreadable — cannot assess backlog"
+fi
+
+# 6. EXTERNAL-TRUTH caveat (SKILL.md / spawn-loop header): the merged-refs cache and
+#    the ledger/tick state live in agent-writable .scratch/. Until they are
+#    HOST/CI-written external truth, the loop is dogfood-only, not load-bearing.
+#    Standing WARN whenever those files are agent-writable — by design, not drift.
+if [ -w "$MERGED" ] 2>/dev/null || [ -w "$LEDGER" ] 2>/dev/null || { [ ! -e "$LEDGER" ] && [ -w "$(dirname "$LEDGER")" ]; }; then
+	say WARN "external-truth" "merged-refs/ledger agent-writable — dogfood-only until host/CI-written (LOOM_EXTERNAL_TRUTH_STRICT=1 fails closed)"
+else
+	say OK   "external-truth" "state files not agent-writable"
+fi
+
+echo
+if [ "$rc" -eq 0 ]; then echo "VERDICT: OK (loop wired soundly; see WARNs for standing caveats)"
+else echo "VERDICT: FAIL (a hard break above blocks a sound wake) — fix before arming the loop"; fi
+echo "(read-only; for the live mutating verdict run scripts/self-wake-tick)"
+exit "$rc"
