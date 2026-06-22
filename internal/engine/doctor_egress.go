@@ -78,12 +78,17 @@ func onNetwork(networks []string, net string) bool {
 }
 
 // egressAllowlistClaimOK decides container:egress for the allowlist posture (T20
-// S2b, ADR-0028 Amendment 1). The confinement holds iff the project container is
-// on its internal egress network (intNet, whose --internal flag means NO route
-// off-box) AND is NOT on the default `bridge` network (a bridge has a route out,
-// which would defeat the fence) AND its gatekeeper sidecar is running (a missing
-// sidecar means the internal-network-only container has NO route out at all — a
-// BROKEN confinement, not a safe one; fail-closed).
+// S2b, ADR-0028 Amendment 1). The confinement holds iff the project container's
+// network set is EXACTLY {intNet} — its sole internal egress network (whose
+// --internal flag means NO route off-box) and NOTHING ELSE routable — AND its
+// gatekeeper sidecar is running (a missing sidecar means the internal-network-only
+// container has NO route out at all — a BROKEN confinement, not a safe one;
+// fail-closed).
+//
+// Defense-in-depth: asserting the set is EXACTLY {intNet} (not merely "on intNet
+// and not on bridge") rejects ANY unexpected additional network — a future bug
+// that attached a second routable net (not named `bridge`) would otherwise pass
+// the looser check while quietly providing a route around the proxy.
 //
 // Pure and probe-free so it is gate-testable (mirrors egressClaimOK); the caller
 // gathers networks + sidecar state via read-only docker probes. networksErr being
@@ -99,8 +104,13 @@ func egressAllowlistClaimOK(intNet string, networks []string, networksErr error,
 	if !onNetwork(networks, intNet) {
 		return false, fmt.Sprintf("egress: allowlist declared but the container is NOT on its internal egress network %q (networks %v) — the cut-over to the confined route FAILED", intNet, networks)
 	}
-	if onNetwork(networks, "bridge") {
-		return false, fmt.Sprintf("egress: allowlist declared but the container is still on the default %q network (networks %v) — it has a route out that bypasses the proxy", "bridge", networks)
+	// Defense-in-depth: the set must be EXACTLY {intNet}. Any other attached
+	// network is a route the proxy cannot see — reject it (this subsumes the old
+	// "not on bridge" check and also catches a second routable net of any name).
+	for _, n := range networks {
+		if n != intNet {
+			return false, fmt.Sprintf("egress: allowlist declared but the container is on an unexpected additional network %q (networks %v, want exactly [%s]) — that is a route out that bypasses the proxy", n, networks, intNet)
+		}
 	}
 	if !sidecarRunning {
 		return false, fmt.Sprintf("egress: allowlist declared and the container is on its internal egress network %q, but the proxy sidecar is NOT running — the container has NO route out at all (broken confinement, fail-closed)", intNet)

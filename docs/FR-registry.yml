@@ -369,7 +369,7 @@ requirements:
     # claim. Pure decision (egressAllowlistClaimOK) over read-only probes; fail-closed
     # on an unreadable probe or a missing sidecar (a sidecar-less container on an
     # --internal net has NO route out at all — broken confinement, not safe).
-    statement: doctor's `container:egress` claim verifies the allowlist confinement on a running container — it holds iff the container is on its internal egress network (no off-box route) and NOT on a bridge, with the proxy sidecar running; a missing sidecar, a bridge attachment, an off-internal-net container, or an unreadable probe all FAIL closed (a security claim never greens on a garbage answer).
+    statement: doctor's `container:egress` claim verifies the allowlist confinement on a running container — it holds iff the container's network set is EXACTLY its internal egress network (no off-box route) and nothing else routable, with the proxy sidecar running; a missing sidecar, a bridge attachment, ANY unexpected additional network (defense-in-depth), an off-internal-net container, or an unreadable probe all FAIL closed (a security claim never greens on a garbage answer).
     source: SPEC-playbook.md#networking
     tests: [engine.TestEgressAllowlistClaimOK]
     status: active

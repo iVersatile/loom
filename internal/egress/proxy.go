@@ -25,13 +25,45 @@
 package egress
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
+
+// Bounded timeouts so a slow/hung allowlisted upstream cannot tie up a goroutine
+// + fd on the long-lived sidecar indefinitely (resource-exhaustion footgun). These
+// are deliberately generous — they bound a HUNG connection, not a legitimately slow
+// one, and they do NOT change any allow/deny decision.
+const (
+	// egressDialTimeout bounds the CONNECT-tunnel dial and the plain-HTTP forward
+	// client's connect: a non-answering allowlisted host returns promptly, not hangs.
+	egressDialTimeout = 10 * time.Second
+	// egressIdleTimeout bounds an idle tunnel: each side of the bidirectional copy
+	// pushes its deadline forward on activity, so a wholly idle tunnel is torn down
+	// rather than parked forever holding an fd.
+	egressIdleTimeout = 5 * time.Minute
+	// egressHTTPClientTimeout bounds a whole plain-HTTP forward round-trip.
+	egressHTTPClientTimeout = 60 * time.Second
+)
+
+// egressHTTPTransport is the plain-HTTP forward path's upstream transport, a clone
+// of the stdlib default with a bounded dial timeout (the default has none on the
+// dialer used here). The whole-request bound is a per-request context deadline
+// (egressHTTPClientTimeout) applied at the RoundTrip call in handleHTTP.
+var egressHTTPTransport = &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	DialContext:           (&net.Dialer{Timeout: egressDialTimeout}).DialContext,
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          100,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
+}
 
 // hostOnly strips any ":port" suffix and returns the bare hostname.
 func hostOnly(hostport string) string {
@@ -119,7 +151,12 @@ func (p *proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	outReq.Header = r.Header.Clone()
-	resp, err := http.DefaultTransport.RoundTrip(outReq)
+	// Bound the whole round-trip with a context deadline so a hung allowlisted
+	// origin cannot park this handler goroutine indefinitely. RoundTrip (not
+	// Client.Do) keeps behavior identical — no redirect following, verbatim forward.
+	ctx, cancel := context.WithTimeout(r.Context(), egressHTTPClientTimeout)
+	defer cancel()
+	resp, err := egressHTTPTransport.RoundTrip(outReq.WithContext(ctx))
 	if err != nil {
 		log.Printf("egressproxy: upstream error host=%q: %v", host, err)
 		http.Error(w, "upstream error: "+err.Error(), http.StatusBadGateway)
@@ -147,7 +184,9 @@ func (p *proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("egressproxy: ALLOW connect host=%q target=%q", host, r.Host)
 
-	upstream, err := net.Dial("tcp", r.Host)
+	// Bounded dial so a non-answering allowlisted host returns promptly rather than
+	// hanging the handler goroutine + fd.
+	upstream, err := net.DialTimeout("tcp", r.Host, egressDialTimeout)
 	if err != nil {
 		log.Printf("egressproxy: dial error host=%q: %v", host, err)
 		http.Error(w, "dial error: "+err.Error(), http.StatusBadGateway)
@@ -167,8 +206,41 @@ func (p *proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = client.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
 
-	// Bidirectional copy; close both ends when either direction ends.
-	go func() { _, _ = io.Copy(upstream, client); _ = upstream.Close() }()
-	_, _ = io.Copy(client, upstream)
+	// Bidirectional copy with an idle deadline on both conns: a wholly idle tunnel
+	// is torn down rather than parked forever holding an fd. Each copied chunk bumps
+	// both deadlines forward (activity in EITHER direction keeps the tunnel alive),
+	// so this bounds idleness, not throughput. Close both ends when either ends.
+	bump := func() {
+		dl := time.Now().Add(egressIdleTimeout)
+		_ = client.SetDeadline(dl)
+		_ = upstream.SetDeadline(dl)
+	}
+	bump()
+	go func() { _, _ = copyWithIdle(upstream, client, bump); _ = upstream.Close() }()
+	_, _ = copyWithIdle(client, upstream, bump)
 	_ = client.Close()
+}
+
+// copyWithIdle copies src→dst like io.Copy but invokes bump() after each chunk so
+// the caller can push the idle deadline on BOTH conns forward on any activity.
+func copyWithIdle(dst io.Writer, src io.Reader, bump func()) (int64, error) {
+	buf := make([]byte, 32*1024)
+	var total int64
+	for {
+		n, rerr := src.Read(buf)
+		if n > 0 {
+			bump()
+			wn, werr := dst.Write(buf[:n])
+			total += int64(wn)
+			if werr != nil {
+				return total, werr
+			}
+		}
+		if rerr != nil {
+			if rerr == io.EOF {
+				return total, nil
+			}
+			return total, rerr
+		}
+	}
 }

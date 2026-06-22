@@ -2,8 +2,16 @@ package playbook
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+// envVarNameRe is a single valid POSIX-ish env var NAME: a letter or underscore
+// followed by letters, digits, or underscores — no `=`, no whitespace, no other
+// punctuation. Used to constrain the volume-token credential's env: so a typo like
+// `env: "FOO=BAR"` cannot mis-target the exec-time injection (it would otherwise
+// yield `docker exec -e FOO=BAR=token`).
+var envVarNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Validate checks a fully-formed playbook (a top-level base or project file, or a
 // merged result) against the schema. Partial layer fragments are NOT validated
@@ -184,6 +192,11 @@ func validateCredential(agent string, c *Credential) []string {
 	case CredVolumeToken:
 		if strings.TrimSpace(c.Env) == "" {
 			errs = append(errs, fmt.Sprintf("harness.%s.credential: method %q requires a non-empty env: (the env var NAME to inject)", agent, c.Method))
+		} else if !envVarNameRe.MatchString(c.Env) {
+			// The env: is the exec-time `-e <env>=<token>` target. A malformed name
+			// (e.g. "FOO=BAR" or "FOO BAR") would mis-target the injection — reject it
+			// to a single valid env-var NAME ([A-Za-z_][A-Za-z0-9_]*, no =/whitespace).
+			errs = append(errs, fmt.Sprintf("harness.%s.credential: method %q env: %q is not a valid env var NAME (want [A-Za-z_][A-Za-z0-9_]*: a letter/underscore then letters/digits/underscores, no '=' or whitespace)", agent, c.Method, c.Env))
 		}
 	case CredEnv, CredVolumeStoreHelp, CredOAuthFile, CredInteractiveLogin:
 		errs = append(errs, fmt.Sprintf("harness.%s.credential: method %q is a known but not-yet-supported adapter (ADR-0027 slice 2+) — declaring it must fail closed, never silently run unauthenticated", agent, c.Method))

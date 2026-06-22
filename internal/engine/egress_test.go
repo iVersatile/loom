@@ -95,8 +95,9 @@ func TestEgressPolicyMapping(t *testing.T) {
 }
 
 // TestEgressAllowlistClaimOK pins the doctor allowlist decision (T20 S2b): the
-// confinement holds iff the container is on its internal egress network, NOT on a
-// bridge, with the sidecar running. A missing sidecar, a bridge attachment, an
+// confinement holds iff the container's network set is EXACTLY {intNet} with the
+// sidecar running. A missing sidecar, a bridge attachment, ANY unexpected
+// additional network (defense-in-depth — a second routable net of any name), an
 // off-internal-net container, or an unreadable probe all FAIL closed.
 func TestEgressAllowlistClaimOK(t *testing.T) {
 	const intNet = "demo-dev-egress"
@@ -107,9 +108,10 @@ func TestEgressAllowlistClaimOK(t *testing.T) {
 		sidecarUp bool
 		want      bool
 	}{
-		{"on internal net + sidecar running passes", []string{intNet}, nil, true, true},
+		{"exactly {intNet} + sidecar running passes", []string{intNet}, nil, true, true},
 		{"missing sidecar fails (broken confinement)", []string{intNet}, nil, false, false},
 		{"on bridge fails (route out bypasses proxy)", []string{intNet, "bridge"}, nil, true, false},
+		{"intNet + some other net fails (defense-in-depth)", []string{intNet, "some-other-net"}, nil, true, false},
 		{"not on internal net fails", []string{"bridge"}, nil, true, false},
 		{"some other network only fails", []string{"demo-dev-egress-ext"}, nil, true, false},
 		{"unreadable probe fails closed", nil, errors.New("no such container"), true, false},

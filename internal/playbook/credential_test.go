@@ -132,3 +132,46 @@ func TestValidateCredentialUnknownMethod(t *testing.T) {
 		t.Fatalf("an unknown credential method must be rejected, got: %v", err)
 	}
 }
+
+// TestValidateCredentialEnvNameCharset proves the volume-token env: must be a
+// single valid env var NAME — a typo like "FOO=BAR" would otherwise mis-target the
+// exec-time `-e <env>=<token>` injection (`docker exec -e FOO=BAR=token`). A valid
+// NAME passes; a name carrying '=' / whitespace / leading digit / empty is rejected.
+func TestValidateCredentialEnvNameCharset(t *testing.T) {
+	valid := []string{"CLAUDE_CODE_OAUTH_TOKEN", "FOO", "_X", "A1_B2", "_"}
+	for _, env := range valid {
+		t.Run("valid/"+env, func(t *testing.T) {
+			pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{
+				"claude": {Credential: &Credential{Method: CredVolumeToken, Env: env}},
+			}}
+			if err := pb.Validate(); err != nil {
+				t.Fatalf("a valid env var NAME %q must validate, got: %v", env, err)
+			}
+		})
+	}
+
+	// Malformed names. Empty/blank are caught by the "non-empty env" branch; the
+	// rest by the charset branch. Both must reject (a malformed name never passes).
+	bad := []struct {
+		env  string
+		want string
+	}{
+		{"FOO=BAR", "not a valid env var NAME"},
+		{"FOO BAR", "not a valid env var NAME"},
+		{"FOO\tBAR", "not a valid env var NAME"},
+		{"1FOO", "not a valid env var NAME"},
+		{"FOO-BAR", "not a valid env var NAME"},
+		{"", "requires a non-empty env"},
+	}
+	for _, tc := range bad {
+		t.Run("bad/"+tc.env, func(t *testing.T) {
+			pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{
+				"claude": {Credential: &Credential{Method: CredVolumeToken, Env: tc.env}},
+			}}
+			err := pb.Validate()
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("env %q must be rejected with %q, got: %v", tc.env, tc.want, err)
+			}
+		})
+	}
+}
