@@ -52,7 +52,8 @@ tier: base
 # networking:                # optional: env-wide egress posture (T20 / ADR-0028).
 #   egress: off              #   off (default) | none | allowlist. Unset = off
 #                            #   (full outbound, compatibility). See "networking:
-#                            #   field" below. allowlist is S2b (fail-closed today).
+#                            #   field" below. allowlist is supported as of S2b
+#                            #   (deny-by-default via a managed proxy sidecar).
 
 # Agent harnesses available in every project's container
 agents:
@@ -249,19 +250,22 @@ networking:
     - github.com
 ```
 
-`egress:` must be one of `off | none | allowlist`; `off`/unset and `none` are
-accepted today. **`allowlist` is sliced (T20 S2a vs S2b):** S2a (this) realizes the
-declarative field + the `none` posture (reusing the T20 S1 `--network none`
-primitive) and validates the enum; the `allowlist` MECHANISM (the deny-by-default
-custom network, per-host resolution, provision-then-restrict) is **S2b**. Until S2b
-lands, `egress: allowlist` is **FAIL-CLOSED** — a hard validation error
-(`networking.egress: "allowlist" is not yet supported (T20 S2b); use "none" or
-"off"`), never a silent degrade to full egress. `allowlist` also requires a
-non-empty `allow:` list. `doctor` surfaces a `container:egress` claim: for a
-declared `egress: none` it verifies the realized container has no external egress
-interface (only `lo`); for `off`/unset it is a no-op pass. The full mechanism
-rationale (provision-then-restrict, custom-network-first, the load-bearing
-allowlist) is ADR-0028.
+`egress:` must be one of `off | none | allowlist`; all three are accepted.
+**`allowlist` IS supported as of T20 S2b** (ADR-0028 Amendment 1): a deny-by-default
+posture realized by a managed **proxy sidecar** that is the SOLE route off the
+container's `--internal` network (no off-box route — the route is the fence,
+mechanism not trust). The resolved set is the declared `allow:` **unioned with a
+load-bearing host floor** the engine always includes (the model API, credential
+helpers, and VCS hosts a deny-by-default must never drop), so a forgotten host can
+never brick the agent. Provisioning runs with full egress and the container is cut
+over to the restricted network afterward (provision-then-restrict). `allowlist`
+also requires a non-empty `allow:` list. `doctor` surfaces a `container:egress`
+claim: for `egress: none` it verifies the realized container has no external egress
+interface (only `lo`); for `allowlist` it verifies the container is on its internal
+egress network (not a bridge) with the proxy sidecar running, failing closed on any
+garbage answer; for `off`/unset it is a no-op pass. The full mechanism rationale
+(provision-then-restrict, the proxy-sidecar fence, the load-bearing floor) is
+ADR-0028 and its Amendment 1.
 
 ## `harness:` section (added 2026-06-11, ADR-0015)
 

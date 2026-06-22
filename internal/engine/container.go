@@ -53,9 +53,17 @@ type ContainerSpec struct {
 	// NoEgress runs the container with `--network none` — a MECHANISM-level egress
 	// cut (T20 S1): no network interface but loopback, so an in-container process
 	// cannot reach any host, refuting the harness command-deny-list bypass. Wired to
-	// the playbook via networking.egress: none (T20 S2a/ADR-0028, build.go:noEgress);
-	// the allowlist posture (custom network + provision-then-restrict) is S2b.
+	// the playbook via networking.egress: none (T20 S2a/ADR-0028, build.go:noEgress).
 	NoEgress bool
+
+	// Egress is the resolved egress posture (T20 S2b, ADR-0028 Amendment 1). For
+	// posture "allowlist" the engine builds the proxy-sidecar confinement (an
+	// internal docker network whose sole route is a loom-managed CONNECT proxy
+	// enforcing the resolved allowlist = declared ∪ load-bearing floor) and cuts the
+	// project container over to it after provisioning (provision-then-restrict). For
+	// none/off this is carried by NoEgress / the default-bridge path and never
+	// touches the confinement code. build.go populates it from merged networking.
+	Egress EgressPolicy
 
 	// User is the configured container runtime user (T10/ADR-0019, from playbook
 	// user:); "" or "root" means root. Home is the resolved in-container $HOME
@@ -243,7 +251,17 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		// Provision (tool/agent install) stays gated on its own digest: a
 		// dotfile-only change must not re-run apt/go-install (T7/T4 interplay).
 		if reprovision && (len(spec.Tools) > 0 || len(spec.Agents) > 0) {
-			if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), spec.LogW); err != nil {
+			// Converge-path re-provision. provision-then-restrict is a CREATE-time
+			// trade, so the confinement is NOT rebuilt here. clearProxyEnv=false: a
+			// non-allowlist container is on the bridge (no proxy env to clear — a
+			// no-op); an ALREADY-confined allowlist container is on the internal net,
+			// so this re-provision routes through the proxy and reaches only the
+			// runtime allowlist — a tool-add needing a broad provision host (apt/go.dev,
+			// outside the load-bearing floor) will 403 and fail LOUD. That is by design
+			// (a tool/policy change needing broad egress is a `--force` rebuild, which
+			// re-runs the full provision-then-restrict on the create path), not a
+			// silent degrade.
+			if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), false, spec.LogW); err != nil {
 				return ContainerInfo{}, err
 			}
 		}
@@ -290,9 +308,23 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		synced = true
 	}
 	if len(spec.Tools) > 0 || len(spec.Agents) > 0 {
-		if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), spec.LogW); err != nil {
+		// Provision with DIRECT egress: for an allowlist spec the project container
+		// carries HTTP(S)_PROXY env (createRunArgs) pointing at a sidecar whose name
+		// is NOT resolvable until the post-provision cut-over below — so the provision
+		// execs MUST clear the proxy env and use the bridge's real internet. This is
+		// the provision half of provision-then-restrict, and the exact pre-cutover-name
+		// bug the #249 proof found + fixed (ADR-0028 §2 / Amendment 1).
+		if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), spec.Egress.isAllowlist(), spec.LogW); err != nil {
 			return ContainerInfo{}, err
 		}
+	}
+	// RESTRICT (provision-then-restrict): build the proxy-sidecar confinement and
+	// cut the project container over to the internal-only network (T20 S2b, ADR-0028
+	// Amendment 1). No-op for every non-allowlist posture. Runs LAST on the create
+	// path — after provisioning ran with direct egress — so the gatekeeper's name is
+	// never on the provision route.
+	if err := ensureEgressConfinement(spec.Name, spec.Egress, spec.BaseImage, spec.LogW); err != nil {
+		return ContainerInfo{}, err
 	}
 	return ContainerInfo{Name: spec.Name, Image: spec.BaseImage, Status: "created", HomeSynced: synced}, nil
 }
@@ -307,7 +339,7 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 // be an explicit choice, never a side effect of a tier.
 // NOTE: the docker path is integration-validated (Work 7 / CI), not the local gate.
 func (dockerRuntime) Teardown(name, level string, cleanState bool, logw io.Writer) (Removed, error) {
-	r := Removed{Containers: []string{}, Volumes: []string{}, Images: []string{}}
+	r := Removed{Containers: []string{}, Volumes: []string{}, Images: []string{}, Networks: []string{}}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return r, fmt.Errorf("docker not available: %w", err)
 	}
@@ -315,6 +347,11 @@ func (dockerRuntime) Teardown(name, level string, cleanState bool, logw io.Write
 	if _, err := dockerLogged(logw, "rm", name); err == nil {
 		r.Containers = append(r.Containers, name)
 	}
+	// T20 S2b (ADR-0028 Amendment 1): remove the per-container egress confinement
+	// (proxy sidecar + internal/external networks) AFTER the project container is
+	// removed so the networks are empty and removable. Best-effort + idempotent —
+	// a non-allowlist container created none of these, so each is a clean no-op.
+	teardownEgressConfinement(name, logw, &r)
 	if cleanState {
 		for _, vol := range []string{agentHomeVolume(name), ghConfigVolume(name)} {
 			if _, err := dockerLogged(logw, "volume", "rm", vol); err == nil {
@@ -543,8 +580,11 @@ func ensureSharedToolPath(name string, tools []ToolInstall, logw io.Writer) erro
 
 // provision copies the script into the container as a file and execs it (more
 // robust than piping via `sh -s` on stdin). With `set -x` in the script, the
-// combined output ends at the exact command that failed.
-func provision(name, script string, logw io.Writer) error {
+// combined output ends at the exact command that failed. clearProxyEnv blanks the
+// HTTP(S)_PROXY env for the provision exec (T20 S2b): an allowlist project
+// container carries proxy env pointing at a sidecar not yet resolvable
+// pre-cutover, so provisioning MUST use the bridge's direct egress, not the proxy.
+func provision(name, script string, clearProxyEnv bool, logw io.Writer) error {
 	tmp, err := os.CreateTemp("", "loom-provision-*.sh")
 	if err != nil {
 		return fmt.Errorf("provision tmp: %w", err)
@@ -560,13 +600,18 @@ func provision(name, script string, logw io.Writer) error {
 	if out, err := dockerLogged(logw, "cp", tmp.Name(), name+":/tmp/loom-provision.sh"); err != nil {
 		return fmt.Errorf("cp provision: %v: %s", err, out)
 	}
+	// Provision exec args: `docker exec [-e PROXY=…blank…] <name> sh /tmp/...`. For
+	// an allowlist container, blank the proxy env so apt/go/installers use the
+	// bridge's direct egress (the proxy name is not resolvable until the cut-over).
+	execArgs := append([]string{"exec"}, provisionEnvArgs(clearProxyEnv)...)
+	execArgs = append(execArgs, name, "sh", "/tmp/loom-provision.sh")
 	// The script is idempotent and retries its own flaky steps internally; this
 	// outer loop covers a transient kill of the whole exec (e.g. a SIGKILL/137 on
 	// a memory-pressured VM) by re-running the script fresh before giving up. A
 	// deterministic failure still fails — bounded so it can't spin (ADR-0011).
 	var lastErr error
 	for attempt := 1; attempt <= provisionAttempts; attempt++ {
-		out, err := dockerLogged(logw, "exec", name, "sh", "/tmp/loom-provision.sh")
+		out, err := dockerLogged(logw, execArgs...)
 		if err == nil {
 			return nil
 		}
@@ -859,6 +904,13 @@ func createRunArgs(spec ContainerSpec, hostCredsPath string, credsPresent bool) 
 		args = append(args, "--network", "none")
 	}
 	args = append(args, envArgs(spec.Env)...)
+	// T20 S2b (ADR-0028 Amendment 1): an allowlist container is BORN on the default
+	// bridge (full egress for provisioning) and cut over to the internal-only egress
+	// network AFTER provision (ensureEgressConfinement). So createRunArgs adds NO
+	// `--network` for it — only the HTTP(S)_PROXY env pointing at its sidecar
+	// (convenience for cooperating clients; the post-cutover route is the fence).
+	// none keeps its existing `--network none` path above, untouched.
+	args = append(args, egressProxyRunEnvArgs(spec.Name, spec.Egress)...)
 	if hasAgent(spec.Agents, "claude-code") {
 		args = append(args, "-v", agentHomeVolume(spec.Name)+":"+spec.home()+"/.claude")
 	}

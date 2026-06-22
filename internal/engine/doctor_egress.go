@@ -6,16 +6,20 @@ import (
 	"github.com/iVersatile/loom/internal/playbook"
 )
 
-// container:egress verification (T20 S2a, ADR-0028). The companion to the
-// networking: schema joint: a container whose playbook declares `egress: none`
-// must ACTUALLY have no external egress interface (only `lo`), so the declared
-// posture and the realized container agree — "doctor mechanizes what the reviewer
-// hand-checks once" (the same doctrine as container:role-marker-perms). off/unset
-// is a no-op pass: full egress is the Phase-1 default, nothing to verify. The probe
-// is read-only and hermetic (it reads /sys/class/net inside the container — no
-// external host need be reachable); the decision logic is the pure function below
-// (gate-tested), the probe is integration-validated. allowlist never reaches here
-// (validate fail-closes it as unimplemented — S2b).
+// container:egress verification (T20 S2a/S2b, ADR-0028 + Amendment 1). The
+// companion to the networking: schema joint: a container's declared `egress:`
+// posture must ACTUALLY hold on the realized container — "doctor mechanizes what
+// the reviewer hand-checks once" (the same doctrine as container:role-marker-perms).
+//   - none: the container must have ONLY loopback (the --network none cut, S2a).
+//   - allowlist (S2b): the container must be on its internal egress network and
+//     NOT on a bridge with a route out, and its gatekeeper sidecar must be running —
+//     so the proxy confinement actually holds (a missing sidecar means NO route out
+//     at all: a broken confinement, fail-closed).
+//   - off/unset: a no-op pass (full egress is the Phase-1 default, nothing to verify).
+// The probes are read-only (interfaces, the container's networks, sidecar state);
+// the decision logic is the pure functions below (gate-tested), the probe is
+// integration-validated. Fail-closed on unreadable probes (a security claim must
+// never green on a garbage answer).
 
 // hasNonLoopbackIface reports whether any interface but loopback is present — the
 // discriminator between a no-egress container (only `lo`) and one on a network.
@@ -63,6 +67,47 @@ func egressClaimOK(egress string, ifaces []string) (bool, string) {
 	return true, fmt.Sprintf("egress: none — container has only loopback %v (no external egress, --network none)", ifaces)
 }
 
+// onNetwork reports whether net is among the container's attached networks.
+func onNetwork(networks []string, net string) bool {
+	for _, n := range networks {
+		if n == net {
+			return true
+		}
+	}
+	return false
+}
+
+// egressAllowlistClaimOK decides container:egress for the allowlist posture (T20
+// S2b, ADR-0028 Amendment 1). The confinement holds iff the project container is
+// on its internal egress network (intNet, whose --internal flag means NO route
+// off-box) AND is NOT on the default `bridge` network (a bridge has a route out,
+// which would defeat the fence) AND its gatekeeper sidecar is running (a missing
+// sidecar means the internal-network-only container has NO route out at all — a
+// BROKEN confinement, not a safe one; fail-closed).
+//
+// Pure and probe-free so it is gate-testable (mirrors egressClaimOK); the caller
+// gathers networks + sidecar state via read-only docker probes. networksErr being
+// non-nil means the network probe was unreadable — fail-closed (a security claim
+// must never green on a garbage answer).
+func egressAllowlistClaimOK(intNet string, networks []string, networksErr error, sidecarRunning bool) (bool, string) {
+	if networksErr != nil {
+		return false, fmt.Sprintf("egress: allowlist declared but the container's networks are unreadable (%v) — cannot confirm the proxy confinement (fail-closed)", networksErr)
+	}
+	if len(networks) == 0 {
+		return false, "egress: allowlist declared but the container reports no networks — the probe returned nothing usable; cannot confirm the proxy confinement (fail-closed)"
+	}
+	if !onNetwork(networks, intNet) {
+		return false, fmt.Sprintf("egress: allowlist declared but the container is NOT on its internal egress network %q (networks %v) — the cut-over to the confined route FAILED", intNet, networks)
+	}
+	if onNetwork(networks, "bridge") {
+		return false, fmt.Sprintf("egress: allowlist declared but the container is still on the default %q network (networks %v) — it has a route out that bypasses the proxy", "bridge", networks)
+	}
+	if !sidecarRunning {
+		return false, fmt.Sprintf("egress: allowlist declared and the container is on its internal egress network %q, but the proxy sidecar is NOT running — the container has NO route out at all (broken confinement, fail-closed)", intNet)
+	}
+	return true, fmt.Sprintf("egress: allowlist — container is on its internal egress network %q (no off-box route) with the proxy sidecar running (networks %v); outbound is confined to the resolved allowlist", intNet, networks)
+}
+
 // egressLabel renders the declared posture for a check detail; "" reads as "off".
 func egressLabel(egress string) string {
 	if egress == "" {
@@ -80,6 +125,16 @@ func containerEgressCheck(rt ContainerRuntime, cname string, pb playbook.Playboo
 	egress := ""
 	if pb.Networking != nil {
 		egress = pb.Networking.Egress
+	}
+	// allowlist (T20 S2b): verify the proxy-sidecar confinement on the LIVE
+	// container — it must be on its internal egress network (no off-box route) and
+	// NOT on a bridge, with the gatekeeper sidecar running. Probes are read-only
+	// (the container's networks via inspect + the sidecar's run state); the decision
+	// is the pure egressAllowlistClaimOK below. Fail-closed on an unreadable probe.
+	if egress == playbook.EgressAllowlist {
+		networks, nerr := containerNetworks(cname)
+		ok, detail := egressAllowlistClaimOK(egressInternalNetwork(cname), networks, nerr, egressSidecarRunning(cname))
+		return Check{Name: "container:egress", OK: ok, Detail: detail}
 	}
 	if egress != playbook.EgressNone {
 		// No egress restriction declared — pass without probing the container.

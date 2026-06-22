@@ -173,11 +173,12 @@ func TestSingleRoleConfigByteIdentical(t *testing.T) {
 	}
 }
 
-// TestValidateNetworking covers FR-SCHEMA-012 (T20 S2a, ADR-0028): the egress
-// enum, the allowlist-requires-allow rule, and — CRITICAL — the FAIL-CLOSED reject
-// of allowlist as not-yet-implemented (S2b). none/off/unset are accepted; an
-// allowlist posture (even with a populated allow:) is a hard error, so a
-// deny-by-default playbook can NEVER silently run with full egress.
+// TestValidateNetworking covers FR-SCHEMA-012 (T20 S2a/S2b, ADR-0028 + Amendment
+// 1): the egress enum, the allowlist-requires-allow rule, and — as of S2b —
+// allowlist being ACCEPTED with a non-empty allow: (the S2a fail-close is flipped;
+// the proxy-sidecar mechanism is now wired). none/off/unset are accepted; an
+// allowlist with an EMPTY allow: is still rejected (a deny-by-default posture must
+// state intent — the engine's load-bearing floor is a fail-safe, not a stand-in).
 func TestValidateNetworking(t *testing.T) {
 	valid := []*Playbook{
 		{Loom: 1, Tier: TierBase},                                              // unset = off (no networking section)
@@ -185,8 +186,12 @@ func TestValidateNetworking(t *testing.T) {
 		{Loom: 1, Tier: TierBase, Networking: &Networking{Egress: EgressOff}},  // explicit off
 		{Loom: 1, Tier: TierBase, Networking: &Networking{Egress: EgressNone}}, // the S1 cut
 		{Loom: 1, Tier: TierProject, Name: "x", Networking: &Networking{Egress: EgressNone}},
-		// off carrying an allow: list is harmless (union-merged, ignored until S2b).
+		// off carrying an allow: list is harmless (union-merged, ignored for off/none).
 		{Loom: 1, Tier: TierBase, Networking: &Networking{Egress: EgressOff, Allow: []string{"api.anthropic.com"}}},
+		// S2b: allowlist WITH a non-empty allow: is now accepted (the proxy mechanism).
+		{Loom: 1, Tier: TierBase, Networking: &Networking{Egress: EgressAllowlist, Allow: []string{"example.com"}}},
+		{Loom: 1, Tier: TierProject, Name: "x",
+			Networking: &Networking{Egress: EgressAllowlist, Allow: []string{"api.anthropic.com", "github.com"}}},
 	}
 	for i, pb := range valid {
 		if err := pb.Validate(); err != nil {
@@ -196,12 +201,9 @@ func TestValidateNetworking(t *testing.T) {
 
 	invalid := map[string]*Playbook{
 		"unknown egress posture": {Loom: 1, Tier: TierBase, Networking: &Networking{Egress: "deny"}},
-		// allowlist requires a non-empty allow: list...
+		// allowlist still REQUIRES a non-empty allow: list — an empty deny-by-default
+		// posture is a likely mistake (the load-bearing floor is a fail-safe, not intent).
 		"allowlist without allow": {Loom: 1, Tier: TierBase, Networking: &Networking{Egress: EgressAllowlist}},
-		// ...and even WITH allow: it is fail-closed as unimplemented (S2b). This is
-		// the guardrail-hole case: an allowlist posture must never degrade to full egress.
-		"allowlist fail-closed": {Loom: 1, Tier: TierBase,
-			Networking: &Networking{Egress: EgressAllowlist, Allow: []string{"api.anthropic.com"}}},
 	}
 	for name, pb := range invalid {
 		if err := pb.Validate(); err == nil {
@@ -209,13 +211,12 @@ func TestValidateNetworking(t *testing.T) {
 		}
 	}
 
-	// The fail-closed message must name the deferral + the safe alternatives, so an
-	// operator is never left to guess that allowlist silently means full egress.
-	pb := &Playbook{Loom: 1, Tier: TierBase,
-		Networking: &Networking{Egress: EgressAllowlist, Allow: []string{"api.anthropic.com"}}}
+	// The empty-allow allowlist error must name the missing allow: list so the
+	// operator knows what to add (not a silent degrade to full egress).
+	pb := &Playbook{Loom: 1, Tier: TierBase, Networking: &Networking{Egress: EgressAllowlist}}
 	err := pb.Validate()
-	if err == nil || !strings.Contains(err.Error(), "not yet supported") {
-		t.Errorf("allowlist error must say it is not yet supported (fail-closed), got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "non-empty allow") {
+		t.Errorf("empty-allow allowlist error must name the required allow: list, got: %v", err)
 	}
 }
 

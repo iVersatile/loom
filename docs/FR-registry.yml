@@ -329,24 +329,49 @@ requirements:
     # rejects egress: allowlist as a HARD error (never a silent degrade to full
     # egress, the exact guardrail hole ADR-0028 closes). The behavioral none→cut
     # mapping is FR-NET-001. S2b will extend this to validate a REALIZED allowlist.
-    statement: the optional `networking:` section parses at any tier; `egress:` merges last-non-empty-wins in {"" (=off), off, none, allowlist}; `allow:` is a hostname list unioned + deduped across tiers in layer order; validation requires a non-empty `allow:` for allowlist and FAIL-CLOSES `egress: allowlist` as not-yet-supported (S2b — never silently full-egress); none/off/unset are accepted.
+    statement: the optional `networking:` section parses at any tier; `egress:` merges last-non-empty-wins in {"" (=off), off, none, allowlist}; `allow:` is a hostname list unioned + deduped across tiers in layer order; validation requires a non-empty `allow:` for allowlist (an empty deny-by-default posture is a hard error, never a silent degrade) and accepts allowlist with a non-empty allow (the S2b proxy mechanism); none/off/unset are accepted.
     source: SPEC-playbook.md#networking
     tests: [playbook.TestNetworkingMerge, playbook.TestValidateNetworking, playbook.TestParseNetworkingBothTiers]
     status: active
 
   # --- Behavioral: networking / egress (SPEC-playbook#networking, ADR-0028) ---
   # T20 S2a realizes the declarative networking: field + the egress: none posture
-  # (reusing the S1 --network none primitive). S2b will add FR-NET-002/003/004 for
-  # the allowlist mechanism (deny-by-default custom network, provision-then-restrict,
-  # and the doctor reachability claim). FR-NET-001 cites the ENGINE-SEAM unit tests
-  # (the playbook → spec.NoEgress → --network none mapping, proven without docker);
-  # the live container cut is the integration canary (//go:build integration), which
-  # fr-verify cannot see, so it is deliberately NOT cited here.
+  # (reusing the S1 --network none primitive); S2b (ADR-0028 Amendment 1) adds the
+  # allowlist MECHANISM — a managed proxy sidecar as the sole route off an internal
+  # network. FR-NET-002 covers the resolved allowlist + proxy-env wiring; FR-NET-004
+  # covers the doctor confinement claim. All three cite ENGINE-SEAM unit tests
+  # (proven without docker); the LIVE container cut + reachability is the integration
+  # canary (//go:build integration), which fr-verify cannot see, so it is
+  # deliberately NOT cited here (it is the live proof, not the fr-cited test).
   - id: FR-NET-001
     kind: behavioral
     statement: a playbook declaring `networking.egress: none` produces a container with no external egress — build plumbs it to ContainerSpec.NoEgress and createRunArgs appends `--network none` (only loopback, no eth0), doctor-verifiable via `container:egress`; off/unset leave full egress unchanged (the Phase-1 default).
     source: SPEC-playbook.md#networking
     tests: [engine.TestBuildPopulatesNoEgress, engine.TestNoEgressMapping, engine.TestCreateRunArgsNoEgress, engine.TestEgressClaimOK, engine.TestContainerEgressCheckNone, engine.TestContainerEgressCheckOffNoProbe]
+    status: active
+  - id: FR-NET-002
+    kind: behavioral
+    # T20 S2b (ADR-0028 Amendment 1): the allowlist MECHANISM. The resolved set is
+    # the declared allow: UNIONed with the hardcoded load-bearing floor (model API,
+    # credential helpers, VCS) so a deny-by-default posture can never BRICK the agent
+    # by a forgotten host; the union is deduped + sorted (deterministic). build maps
+    # the posture onto ContainerSpec.Egress; an allowlist container carries
+    # HTTP(S)_PROXY pointed at its sidecar (the route off its --internal network is
+    # the actual fence; the env is convenience for cooperating clients). The live
+    # reachability/bypass proof is the integration canary (NOT fr-cited).
+    statement: a playbook declaring `networking.egress: allowlist` confines the container to the resolved allowlist (declared ∪ the load-bearing floor — model API, credential helpers, VCS — which is ALWAYS included so a deny-by-default posture never bricks the agent) via a managed proxy sidecar that is the sole route off the container's internal network; build maps the posture onto ContainerSpec.Egress and points the container's HTTP(S)_PROXY at the sidecar; a direct/raw-socket bypass has no off-box route.
+    source: SPEC-playbook.md#networking
+    tests: [engine.TestResolveEgressAllowlist, engine.TestEgressPolicyMapping, engine.TestEgressProxyRunEnvArgs]
+    status: active
+  - id: FR-NET-004
+    kind: behavioral
+    # T20 S2b (ADR-0028 Amendment 1): doctor mechanizes the allowlist confinement
+    # claim. Pure decision (egressAllowlistClaimOK) over read-only probes; fail-closed
+    # on an unreadable probe or a missing sidecar (a sidecar-less container on an
+    # --internal net has NO route out at all — broken confinement, not safe).
+    statement: doctor's `container:egress` claim verifies the allowlist confinement on a running container — it holds iff the container is on its internal egress network (no off-box route) and NOT on a bridge, with the proxy sidecar running; a missing sidecar, a bridge attachment, an off-internal-net container, or an unreadable probe all FAIL closed (a security claim never greens on a garbage answer).
+    source: SPEC-playbook.md#networking
+    tests: [engine.TestEgressAllowlistClaimOK]
     status: active
 
   # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---

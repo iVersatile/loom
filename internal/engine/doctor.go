@@ -198,14 +198,19 @@ func doctorImpl(opts DoctorOpts, rt ContainerRuntime) (DoctorResult, error) {
 	}
 	res.Checks = append(res.Checks, Check{Name: "container:user", OK: true, Detail: userModel})
 
-	// container:egress (T20 S2a, ADR-0028): the declared networking posture must
-	// match the realized container. egress: none ⇒ the container must have only
-	// loopback (the --network none cut); off/unset ⇒ a no-op pass (full egress is
-	// the Phase-1 default, nothing to verify). The off/unset pass is static (no
-	// probe); the none verification reads /sys/class/net live, so it is gated on a
-	// running container (doctor never Starts one to ask — a stopped container with a
-	// none posture is graded by container:state above, not invented here).
-	if pb.Networking == nil || pb.Networking.Egress != playbook.EgressNone {
+	// container:egress (T20 S2a/S2b, ADR-0028 + Amendment 1): the declared
+	// networking posture must match the realized container. egress: none ⇒ the
+	// container must have only loopback (the --network none cut, S2a); allowlist ⇒
+	// the container must be on its internal egress network and NOT on a bridge with
+	// a route out, with its proxy sidecar running (S2b); off/unset ⇒ a no-op pass
+	// (full egress is the Phase-1 default, nothing to verify). The off/unset pass is
+	// static (no probe); the none/allowlist verifications read live state, so they
+	// are gated on a running container (doctor never Starts one to ask — a stopped
+	// container with a none/allowlist posture is graded by container:state above,
+	// not invented here).
+	egressNeedsProbe := pb.Networking != nil &&
+		(pb.Networking.Egress == playbook.EgressNone || pb.Networking.Egress == playbook.EgressAllowlist)
+	if !egressNeedsProbe {
 		res.Checks = append(res.Checks, containerEgressCheck(rt, cname, *pb))
 	} else if running {
 		res.Checks = append(res.Checks, containerEgressCheck(rt, cname, *pb))
