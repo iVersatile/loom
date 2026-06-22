@@ -81,7 +81,8 @@ harness:
   # the best of current knowledge (Jan 2026 cutoff; web unavailable at build) —
   # NO PreToolUse-equivalent script hook that can inspect command CONTENT and
   # block on exit code the way guard-bash does. So gemini's command deny-floor is
-  # carried ENTIRELY by settings.json `tools.exclude` (prefix-scoped denials), NOT
+  # carried ENTIRELY by settings.json `excludeTools` (prefix-scoped denials; the
+  # verified gemini-cli key), NOT
   # by a hooks: list here (a gemini hooks: list would dangle — there is no gemini
   # hook mechanism to register it into). See the loud SECURITY caveat in
   # config/dotfiles/gemini/settings.json.
