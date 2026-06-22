@@ -1,0 +1,61 @@
+#!/bin/sh
+# self-wake-doctor — read-only health/quality report for the self-wake autonomy
+# loop (ADR-0022 shape A). Answers "is self-wake armed, eligible, and ticking?"
+# WITHOUT side effects: it runs readiness-decide (read-only) — NOT promote-next
+# (which mints an envelope) and NOT self-wake-tick (which arms a wake). Run it from
+# loom-dev bash or the loom-author session. No mutation, no spawn, no wake.
+#
+# Usage: scripts/self-wake-doctor
+# Env (same seat paths as self-wake-tick): LOOM_AUTOPULL_CLASSES, LOOM_ROOT,
+#   LOOM_WAKE_PLAN/MERGED/INBOX/HALT/TICKS.
+set -u
+
+ROOT="${LOOM_ROOT:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
+SELF_DIR=$(CDPATH= cd "$(dirname "$0")" 2>/dev/null && pwd || echo .)
+PLAN="${LOOM_WAKE_PLAN:-$ROOT/docs/PLAN.md}"
+MERGED="${LOOM_WAKE_MERGED:-$ROOT/.scratch/inbox/.merged-prs}"
+INBOX="${LOOM_WAKE_INBOX:-$ROOT/.scratch/inbox/loom-author.md}"
+HALT="${LOOM_WAKE_HALT:-$ROOT/.scratch/inbox/HALT}"
+TICKS="${LOOM_WAKE_TICKS:-$ROOT/.scratch/inbox/.wake-ticks}"
+
+floor="${LOOM_AUTOPULL_CLASSES:-}"
+ap=$(sed -n 's/^AUTOPILOT:[[:space:]]*//p' "$INBOX" 2>/dev/null | head -1)
+halt=0; [ -e "$HALT" ] && halt=1
+
+readiness=""
+if [ -x "$SELF_DIR/readiness-decide" ]; then
+	readiness=$(sh "$SELF_DIR/readiness-decide" "$PLAN" "$MERGED" 2>/dev/null)
+fi
+ready=0; printf '%s\n' "$readiness" | grep -q ': READY' && ready=1
+queued=$(grep -c '^status: QUEUED' "$INBOX" 2>/dev/null || echo 0)
+
+echo "self-wake-doctor — read-only health report ($ROOT)"
+echo
+echo "[arming]"
+if [ -n "$floor" ]; then
+	echo "  LOOM_AUTOPULL_CLASSES = '$floor'  (floor open)"
+else
+	echo "  LOOM_AUTOPULL_CLASSES = <empty>  (nothing auto-pullable — set =exec to arm)"
+fi
+echo "  AUTOPILOT             = ${ap:-<none>}"
+echo
+echo "[kill-switch]"
+if [ "$halt" = 1 ]; then echo "  HALT = PRESENT  (all wakes blocked)"; else echo "  HALT = clear"; fi
+echo
+echo "[readiness] (read-only; does NOT mint an envelope)"
+if [ -n "$readiness" ]; then printf '%s\n' "$readiness" | sed 's/^/  /'; else echo "  (readiness-decide unavailable)"; fi
+echo
+echo "[inbox]  QUEUED envelopes awaiting drain: $queued"
+echo "[cadence] last wake-ticks:"
+if [ -s "$TICKS" ]; then tail -5 "$TICKS" 2>/dev/null | sed 's/^/  /'; else echo "  (none yet — loop has not ticked)"; fi
+echo
+printf 'VERDICT: '
+if [ "$halt" = 1 ]; then
+	echo "BLOCKED — HALT present; self-wake will not arm (remove $HALT to clear)."
+elif [ -z "$floor" ]; then
+	echo "NOT ARMED — set LOOM_AUTOPULL_CLASSES=exec in this seat's env, then re-run."
+elif [ "$ready" = 1 ]; then
+	echo "ARMED & READY — a [class:exec] row is eligible; a self-wake tick will WAKE."
+else
+	echo "ARMED, NO ELIGIBLE WORK — ticks WAKE-POLL until a [class:exec] row is READY (or IDLE-STOP after K empty)."
+fi
