@@ -36,19 +36,29 @@ const (
 )
 
 // Credential adapter methods a `harness.<agent>.credential.method` may name
-// (ADR-0027 §1 — the FIXED consumer-adapter enum, no open-ended resolver). Only
-// CredVolumeToken (M1) and CredAPIKeyHelper (M2) are WIRED in slice 1; the rest
-// are valid-to-DECLARE tokens but FAIL-CLOSED at validate as "not yet supported"
-// — a declared credential method is NEVER silently no-op'd (the guardrail
-// principle: a credential you can't honor must fail LOUD, not run unauthenticated).
+// (ADR-0027 §1 — the FIXED consumer-adapter enum, no open-ended resolver).
+// CredVolumeToken (M1), CredAPIKeyHelper (M2), and CredOAuthFile (slice 2) are
+// WIRED; the rest are valid-to-DECLARE tokens but FAIL-CLOSED at validate as "not
+// yet supported" — a declared credential method is NEVER silently no-op'd (the
+// guardrail principle: a credential you can't honor must fail LOUD, not run
+// unauthenticated).
 const (
 	CredEnv              = "env"                 // exec-time NAME=value (slice 2+)
 	CredAPIKeyHelper     = "apiKeyHelper"        // M2: stdout-helper in settings.json (WIRED)
 	CredVolumeToken      = "volume-token"        // M1: per-project volume → exec-time -e (WIRED)
 	CredVolumeStoreHelp  = "volume-store+helper" // gh's ADR-0026 shape (described, not re-plumbed)
-	CredOAuthFile        = "oauth-file"          // Gemini ADC (slice 2+, the resolver gate)
+	CredOAuthFile        = "oauth-file"          // slice 2: per-project :rw volume at a HOME path the CLI refreshes in place (Gemini OAuth/ADC) (WIRED)
 	CredInteractiveLogin = "interactive-login"   // human-seat fallback (slice 2+)
 )
+
+// DefaultOAuthFilePath is the in-container HOME-relative mount point an oauth-file
+// credential defaults to when the declaration omits path: — Gemini's OAuth login
+// directory (`$HOME/.gemini`, holding oauth_creds.json). A declaration may override
+// it (e.g. `.config/gcloud` for gcloud ADC). HOME-relative: the engine joins it onto
+// the resolved container $HOME (homeForUser), so it tracks a non-root user too. It is
+// a DIRECTORY the per-project credential volume mounts at — the CLI writes/refreshes
+// the creds file inside it; loom places and refreshes nothing.
+const DefaultOAuthFilePath = ".gemini"
 
 // Playbook is the union of both tiers' fields; Tier selects which apply, and
 // Validate enforces the tier-appropriate subset. Lists are intent-by-reference
@@ -206,6 +216,14 @@ type Credential struct {
 	Method string `json:"method"`           // one of the Cred* enum
 	Helper string `json:"helper,omitempty"` // apiKeyHelper: the operator stdout-helper command
 	Env    string `json:"env,omitempty"`    // volume-token: the env var NAME to inject
+	// Path is the oauth-file adapter's in-container, HOME-relative mount DIRECTORY
+	// (e.g. ".gemini" → $HOME/.gemini, the default; ".config/gcloud" for gcloud ADC).
+	// Empty defaults to DefaultOAuthFilePath. It names a DIRECTORY the per-project
+	// credential volume mounts at :rw — the agent's CLI writes/refreshes the OAuth
+	// creds file there on token-refresh; loom places and refreshes nothing. Validated
+	// HOME-relative (no leading /, no .. traversal) so it can never escape $HOME.
+	// Meaningless for the other methods (validate rejects it where it is).
+	Path string `json:"path,omitempty"`
 }
 
 // Networking is the declared egress posture (T20 S2a, ADR-0028). Egress is a

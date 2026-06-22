@@ -318,3 +318,187 @@ func TestCredentialSlugCheckNotApplicable(t *testing.T) {
 		t.Error("apiKeyHelper (no per-project volume) must not trigger the slug check")
 	}
 }
+
+// --- oauth-file adapter: :rw HOME-path mount + fail-closed doctor (ADR-0027 slice 2, FR-CRED-005) ---
+
+// TestOAuthFileMountRWAtDefaultHomePath proves FR-CRED-005 (the mount): an oauth-file
+// declaration with no path: yields a `:rw` volume mount at the DEFAULT $HOME/.gemini,
+// using the `<container>-<agent>-cred` volume (the same family as M1 — no new naming).
+func TestOAuthFileMountRWAtDefaultHomePath(t *testing.T) {
+	spec := ContainerSpec{
+		Name: "demo-dev", Project: "demo", BaseImage: "img",
+		OAuthFileMounts: oauthFileMounts("demo-dev", map[string]playbook.HarnessAgent{
+			"gemini": {Credential: &playbook.Credential{Method: playbook.CredOAuthFile}},
+		}),
+	}
+	args := createRunArgs(spec, "", false)
+	joined := strings.Join(args, " ")
+
+	want := "-v demo-dev-gemini-cred:" + containerHome + "/.gemini:rw"
+	if !strings.Contains(joined, want) {
+		t.Errorf("oauth-file must mount the per-project volume :rw at the default HOME path: want %q in %v", want, args)
+	}
+	// It must be :rw, NEVER :ro (the CLI refreshes the creds file in place).
+	if strings.Contains(joined, "demo-dev-gemini-cred:"+containerHome+"/.gemini:ro") {
+		t.Error("oauth-file mount must be :rw, not :ro")
+	}
+}
+
+// TestOAuthFileMountRWAtConfiguredPath proves FR-CRED-005: a declared path: (e.g.
+// gcloud ADC's .config/gcloud) is honored — the mount lands at $HOME/<path>:rw.
+func TestOAuthFileMountRWAtConfiguredPath(t *testing.T) {
+	spec := ContainerSpec{
+		Name: "demo-dev", Project: "demo", BaseImage: "img",
+		OAuthFileMounts: oauthFileMounts("demo-dev", map[string]playbook.HarnessAgent{
+			"gemini": {Credential: &playbook.Credential{Method: playbook.CredOAuthFile, Path: ".config/gcloud"}},
+		}),
+	}
+	args := createRunArgs(spec, "", false)
+	want := "-v demo-dev-gemini-cred:" + containerHome + "/.config/gcloud:rw"
+	if !strings.Contains(strings.Join(args, " "), want) {
+		t.Errorf("oauth-file must honor the configured HOME path: want %q in %v", want, args)
+	}
+}
+
+// TestOAuthFileMountTracksNonRootHome proves the mount joins the RESOLVED $HOME, so a
+// non-root user: gets the volume at /home/<user>/.gemini, not /root/.gemini.
+func TestOAuthFileMountTracksNonRootHome(t *testing.T) {
+	spec := ContainerSpec{
+		Name: "demo-dev", Project: "demo", BaseImage: "img",
+		User: "agent", Home: homeForUser("agent"),
+		OAuthFileMounts: oauthFileMounts("demo-dev", map[string]playbook.HarnessAgent{
+			"gemini": {Credential: &playbook.Credential{Method: playbook.CredOAuthFile}},
+		}),
+	}
+	args := createRunArgs(spec, "", false)
+	want := "-v demo-dev-gemini-cred:" + homeForUser("agent") + "/.gemini:rw"
+	if !strings.Contains(strings.Join(args, " "), want) {
+		t.Errorf("oauth-file mount must track the resolved non-root $HOME: want %q in %v", want, args)
+	}
+}
+
+// TestM1MountStillReadOnly is the REGRESSION GUARD: the M1 (volume-token) mount must
+// remain `:ro` at the fixed credMountPath — slice 2 must not regress it to :rw or move
+// it. (The companion no-leak assertion lives in TestCredentialVolumeMountIsVolumeNotRunEnv.)
+func TestM1MountStillReadOnly(t *testing.T) {
+	spec := ContainerSpec{
+		Name: "demo-dev", Project: "demo", BaseImage: "img",
+		Agents:                 []AgentInstall{{Name: "claude-code"}},
+		CredentialVolumeAgents: []string{"claude"},
+	}
+	args := createRunArgs(spec, "", false)
+	joined := strings.Join(args, " ")
+	wantRO := "-v demo-dev-claude-cred:" + credMountPath + ":ro"
+	if !strings.Contains(joined, wantRO) {
+		t.Errorf("M1 volume-token mount must stay :ro at credMountPath: want %q in %v", wantRO, args)
+	}
+	if strings.Contains(joined, "demo-dev-claude-cred:"+credMountPath+":rw") {
+		t.Error("M1 mount must NEVER be :rw (slice 2 must not regress the :ro guard)")
+	}
+}
+
+// TestOAuthFileNoCredentialNoMount proves a non-oauth-file build emits no oauth-file
+// mount (byte-identical to a pre-slice-2 build).
+func TestOAuthFileNoCredentialNoMount(t *testing.T) {
+	if m := oauthFileMounts("demo-dev", map[string]playbook.HarnessAgent{
+		"claude": {Credential: &playbook.Credential{Method: playbook.CredVolumeToken, Env: "X"}},
+	}); m != nil {
+		t.Errorf("a non-oauth-file harness must yield no oauth-file mounts, got %+v", m)
+	}
+}
+
+// TestOAuthFileNoCredentialValueInRunArgs proves the SECURITY invariant: an oauth-file
+// build carries NO credential value on `docker run` — it is a `-v` VOLUME mount only,
+// never a `docker run -e`, so nothing enters Config.Env / `docker inspect`.
+func TestOAuthFileNoCredentialValueInRunArgs(t *testing.T) {
+	spec := ContainerSpec{
+		Name: "demo-dev", Project: "demo", BaseImage: "img",
+		OAuthFileMounts: oauthFileMounts("demo-dev", map[string]playbook.HarnessAgent{
+			"gemini": {Credential: &playbook.Credential{Method: playbook.CredOAuthFile}},
+		}),
+	}
+	args := createRunArgs(spec, "", false)
+	// No `-e` on run carries any oauth/token value (the oauth-file path injects nothing
+	// at run-time at all — the CLI reads the file from the volume).
+	for i, a := range args {
+		if a == "-e" && i+1 < len(args) {
+			if strings.Contains(strings.ToLower(args[i+1]), "oauth") || strings.Contains(strings.ToLower(args[i+1]), "token") {
+				t.Errorf("oauth-file must NEVER put a credential value on docker run -e: found -e %q", args[i+1])
+			}
+		}
+	}
+	// The reference fake token must not appear anywhere in the run args.
+	if strings.Contains(strings.Join(args, " "), fakeToken) {
+		t.Errorf("no credential value may appear in docker run args: %v", args)
+	}
+}
+
+// TestOAuthFileDoctorPassesPresent proves FR-CRED-005 (doctor, happy path): a present,
+// non-empty creds file in the volume yields a passing check.
+func TestOAuthFileDoctorPassesPresent(t *testing.T) {
+	rt := fakeRuntime{credFilePresent: true}
+	pb := playbook.Playbook{
+		Loom: 1, Tier: playbook.TierProject, Name: "demo",
+		Harness: map[string]playbook.HarnessAgent{
+			"gemini": {Credential: &playbook.Credential{Method: playbook.CredOAuthFile}},
+		},
+	}
+	checks, ok := oauthFileCredentialChecks(rt, "demo-dev", containerHome, pb)
+	if !ok || len(checks) != 1 || !checks[0].OK {
+		t.Fatalf("a present non-empty creds file must pass: ok=%v checks=%+v", ok, checks)
+	}
+	if !strings.Contains(checks[0].Detail, ".gemini/oauth_creds.json") {
+		t.Errorf("detail should name the probed creds file: %q", checks[0].Detail)
+	}
+}
+
+// TestOAuthFileDoctorFailsClosedMissing proves FR-CRED-005 (the fail-closed core): a
+// missing or EMPTY creds file (CredFilePresent=false) FAILS CLOSED — a declared-but-
+// unprovisioned oauth-file credential must not silently pass.
+func TestOAuthFileDoctorFailsClosedMissing(t *testing.T) {
+	rt := fakeRuntime{credFilePresent: false}
+	pb := playbook.Playbook{
+		Loom: 1, Tier: playbook.TierProject, Name: "demo",
+		Harness: map[string]playbook.HarnessAgent{
+			"gemini": {Credential: &playbook.Credential{Method: playbook.CredOAuthFile}},
+		},
+	}
+	checks, ok := oauthFileCredentialChecks(rt, "demo-dev", containerHome, pb)
+	if !ok || len(checks) != 1 || checks[0].OK {
+		t.Fatalf("a missing/empty creds file must fail closed: ok=%v checks=%+v", ok, checks)
+	}
+	if !strings.Contains(checks[0].Detail, "fail-closed") {
+		t.Errorf("detail should name the fail-closed posture: %q", checks[0].Detail)
+	}
+}
+
+// TestOAuthFileDoctorProbeFailureNonOK proves a probe failure (no daemon) surfaces as
+// a non-OK check, never a false pass.
+func TestOAuthFileDoctorProbeFailureNonOK(t *testing.T) {
+	rt := fakeRuntime{credFileErr: os.ErrPermission}
+	pb := playbook.Playbook{
+		Loom: 1, Tier: playbook.TierProject, Name: "demo",
+		Harness: map[string]playbook.HarnessAgent{
+			"gemini": {Credential: &playbook.Credential{Method: playbook.CredOAuthFile}},
+		},
+	}
+	checks, ok := oauthFileCredentialChecks(rt, "demo-dev", containerHome, pb)
+	if !ok || len(checks) != 1 || checks[0].OK {
+		t.Fatalf("a probe failure must be a non-OK check, never a false pass: ok=%v checks=%+v", ok, checks)
+	}
+}
+
+// TestOAuthFileDoctorNotApplicable proves the check is graded ONLY when an oauth-file
+// credential is declared (no oauth-file ⇒ nothing to grade).
+func TestOAuthFileDoctorNotApplicable(t *testing.T) {
+	rt := fakeRuntime{credFilePresent: true}
+	pb := playbook.Playbook{
+		Loom: 1, Tier: playbook.TierProject, Name: "demo",
+		Harness: map[string]playbook.HarnessAgent{
+			"claude": {Credential: &playbook.Credential{Method: playbook.CredVolumeToken, Env: "X"}},
+		},
+	}
+	if _, ok := oauthFileCredentialChecks(rt, "demo-dev", containerHome, pb); ok {
+		t.Error("a non-oauth-file harness must not trigger the oauth-file doctor check")
+	}
+}

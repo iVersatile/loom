@@ -70,6 +70,8 @@ func TestValidateCredentialWiredMethods(t *testing.T) {
 	}{
 		{"apiKeyHelper requires helper", &Credential{Method: CredAPIKeyHelper, Helper: "op read op://vault/key"}},
 		{"volume-token requires env", &Credential{Method: CredVolumeToken, Env: "CLAUDE_CODE_OAUTH_TOKEN"}},
+		{"oauth-file defaults path (no path:)", &Credential{Method: CredOAuthFile}},
+		{"oauth-file explicit HOME-relative path", &Credential{Method: CredOAuthFile, Path: ".config/gcloud"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{"claude": {Credential: tc.cred}}}
@@ -108,7 +110,7 @@ func TestValidateCredentialRequiredFields(t *testing.T) {
 // core): every KNOWN-but-UNWIRED enum member FAILS CLOSED — a declared
 // credential is never silently no-op'd. The error must name slice 2+.
 func TestValidateCredentialFailClosedUnwired(t *testing.T) {
-	for _, m := range []string{CredEnv, CredVolumeStoreHelp, CredOAuthFile, CredInteractiveLogin} {
+	for _, m := range []string{CredEnv, CredVolumeStoreHelp, CredInteractiveLogin} {
 		t.Run(m, func(t *testing.T) {
 			pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{
 				"claude": {Credential: &Credential{Method: m, Helper: "x", Env: "X"}},
@@ -171,6 +173,37 @@ func TestValidateCredentialEnvNameCharset(t *testing.T) {
 			err := pb.Validate()
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("env %q must be rejected with %q, got: %v", tc.env, tc.want, err)
+			}
+		})
+	}
+}
+
+// TestValidateOAuthFilePath proves FR-CRED-005 (validate, the one new oauth-file
+// rule): a HOME-relative path: is accepted (so the mount stays inside $HOME); an
+// absolute path or a '..' traversal is REJECTED (it would escape the per-project home
+// boundary). An empty path: is valid — it defaults to DefaultOAuthFilePath.
+func TestValidateOAuthFilePath(t *testing.T) {
+	good := []string{"", ".gemini", ".config/gcloud", "a/b/c"}
+	for _, p := range good {
+		t.Run("good/"+p, func(t *testing.T) {
+			pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{
+				"gemini": {Credential: &Credential{Method: CredOAuthFile, Path: p}},
+			}}
+			if err := pb.Validate(); err != nil {
+				t.Fatalf("a HOME-relative oauth-file path %q must validate, got: %v", p, err)
+			}
+		})
+	}
+
+	bad := []string{"/etc/passwd", "/root/.gemini", "../escape", "a/../../b", ".."}
+	for _, p := range bad {
+		t.Run("bad/"+p, func(t *testing.T) {
+			pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{
+				"gemini": {Credential: &Credential{Method: CredOAuthFile, Path: p}},
+			}}
+			err := pb.Validate()
+			if err == nil || !strings.Contains(err.Error(), "HOME-relative") {
+				t.Fatalf("an escaping oauth-file path %q must be rejected, got: %v", p, err)
 			}
 		})
 	}

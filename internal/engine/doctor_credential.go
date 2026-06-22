@@ -83,3 +83,58 @@ func sortedKeys(m map[string]string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// credFilePresenceProbe is the MOCKABLE SEAM the oauth-file doctor check resolves
+// through (the doctor analogue of credential.go's tokenReader) — existence+non-empty
+// ONLY, never the body. dockerRuntime.CredFilePresent is the prod impl; tests supply
+// a fake. Keeping it narrow keeps the secrets boundary explicit: the doctor seat can
+// ask "is the creds file there and non-empty?" and NOTHING else.
+type credFilePresenceProbe interface {
+	CredFilePresent(name, path string) (bool, error)
+}
+
+// oauthFileCredentialChecks mechanizes the ADR-0027 slice-2 fail-closed doctor guard:
+// for each declared oauth-file credential, the per-project volume's creds FILE must be
+// PRESENT and NON-EMPTY at its HOME-relative mount path (the slice-1 empty-token guard,
+// mirrored at verify time). It probes `<home>/<path>/oauth_creds.json` via the
+// non-reading CredFilePresent seam — the body is NEVER read or logged (only
+// existence/non-empty crosses the boundary). A missing or empty creds file FAILS
+// CLOSED (a declared-but-unprovisioned credential must not pass silently); a probe
+// failure (no daemon) is surfaced as a non-OK check, never a false pass.
+//
+// LIVE-only: it reads in-container state, so the caller gates it on a running
+// container (doctor never Starts one to ask). Returns (checks, true) when at least
+// one oauth-file credential is declared; (nil, false) when there is nothing to grade
+// (a non-oauth-file build is byte-identical).
+func oauthFileCredentialChecks(rt credFilePresenceProbe, container, home string, pb playbook.Playbook) ([]Check, bool) {
+	agents := oauthFileAgents(pb.Harness)
+	if len(agents) == 0 {
+		return nil, false
+	}
+	var checks []Check
+	for _, a := range agents {
+		credsFile := home + "/" + a.Path + "/" + oauthCredsFileName
+		name := "container:credential:oauth-file:" + a.Agent
+		present, err := rt.CredFilePresent(container, credsFile)
+		switch {
+		case err != nil:
+			checks = append(checks, Check{Name: name, OK: false, Detail: fmt.Sprintf(
+				"could not probe the oauth-file credential at %s (%v) — refusing to assume it is present (ADR-0027 fail-closed)", credsFile, err)})
+		case !present:
+			checks = append(checks, Check{Name: name, OK: false, Detail: fmt.Sprintf(
+				"oauth-file credential for agent %q is missing or empty at %s — provision it (a one-time browser login into the per-project volume %s) or remove the credential: declaration; refusing to pass an unprovisioned credential (ADR-0027 fail-closed)",
+				a.Agent, credsFile, credentialVolume(container, a.Agent))})
+		default:
+			checks = append(checks, Check{Name: name, OK: true, Detail: fmt.Sprintf(
+				"oauth-file credential present + non-empty at %s (volume %s, :rw)", credsFile, credentialVolume(container, a.Agent))})
+		}
+	}
+	return checks, true
+}
+
+// oauthCredsFileName is the creds file the oauth-file doctor check probes for inside
+// the mounted volume directory — Gemini's OAuth login writes oauth_creds.json. The
+// probe is existence+non-empty only; the name is the well-known Gemini default (gcloud
+// ADC's application_default_credentials.json variant is the follow-on c1/SA-JSON slice,
+// out of scope here).
+const oauthCredsFileName = "oauth_creds.json"

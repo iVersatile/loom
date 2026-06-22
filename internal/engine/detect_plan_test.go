@@ -46,6 +46,8 @@ type fakeRuntime struct {
 	execRecord      *execCall // when set, Start/Exec record into it
 	credToken       string    // canned M1 volume-token (ADR-0027) — FAKE-TOKEN in tests
 	credTokenErr    error     // canned token-read error (fail-closed: absent volume)
+	credFilePresent bool      // canned oauth-file present+non-empty verdict (ADR-0027 slice 2)
+	credFileErr     error     // canned probe failure (no daemon) for CredFilePresent
 }
 
 // teardownArgs captures what the teardown verb asked of the runtime — the
@@ -146,6 +148,13 @@ func (r fakeRuntime) Exec(name string, argv []string, workdir, user string, tty 
 // drives the fail-closed (absent-volume) path.
 func (r fakeRuntime) ReadCredentialToken(_, _ string) (string, error) {
 	return r.credToken, r.credTokenErr
+}
+
+// CredFilePresent returns the canned oauth-file existence+non-empty verdict (ADR-0027
+// slice 2) — the non-reading doctor seam (no body ever crosses it). credFileErr drives
+// the probe-failure path; credFilePresent drives present/missing.
+func (r fakeRuntime) CredFilePresent(_, _ string) (bool, error) {
+	return r.credFilePresent, r.credFileErr
 }
 
 // The fixture playbook resolves to tools: git, jq, go@1.26, gopls.

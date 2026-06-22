@@ -278,7 +278,11 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		// per-project credential volume MOUNTED at create. The token itself is
 		// injected at EXEC time (exec.go), never on run — no Config.Env leak.
 		CredentialVolumeAgents: volumeTokenAgentNames(pb.Harness),
-		Force:                  opts.Force, LogW: logw,
+		// oauth-file credential adapter (ADR-0027 slice 2): per-project volumes mounted
+		// `:rw` at a HOME path (default $HOME/.gemini) the agent CLI refreshes in place.
+		// Leak-safe `-v` (NOT run-`-e`); loom places/refreshes nothing (human one-time login).
+		OAuthFileMounts: oauthFileMounts(cname, pb.Harness),
+		Force:           opts.Force, LogW: logw,
 	})
 	if err != nil {
 		return res, fmt.Errorf("container step: %w", err)
