@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,7 +132,11 @@ func TestDoctorRuntimeUnavailable(t *testing.T) {
 }
 
 // harnessProject builds a tempProject whose base playbook declares a harness
-// block (settings + guard-bash hook) — the C1 wiring surface.
+// block (settings + guard-bash hook) — the C1 wiring surface. The fixture base
+// playbook already carries a `harness:` block (for the e2e guard-materialization
+// test), so this REPLACES that block rather than appending a second one — strict
+// decoding (FR-SCHEMA-013) correctly rejects a duplicate top-level key, so the
+// helper must produce a single, valid `harness:` section.
 func harnessProject(t *testing.T) string {
 	t.Helper()
 	root := tempProject(t)
@@ -139,6 +144,11 @@ func harnessProject(t *testing.T) string {
 	data, err := os.ReadFile(base)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Drop the fixture's existing harness: block (to EOF) and write the one the
+	// C1 wiring check needs: settings + the declared guard-bash hook.
+	if i := bytes.Index(data, []byte("\nharness:")); i >= 0 {
+		data = data[:i]
 	}
 	harness := "\nharness:\n  claude:\n    settings: claude/settings.json\n    hooks:\n      - guard-bash\n"
 	if err := os.WriteFile(base, append(data, harness...), 0o644); err != nil {

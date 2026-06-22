@@ -334,6 +334,24 @@ requirements:
     tests: [playbook.TestNetworkingMerge, playbook.TestValidateNetworking, playbook.TestParseNetworkingBothTiers]
     status: active
 
+  - id: FR-SCHEMA-013
+    kind: schema
+    # T20/T28 LOW-2 hardening. The frozen Format decision (parser reads YAML or
+    # JSON) was implemented with sigs.k8s.io/yaml's non-strict Unmarshal, which
+    # SILENTLY DROPS keys with no struct field. For a security tool that is a real
+    # hole: a one-char typo in a security field (`egres:` for `egress:`, `tols:`
+    # for `tools:`) parsed cleanly and silently fell back to the permissive default
+    # (full egress / no tools). The fix flips the single decode seam (Parse, which
+    # ALL of Parse/ParseFile/ParseFS and every tier — base, stack, overlay, project
+    # — route through) to UnmarshalStrict (json DisallowUnknownFields), so an
+    # unrecognized key is a HARD parse error that NAMES the offending key. Comments
+    # and YAML anchors/aliases are resolved by the YAML→JSON step before strict
+    # decode and are unaffected; only keys with no declared field are rejected.
+    statement: playbook decoding is strict — a key that maps to no declared schema field, or a duplicate top-level key, is rejected at parse with an error that names the offending key (a typo'd or unknown field can never silently parse to a permissive default; a duplicate key can never silently last-wins), applied at the single Parse seam so every tier (base/stack/overlay/project) and both input formats (YAML, JSON) get it; comments and YAML anchors/aliases and all declared optional fields still parse cleanly.
+    source: SPEC-playbook.md#frozen-decisions
+    tests: [playbook.TestParseRejectsUnknownKey, playbook.TestParseAcceptsKnownGood]
+    status: active
+
   # --- Behavioral: networking / egress (SPEC-playbook#networking, ADR-0028) ---
   # T20 S2a realizes the declarative networking: field + the egress: none posture
   # (reusing the S1 --network none primitive); S2b (ADR-0028 Amendment 1) adds the
