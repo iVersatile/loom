@@ -436,6 +436,23 @@ requirements:
     source: SPEC-playbook.md#credential
     tests: [engine.TestCredentialSlugCheckOK, engine.TestCredentialSlugCheckBadSlug, engine.TestCredentialSlugCheckNotApplicable]
     status: active
+  - id: FR-CRED-005
+    kind: behavioral
+    # ADR-0027 slice 2: the oauth-file adapter (Gemini OAuth/ADC). The single new
+    # engine fact vs M1 is the mode — a per-project credential volume mounted :rw (not
+    # M1's :ro) at a HOME-relative path (default $HOME/.gemini) the agent's CLI
+    # refreshes the creds file IN PLACE. loom places + refreshes NOTHING (a human does
+    # the one-time browser login into the volume); like M1 it is a leak-safe -v mount,
+    # NEVER docker run -e. path: is validated HOME-relative (no leading / or .. — the
+    # mount can never escape $HOME). A fail-closed doctor check (existence + non-empty
+    # ONLY, the body is never read or logged — the slice-1 empty-token guard mirrored
+    # at verify) refuses a declared-but-unprovisioned credential. M1's :ro mount is
+    # UNCHANGED (regression-guarded). The Vertex c1 SA-JSON (:ro + GOOGLE_APPLICATION_
+    # CREDENTIALS path-env) variant is an out-of-scope follow-on.
+    statement: the oauth-file adapter mounts the per-project credential volume (`<container>-<agent>-cred`) `:rw` at a HOME-relative path (default `$HOME/.gemini`, declarable e.g. `.config/gcloud`) — the one new fact vs M1's `:ro` — so the agent's CLI refreshes the OAuth creds file in place; loom places/refreshes nothing and it is a leak-safe `-v` mount, NEVER `docker run -e` (no value in Config.Env/`docker inspect`); `path:` is validated HOME-relative (no leading `/`, no `..`) so the mount stays inside $HOME; a doctor check FAILS CLOSED on a missing/empty creds file (existence + non-empty only, the body is never read or logged); M1's `volume-token` `:ro` mount at credMountPath is UNCHANGED.
+    source: SPEC-playbook.md#credential
+    tests: [playbook.TestValidateOAuthFilePath, playbook.TestValidateCredentialWiredMethods, engine.TestOAuthFileMountRWAtDefaultHomePath, engine.TestOAuthFileMountRWAtConfiguredPath, engine.TestOAuthFileMountTracksNonRootHome, engine.TestM1MountStillReadOnly, engine.TestOAuthFileNoCredentialNoMount, engine.TestOAuthFileNoCredentialValueInRunArgs, engine.TestOAuthFileDoctorPassesPresent, engine.TestOAuthFileDoctorFailsClosedMissing, engine.TestOAuthFileDoctorProbeFailureNonOK, engine.TestOAuthFileDoctorNotApplicable]
+    status: active
 
   # --- Behavioral: exec (SPEC-verbs#exec, ADR-0016) ---
   - id: FR-EXEC-001

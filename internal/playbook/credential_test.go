@@ -70,6 +70,8 @@ func TestValidateCredentialWiredMethods(t *testing.T) {
 	}{
 		{"apiKeyHelper requires helper", &Credential{Method: CredAPIKeyHelper, Helper: "op read op://vault/key"}},
 		{"volume-token requires env", &Credential{Method: CredVolumeToken, Env: "CLAUDE_CODE_OAUTH_TOKEN"}},
+		{"oauth-file defaults path (no path:)", &Credential{Method: CredOAuthFile}},
+		{"oauth-file explicit HOME-relative path", &Credential{Method: CredOAuthFile, Path: ".config/gcloud"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{"claude": {Credential: tc.cred}}}
@@ -108,7 +110,7 @@ func TestValidateCredentialRequiredFields(t *testing.T) {
 // core): every KNOWN-but-UNWIRED enum member FAILS CLOSED — a declared
 // credential is never silently no-op'd. The error must name slice 2+.
 func TestValidateCredentialFailClosedUnwired(t *testing.T) {
-	for _, m := range []string{CredEnv, CredVolumeStoreHelp, CredOAuthFile, CredInteractiveLogin} {
+	for _, m := range []string{CredEnv, CredVolumeStoreHelp, CredInteractiveLogin} {
 		t.Run(m, func(t *testing.T) {
 			pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{
 				"claude": {Credential: &Credential{Method: m, Helper: "x", Env: "X"}},
@@ -173,5 +175,75 @@ func TestValidateCredentialEnvNameCharset(t *testing.T) {
 				t.Fatalf("env %q must be rejected with %q, got: %v", tc.env, tc.want, err)
 			}
 		})
+	}
+}
+
+// TestValidateOAuthFilePath proves FR-CRED-005 (validate, the one new oauth-file
+// rule): a HOME-relative path: is accepted (so the mount stays inside $HOME); an
+// absolute path or a '..' traversal is REJECTED (it would escape the per-project home
+// boundary). An empty path: is valid — it defaults to DefaultOAuthFilePath.
+func TestValidateOAuthFilePath(t *testing.T) {
+	good := []string{"", ".gemini", ".config/gcloud", "a/b/c"}
+	for _, p := range good {
+		t.Run("good/"+p, func(t *testing.T) {
+			pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{
+				"gemini": {Credential: &Credential{Method: CredOAuthFile, Path: p}},
+			}}
+			if err := pb.Validate(); err != nil {
+				t.Fatalf("a HOME-relative oauth-file path %q must validate, got: %v", p, err)
+			}
+		})
+	}
+
+	// Bad paths: absolute, '..' traversal, AND anything outside the [A-Za-z0-9._/-]
+	// allowlist — the latter (':' ',' whitespace '~') would corrupt the
+	// `-v vol:<home>/<path>:rw` mount spec, so they must fail at validate, not Docker.
+	bad := []string{
+		"/etc/passwd", "/root/.gemini", "../escape", "a/../../b", "..",
+		".gemini:ro",    // ':' — docker-mount separator
+		"x:/etc/cron.d", // ':' — smuggled mount-spec corruption
+		"a,b",           // ',' — docker-mount separator
+		"a b",           // whitespace
+		"~/.gemini",     // '~' — would not be HOME-expanded, escapes the allowlist
+	}
+	for _, p := range bad {
+		t.Run("bad/"+p, func(t *testing.T) {
+			pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{
+				"gemini": {Credential: &Credential{Method: CredOAuthFile, Path: p}},
+			}}
+			err := pb.Validate()
+			if err == nil || !strings.Contains(err.Error(), "HOME-relative") {
+				t.Fatalf("an escaping oauth-file path %q must be rejected, got: %v", p, err)
+			}
+		})
+	}
+}
+
+// TestValidateCredentialPathOnlyOAuthFile proves the fail-loud posture for FIX 2:
+// path: is meaningful ONLY for oauth-file. Set on any other method it is dead data,
+// so it must be rejected — a misplaced path: cannot lurk silently unhonored.
+func TestValidateCredentialPathOnlyOAuthFile(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cred *Credential
+	}{
+		{"volume-token + path", &Credential{Method: CredVolumeToken, Env: "CLAUDE_CODE_OAUTH_TOKEN", Path: ".gemini"}},
+		{"apiKeyHelper + path", &Credential{Method: CredAPIKeyHelper, Helper: "op read op://v/k", Path: ".config/gcloud"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{"claude": {Credential: tc.cred}}}
+			err := pb.Validate()
+			if err == nil || !strings.Contains(err.Error(), `path: is only valid for method "oauth-file"`) {
+				t.Fatalf("a path: on a non-oauth-file method must be rejected, got: %v", err)
+			}
+		})
+	}
+
+	// And oauth-file WITH a path: must still validate (the legitimate case).
+	pb := &Playbook{Loom: 1, Tier: TierBase, Harness: map[string]HarnessAgent{
+		"gemini": {Credential: &Credential{Method: CredOAuthFile, Path: ".config/gcloud"}},
+	}}
+	if err := pb.Validate(); err != nil {
+		t.Fatalf("oauth-file with a HOME-relative path: must validate, got: %v", err)
 	}
 }

@@ -93,6 +93,17 @@ type ContainerSpec struct {
 	// exec.go) so it never enters Config.Env. Empty ⇒ no credential volume (a
 	// non-M1 build is byte-identical). Slice 1 carries one claude adapter.
 	CredentialVolumeAgents []string
+
+	// OAuthFileMounts is the set of oauth-file (ADR-0027 slice 2) credential mounts:
+	// each is the per-project `<container>-<agent>-cred` volume mounted `:rw` at a
+	// HOME-relative path (default $HOME/.gemini) the agent's CLI refreshes the OAuth
+	// creds file inside. The ONE new fact vs CredentialVolumeAgents (M1) is the mode —
+	// `:rw` here vs M1's `:ro` — because the CLI must WRITE the refreshed token back.
+	// Like M1 this is a leak-safe `-v` mount (NOT run-`-e`); loom places and refreshes
+	// NOTHING (a human does the one-time browser login into the volume). Empty ⇒ no
+	// oauth-file mount (a non-oauth-file build is byte-identical). build.go populates
+	// it from the merged playbook (oauthFileMounts).
+	OAuthFileMounts []CredentialVolumeMount
 }
 
 // dockerLogged runs a docker command, tees its combined output to logw (when
@@ -171,6 +182,14 @@ type ContainerRuntime interface {
 	// absent so the caller fails closed (no unauthenticated seat). The value is
 	// returned for IMMEDIATE injection into the exec argv — never logged.
 	ReadCredentialToken(name, path string) (string, error)
+	// CredFilePresent reports whether the oauth-file credential file at path inside
+	// the container EXISTS and is NON-EMPTY (ADR-0027 slice 2 doctor) — WITHOUT ever
+	// reading or returning its body (`test -s`, an existence+size probe only). It is
+	// the secrets-safe analogue of ReadCredentialToken for the doctor seat: the
+	// slice-1 empty-token guard mirrored at verify time, with NO value crossing the
+	// boundary. A non-nil error means the probe itself could not run (no daemon); the
+	// bool is the present-and-non-empty verdict.
+	CredFilePresent(name, path string) (bool, error)
 }
 
 type dockerRuntime struct{}
@@ -903,6 +922,28 @@ func (dockerRuntime) ReadCredentialToken(name, path string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// CredFilePresent probes the oauth-file credential file with `test -s` (ADR-0027
+// slice 2 doctor) — existence + non-empty ONLY, the body is NEVER read or logged
+// (this is the secrets-safe inverse of ReadCredentialToken; it touches no value).
+// `test -s` exits 0 iff the file exists and is non-empty, non-zero otherwise — so a
+// missing OR empty creds file fails closed. A docker/transport failure (no daemon)
+// is distinguished from the file's verdict by inspecting the exit code: an exit
+// error is the file verdict (present=false), any other error is a probe failure.
+// NOTE: integration-validated (docker host), not the local gate.
+func (dockerRuntime) CredFilePresent(name, path string) (bool, error) {
+	err := exec.Command("docker", "exec", name, "test", "-s", path).Run()
+	if err == nil {
+		return true, nil
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		// `test -s` ran and reported false (missing or empty) — fail-closed verdict,
+		// not a probe failure. No value crossed the boundary.
+		return false, nil
+	}
+	return false, err // docker itself could not run the probe
+}
+
 func defaultRuntime() ContainerRuntime { return dockerRuntime{} }
 
 // containerName derives the deterministic per-project container name (ADR-0001).
@@ -981,6 +1022,12 @@ func createRunArgs(spec ContainerSpec, hostCredsPath string, credsPresent bool) 
 	// makes the human-provisioned token REACHABLE; the value is injected at EXEC
 	// time (credentialExecEnv) so it never enters Config.Env (the ADR-0014 leak).
 	args = append(args, credentialVolumeMounts(spec.Name, spec.CredentialVolumeAgents)...)
+	// Per-project oauth-file credential volume (ADR-0027 slice 2): a leak-safe `-v`
+	// mount (NOT run-`-e`) at a HOME-relative path (default $HOME/.gemini), mounted
+	// `:rw` so the agent's CLI can refresh the OAuth creds file IN PLACE — the one new
+	// fact vs M1's `:ro`. loom places and refreshes nothing; the volume is human-
+	// provisioned (a one-time browser login into it) and read by nothing here.
+	args = append(args, oauthFileCredsRunArgs(spec.OAuthFileMounts, spec.home())...)
 	if spec.ProjectDir != "" {
 		args = append(args, "-v", spec.ProjectDir+":"+containerWorkspace(spec.Project))
 	}

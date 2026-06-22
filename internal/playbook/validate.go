@@ -13,6 +13,37 @@ import (
 // yield `docker exec -e FOO=BAR=token`).
 var envVarNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// homeRelPathCharsetRe is the allowlist a HOME-relative oauth-file mount path must
+// match: ONLY [A-Za-z0-9._/-]. Anything outside this set is rejected. This subsumes
+// the whitespace check and, critically, the docker-mount-spec separators (':' ',')
+// plus '~' / ';' / '$' — a path like `.gemini:ro` or `x:/etc/cron.d` would otherwise
+// validate and corrupt the `-v vol:<home>/<path>:rw` derivation. Legitimate paths
+// (`.gemini`, `.config/gcloud`) match.
+var homeRelPathCharsetRe = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+
+// validHomeRelPath reports whether p is a safe HOME-relative mount path for the
+// oauth-file adapter: non-empty after trim, no leading '/' (an absolute path would
+// mount outside $HOME, escaping the per-project home boundary), no '..' segment
+// (traversal out of $HOME), and every character in the allowlist [A-Za-z0-9._/-]
+// (rejecting whitespace and the docker-mount separators ':' ',' plus '~' ';' '$',
+// which would corrupt the `-v vol:<home>/<path>:rw` derivation). Kept here (not the
+// engine) so a malformed path fails at validate, before any container is built.
+func validHomeRelPath(p string) bool {
+	p = strings.TrimSpace(p)
+	if p == "" || strings.HasPrefix(p, "/") {
+		return false
+	}
+	if !homeRelPathCharsetRe.MatchString(p) {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
 // Validate checks a fully-formed playbook (a top-level base or project file, or a
 // merged result) against the schema. Partial layer fragments are NOT validated
 // here — they intentionally omit loom/tier and are only meaningful once merged.
@@ -175,15 +206,25 @@ func (pb *Playbook) Validate() error {
 //     command); env: is meaningless here.
 //   - volume-token (M1): requires a non-empty env: (the env var NAME injected at
 //     exec-time, e.g. CLAUDE_CODE_OAUTH_TOKEN); helper: is meaningless here.
-//   - env / volume-store+helper / oauth-file / interactive-login: KNOWN enum
-//     members, but UNWIRED in this slice — a hard error ("not yet supported,
-//     ADR-0027 slice 2+"), never a silent no-op.
+//   - oauth-file (slice 2): a per-project :rw volume the agent's CLI refreshes at a
+//     HOME-relative path: (default DefaultOAuthFilePath). path: must be HOME-relative
+//     (no leading / and no .. traversal) so the mount can never escape $HOME;
+//     helper:/env: are meaningless here.
+//   - env / volume-store+helper / interactive-login: KNOWN enum members, but UNWIRED
+//     in this slice — a hard error ("not yet supported, ADR-0027 slice 2+"), never a
+//     silent no-op.
 //   - anything else: an unknown method token — a hard error.
 //
 // NOTE: this validates the WIRING shape only. The credential VALUE is never here
 // and is never authored/read/logged by loom (the human trust act, out of scope).
 func validateCredential(agent string, c *Credential) []string {
 	var errs []string
+	// path: is meaningful ONLY for oauth-file. On any other method it is dead data
+	// (silently ignored), which violates the fail-loud posture — reject it so a
+	// misplaced path: cannot lurk unhonored on a volume-token/apiKeyHelper/etc.
+	if strings.TrimSpace(c.Path) != "" && c.Method != CredOAuthFile {
+		errs = append(errs, fmt.Sprintf("harness.%s.credential: path: is only valid for method %q (got %q)", agent, CredOAuthFile, c.Method))
+	}
 	switch c.Method {
 	case CredAPIKeyHelper:
 		if strings.TrimSpace(c.Helper) == "" {
@@ -198,7 +239,16 @@ func validateCredential(agent string, c *Credential) []string {
 			// to a single valid env-var NAME ([A-Za-z_][A-Za-z0-9_]*, no =/whitespace).
 			errs = append(errs, fmt.Sprintf("harness.%s.credential: method %q env: %q is not a valid env var NAME (want [A-Za-z_][A-Za-z0-9_]*: a letter/underscore then letters/digits/underscores, no '=' or whitespace)", agent, c.Method, c.Env))
 		}
-	case CredEnv, CredVolumeStoreHelp, CredOAuthFile, CredInteractiveLogin:
+	case CredOAuthFile:
+		// oauth-file (slice 2): a per-project :rw volume the agent's CLI refreshes at
+		// a HOME-relative path. path: is OPTIONAL (defaults to DefaultOAuthFilePath);
+		// when present it MUST be HOME-relative — no leading '/' (would mount at an
+		// absolute container path, escaping $HOME) and no '..' segment (traversal out
+		// of $HOME). This is the one new validation oauth-file adds over M1/M2.
+		if p := strings.TrimSpace(c.Path); p != "" && !validHomeRelPath(p) {
+			errs = append(errs, fmt.Sprintf("harness.%s.credential: method %q path: %q must be HOME-relative (no leading '/', no '..' traversal) — the mount must stay inside $HOME", agent, c.Method, c.Path))
+		}
+	case CredEnv, CredVolumeStoreHelp, CredInteractiveLogin:
 		errs = append(errs, fmt.Sprintf("harness.%s.credential: method %q is a known but not-yet-supported adapter (ADR-0027 slice 2+) — declaring it must fail closed, never silently run unauthenticated", agent, c.Method))
 	case "":
 		errs = append(errs, fmt.Sprintf("harness.%s.credential: missing required field: method", agent))

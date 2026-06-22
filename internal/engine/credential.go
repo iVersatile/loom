@@ -128,6 +128,92 @@ func credentialVolumeMounts(name string, agents []string) []string {
 	return []string{"-v", credentialVolume(name, agents[0]) + ":" + credMountPath + ":ro"}
 }
 
+// CredentialVolumeMount is the resolved create-time mount for ONE oauth-file
+// credential (ADR-0027 slice 2). Volume is the per-project `<container>-<agent>-cred`
+// volume (the SAME family as M1 — no new naming scheme); HomePath is the HOME-relative
+// directory it mounts at (e.g. ".gemini"). Carried on ContainerSpec so createRunArgs
+// can join HomePath onto the resolved $HOME without the playbook.
+//
+// Why a VALUE (not a bare string) here: the mount MODE is the single genuinely-new
+// engine fact vs M1 — oauth-file is `:rw` (the agent's CLI refreshes the OAuth creds
+// file in place), where M1 is `:ro`. Keeping the (mode, path) explicit per adapter is
+// the minimal generalization the spec asks for, not a sprawling serviceVolume refactor.
+type CredentialVolumeMount struct {
+	Volume   string // <container>-<agent>-cred (credentialVolume — reused, not reinvented)
+	HomePath string // HOME-relative mount dir, e.g. ".gemini" (DefaultOAuthFilePath)
+}
+
+// oauthFileAgent pairs an oauth-file agent with its resolved HOME-relative mount path.
+type oauthFileAgent struct {
+	Agent string
+	Path  string
+}
+
+// oauthFileAgents returns the agents whose resolved credential method is oauth-file
+// (slice 2), each paired with its resolved HOME-relative mount path (the declared
+// path:, or DefaultOAuthFilePath). Sorted-stable by agent so create args are
+// deterministic. apiKeyHelper (M2, no volume) and volume-token (M1, its own :ro mount)
+// are excluded — this is ONLY the :rw oauth-file family.
+//
+// FOLLOW-ON (NOT this slice): the Vertex c1 service-account variant — a `:ro` mount of
+// a host-provisioned SA-JSON plus a GOOGLE_APPLICATION_CREDENTIALS path-env pointer —
+// is OUT OF SCOPE here. This slice builds ONLY the writable (b/c2) oauth-file shape;
+// the read-only SA-JSON + env-pointer is a separate, security-reviewed slice.
+func oauthFileAgents(harness map[string]playbook.HarnessAgent) []oauthFileAgent {
+	var out []oauthFileAgent
+	for agent, h := range harness {
+		c := h.Credential
+		if c == nil || c.Method != playbook.CredOAuthFile {
+			continue
+		}
+		p := strings.TrimSpace(c.Path)
+		if p == "" {
+			p = playbook.DefaultOAuthFilePath
+		}
+		out = append(out, oauthFileAgent{Agent: agent, Path: p})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Agent < out[j].Agent })
+	return out
+}
+
+// oauthFileMounts returns the resolved oauth-file mounts (slice 2) for a container —
+// the create-time view (ContainerSpec.OAuthFileMounts) of which per-project volumes
+// mount `:rw` at which HOME path. Empty ⇒ no oauth-file mount (a non-oauth-file build
+// is byte-identical). The volume name reuses credentialVolume (the
+// `<container>-<agent>-cred` family); the genuinely-new fact vs M1 is captured in
+// oauthFileCredsRunArgs (the `:rw` mode).
+func oauthFileMounts(container string, harness map[string]playbook.HarnessAgent) []CredentialVolumeMount {
+	agents := oauthFileAgents(harness)
+	if len(agents) == 0 {
+		return nil
+	}
+	out := make([]CredentialVolumeMount, 0, len(agents))
+	for _, a := range agents {
+		out = append(out, CredentialVolumeMount{
+			Volume:   credentialVolume(container, a.Agent),
+			HomePath: a.Path,
+		})
+	}
+	return out
+}
+
+// oauthFileCredsRunArgs renders the `docker run -v <vol>:<home>/<path>:rw` args for
+// the oauth-file mounts. RW is the one new engine fact vs M1's `:ro`: the agent's CLI
+// must WRITE the refreshed OAuth creds file back into the volume. Like M1 this is a
+// `-v` VOLUME mount, NEVER `docker run -e` — no value enters Config.Env / `docker
+// inspect`; loom reads nothing here. The volume is human-provisioned (a one-time
+// browser login into it); loom places and refreshes nothing.
+func oauthFileCredsRunArgs(mounts []CredentialVolumeMount, home string) []string {
+	if len(mounts) == 0 {
+		return nil
+	}
+	var args []string
+	for _, m := range mounts {
+		args = append(args, "-v", m.Volume+":"+home+"/"+m.HomePath+":rw")
+	}
+	return args
+}
+
 // credEnvPair formats one exec-time `-e NAME=VALUE` env injection. Isolated so the
 // VALUE never flows through a log/print path: the only caller is credentialExecEnv,
 // and the only consumer is the agent's `docker exec` argv (NOT `docker run`).

@@ -234,6 +234,18 @@ func doctorImpl(opts DoctorOpts, rt ContainerRuntime) (DoctorResult, error) {
 		res.Checks = append(res.Checks, nonRootContainerChecks(rt, cname, *pb)...)
 	}
 
+	// oauth-file credential presence (ADR-0027 slice 2, fail-closed): a declared
+	// oauth-file credential's per-project volume must hold a PRESENT + NON-EMPTY creds
+	// file at its HOME path (the slice-1 empty-token guard, mirrored at verify time).
+	// The probe reads existence/non-empty ONLY (never the body); a missing/empty file
+	// FAILS CLOSED. Live-only (in-container probe; doctor never Starts a container) and
+	// graded only when an oauth-file credential is declared.
+	if running {
+		if checks, ok := oauthFileCredentialChecks(rt, cname, homeForUser(pb.User), *pb); ok {
+			res.Checks = append(res.Checks, checks...)
+		}
+	}
+
 	// Home wiring (C1): the container's home sentinel must match the staged
 	// $HOME — guard hooks and settings count only once the sync put them in.
 	// Live-readable only (the sentinel lives inside the container); a stopped
