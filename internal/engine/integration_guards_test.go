@@ -79,7 +79,10 @@ func runGuard(t *testing.T, container, role, guard, command string) (int, string
 // runs the whole role × command-class matrix against the materialized guards.
 func TestE2EGuardsBlockByRole(t *testing.T) {
 	requireDocker(t)
-	root := tempProject(t)
+	// The guards-only fixture (no Go toolchain): the e2e drives the materialized
+	// guards, never compiles Go, so the heavy go@1.26 provisioning is dropped to
+	// cut the container-cgroup OOM surface that flakes this gate (#75 mitigation #2).
+	root := tempGuardsProject(t)
 	pb := root + "/loom.yml"
 	name := containerName("loom")
 	_ = exec.Command("docker", "rm", "-f", name).Run()
