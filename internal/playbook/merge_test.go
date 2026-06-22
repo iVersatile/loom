@@ -154,3 +154,21 @@ func TestMergeListsConcatAndDedup(t *testing.T) {
 		t.Errorf("ports = %v, want %v", got.Ports, wantPorts)
 	}
 }
+
+// TestMergeDropsReported pins the FR-IMPORT-005 security boundary at the merge seam:
+// reported is DRAFT-ONLY review data (the imported lifecycle commands), never part of
+// the effective desired-state. Merge must DROP it — so a captured (untrusted) command
+// can never propagate into a merged playbook that build/provision consumes. There is
+// no execution path because there is no propagation path (ADR-0005 worst-thing test).
+func TestMergeDropsReported(t *testing.T) {
+	proj := &Playbook{
+		Loom: 1, Tier: TierProject, Name: "imported",
+		Reported: &Reported{Commands: []ReportedCommand{
+			{Hook: "postCreateCommand", Run: []string{"make"}},
+		}},
+	}
+	got := Merge(&Playbook{Loom: 1, Tier: TierBase}, proj)
+	if got.Reported != nil {
+		t.Errorf("merged Reported = %+v, want nil (reported is draft-only review data, never merged into effective state)", got.Reported)
+	}
+}

@@ -1,15 +1,19 @@
 ---
 name: import-enrich
-description: Enrich a devcontainer import draft (loom.imported.yml) with the AI-judgment layer loom adds over a bare devcontainer (ADR-0003 — the "import & enrich, never degrade to" value-add). Use AFTER `loom import <devcontainer.json>` produces a draft, especially when the import `--json` report lists DEFERRED fields (features / commands) or you want a richer playbook than the deterministic Stage-1 mapping. Maps devcontainer `features` → loom `tools`, infers the `stack`, and surfaces `commands` as reviewable notes. Edits ONLY the draft; never `loom.yml`; flags low-confidence inferences for the human.
+description: Enrich a devcontainer import draft (loom.imported.yml) with the AI-judgment layer loom adds over a bare devcontainer (ADR-0003 — the "import & enrich, never degrade to" value-add). Use AFTER `loom import <devcontainer.json>` produces a draft, especially when the draft carries a REPORTED section (reported.unmapped_features / reported.commands) or you want a richer playbook than the deterministic Stage-1 mapping. Maps devcontainer `features` → loom `tools`, infers the `stack`, and translates the captured `reported.commands` into loom-native tools/setup. Edits ONLY the draft; never `loom.yml`; flags low-confidence inferences for the human.
 ---
 
 # import-enrich — the AI layer over a devcontainer import
 
-`loom import` (Stage-1, deterministic) maps only the fields with a clean playbook
-home — `ports` and `env` names — and **defers** what needs judgment: `features`,
-`commands`, and the `stack`. This skill is that judgment layer (ADR-0003): it reads
-the import draft + the original `devcontainer.json` and enriches the draft, so the
-result is a real Loom playbook, not a thin shell.
+`loom import` (Stage-1, deterministic) maps the fields with a clean playbook home —
+`ports`, `env` names, recognized `features` → `tools` — and **REPORTS** what needs
+judgment into the draft's non-executable `reported:` section: unrecognized features
+(`reported.unmapped_features`) and the devcontainer lifecycle commands
+(`reported.commands`). It captures, it never executes — auto-running an imported
+command would be a code-execution surface the guardrails must not open (ADR-0005), so
+loom leaves the commands as REPORTED data for you to translate. This skill is that
+judgment layer (ADR-0003): it reads the import draft + the original `devcontainer.json`
+and enriches the draft, so the result is a real Loom playbook, not a thin shell.
 
 **It is interpretation, not a parser.** The deterministic mappings already happened
 in Go. Your job is the part a table can't do: infer intent, and be honest about
@@ -18,8 +22,10 @@ confidence.
 ## Inputs (read all three before editing)
 1. The draft `loom.imported.yml` that `import` wrote (project-tier playbook).
 2. The original `devcontainer.json` (the `source` from the import report).
-3. The import `--json` report — its `deferred` list tells you exactly what was left
-   for you (`features`, `commands`), and `reported` carries the devcontainer `image`.
+3. The import `--json` report — its `reported` map names what was captured for you
+   (`image`, `unmapped_features`, and the lifecycle hooks under `commands`); the
+   command BODIES live in the draft's `reported.commands` (each with its hook + the
+   command string(s)). The `deferred` list is empty in Stage-1 (everything has a home).
 
 ## What to enrich
 
@@ -46,17 +52,26 @@ then the devcontainer `image` (e.g. `mcr.microsoft.com/devcontainers/go` → `go
 the project files if visible. Set `stack:` only when you are confident; otherwise add a
 `# REVIEW: stack unclear (signals: …)` note rather than a wrong overlay.
 
-### 3. `commands` → reviewable notes (do NOT auto-map)
-`postCreateCommand` / `postStartCommand` / `onCreateCommand` etc. are arbitrary shell.
-Loom has **no inline-command field** — it provisions declaratively (tools) and uses
-hooks (guardrail references, not arbitrary shell). So:
-- Do NOT fabricate a tool or hook to "run" a command.
-- Capture each command verbatim in a `# REVIEW:` comment block at the top of the draft,
-  with a one-line read of intent and the loom-native alternative, e.g.:
+### 3. `reported.commands` → translate, do NOT auto-map or run
+`import` CAPTURED the devcontainer lifecycle commands (`postCreateCommand`,
+`onCreateCommand`, …) verbatim into the draft's **`reported.commands`** — each entry a
+`hook` + the command `run` string(s). They are REPORTED data, **never executed**: loom
+has no inline-command field, it provisions declaratively (tools) and uses hooks
+(guardrail references, not arbitrary shell), and auto-running an imported command would
+be a code-execution surface the guardrails must not open (ADR-0005). Your job is to
+TRANSLATE them, not run them:
+- Do NOT fabricate a tool or hook to "run" a command, and never move a command into an
+  executable field (there is none; that is deliberate).
+- For each `reported.commands` entry, decide its loom-native shape and record it as a
+  `# REVIEW:` note (the human applies it), e.g.:
   `# REVIEW: postCreateCommand "npm install" — a dependency install; loom installs`
   `#   declared tools at provision. If a tool is missing, add it to tools:.`
-- If a command clearly just installs a tool already covered by a feature/stack, say so
-  and drop it; never invent build steps.
+- If a command clearly just installs a tool already covered by a feature/stack, say so;
+  never invent build steps.
+- Once a command is translated (or judged a no-op), you MAY remove that entry from
+  `reported.commands` — the section is review scaffolding, not desired-state, and the
+  engine ignores it either way. Anything you cannot confidently translate, LEAVE in
+  `reported.commands` (lossless) and flag it. Never silently drop an untranslated command.
 
 ### 4. the `image`
 `import` REPORTED the devcontainer image; it is intentionally NOT in the playbook —

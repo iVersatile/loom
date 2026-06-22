@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -71,11 +72,13 @@ func TestImportMapsPortsAndEnv(t *testing.T) {
 	}
 }
 
-// TestImportReportsImageDefersFeaturesCommands pins FR-IMPORT-001's report/defer
-// half: the image is REPORTED (never written into the playbook); a CUSTOM/unmapped
-// feature is REPORTED (unmapped_features), NOT deferred; and commands are DEFERRED,
-// never silently dropped. `features` no longer joins the deferred set.
-func TestImportReportsImageDefersFeaturesCommands(t *testing.T) {
+// TestImportReportsImageAndCommands pins FR-IMPORT-001's report half (now that BOTH
+// features and commands are REPORTED, never deferred): the image is REPORTED (never
+// written into the playbook); a CUSTOM/unmapped feature is REPORTED (unmapped_features);
+// the lifecycle command is REPORTED (its hook surfaced in --json reported.commands);
+// and NOTHING remains in the deferred set — every non-mapped field is reported, never
+// silently dropped.
+func TestImportReportsImageAndCommands(t *testing.T) {
 	const image = "mcr.microsoft.com/devcontainers/go:1.22"
 	const customRef = "ghcr.io/acme/custom:1"
 	src := writeFixture(t, `{
@@ -96,8 +99,15 @@ func TestImportReportsImageDefersFeaturesCommands(t *testing.T) {
 	if slices.Contains(res.Deferred, "features") {
 		t.Errorf("Deferred = %v, want it to NOT contain features (features now map/report)", res.Deferred)
 	}
-	if !slices.Contains(res.Deferred, "commands") {
-		t.Errorf("Deferred = %v, want it to contain commands", res.Deferred)
+	// commands are now REPORTED, not deferred: the deferred set is empty.
+	if slices.Contains(res.Deferred, "commands") {
+		t.Errorf("Deferred = %v, want it to NOT contain commands (commands are now REPORTED)", res.Deferred)
+	}
+	if len(res.Deferred) != 0 {
+		t.Errorf("Deferred = %v, want empty (nothing remains deferred in Stage-1 import)", res.Deferred)
+	}
+	if !strings.Contains(res.Reported["commands"], "postCreateCommand") {
+		t.Errorf("Reported[commands] = %q, want it to surface the postCreateCommand hook", res.Reported["commands"])
 	}
 	if !strings.Contains(res.Reported["unmapped_features"], customRef) {
 		t.Errorf("Reported[unmapped_features] = %q, want it to contain %q", res.Reported["unmapped_features"], customRef)
@@ -348,5 +358,129 @@ func TestImportSanitizesName(t *testing.T) {
 	}
 	if err := pb.Validate(); err != nil {
 		t.Errorf("sanitized draft must validate: %v", err)
+	}
+}
+
+// executableFields are the playbook fields the engine actually PROVISIONS or runs
+// from. FR-IMPORT-005's security guarantee is that a captured command lands in NONE
+// of them — it is review DATA in reported.commands, never an execution path. Asserted
+// by re-marshaling only these fields and confirming the command string is absent.
+type executableFields struct {
+	Tools    []string `json:"tools"`
+	Agents   []string `json:"agents"`
+	Hooks    []string `json:"hooks"`
+	Rules    []string `json:"rules"`
+	Dotfiles []string `json:"dotfiles"`
+}
+
+// TestImportCapturesLifecycleCommandsAsReported pins FR-IMPORT-005's core: a
+// devcontainer with a postCreateCommand (string form) captures it verbatim into the
+// draft's reported.commands tagged with its lifecycle hook — and the command appears
+// in NO executable/mapped field (tools/agents/hooks/rules/dotfiles), proving loom
+// never wires it for execution (ADR-0005 worst-thing test). loom never auto-runs it.
+func TestImportCapturesLifecycleCommandsAsReported(t *testing.T) {
+	const cmd = "make build && ./dangerous.sh"
+	src := writeFixture(t, `{
+  "name": "demo",
+  "postCreateCommand": "`+cmd+`"
+}`)
+
+	res, err := Import(src)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	pb, err := playbook.ParseFile(res.Draft)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	if pb.Reported == nil || len(pb.Reported.Commands) != 1 {
+		t.Fatalf("draft reported.commands = %+v, want exactly one captured command", pb.Reported)
+	}
+	got := pb.Reported.Commands[0]
+	if got.Hook != "postCreateCommand" {
+		t.Errorf("captured hook = %q, want postCreateCommand", got.Hook)
+	}
+	if !reflect.DeepEqual(got.Run, []string{cmd}) {
+		t.Errorf("captured Run = %v, want [%q] (verbatim)", got.Run, cmd)
+	}
+
+	// The command must NOT appear in any field the engine provisions/runs from.
+	exec, err := json.Marshal(executableFields{
+		Tools: pb.Tools, Agents: pb.Agents, Hooks: pb.Hooks, Rules: pb.Rules, Dotfiles: pb.Dotfiles,
+	})
+	if err != nil {
+		t.Fatalf("marshal executable fields: %v", err)
+	}
+	if strings.Contains(string(exec), "make") || strings.Contains(string(exec), "dangerous") {
+		t.Errorf("imported command leaked into an executable field: %s", exec)
+	}
+	// And it must NOT be deferred — it has a (non-executable) home.
+	if slices.Contains(res.Deferred, "commands") {
+		t.Errorf("Deferred = %v, want commands REPORTED not deferred", res.Deferred)
+	}
+}
+
+// TestImportCapturesCommandFormsArrayObject pins FR-IMPORT-005's polymorphic handling:
+// the devcontainer array form (argv) and object form (parallel named commands) are
+// both captured into reported.commands (normalized to readable command strings), in
+// lifecycle order, none mapped to an executable field.
+func TestImportCapturesCommandFormsArrayObject(t *testing.T) {
+	src := writeFixture(t, `{
+  "name": "demo",
+  "onCreateCommand": ["npm", "ci"],
+  "postStartCommand": { "server": "node server.js", "watch": ["npm", "run", "watch"] }
+}`)
+
+	res, err := Import(src)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	pb, err := playbook.ParseFile(res.Draft)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	if pb.Reported == nil {
+		t.Fatalf("draft reported is nil, want captured commands")
+	}
+	// Lifecycle order: onCreateCommand before postStartCommand.
+	want := []playbook.ReportedCommand{
+		{Hook: "onCreateCommand", Run: []string{"npm ci"}},
+		{Hook: "postStartCommand", Run: []string{"node server.js", "npm run watch"}}, // object keys sorted: server, watch
+	}
+	if !reflect.DeepEqual(pb.Reported.Commands, want) {
+		t.Errorf("reported.commands = %+v, want %+v", pb.Reported.Commands, want)
+	}
+	if len(res.Deferred) != 0 {
+		t.Errorf("Deferred = %v, want empty", res.Deferred)
+	}
+}
+
+// TestImportReportedCommandsRoundTripStrictDecode pins FR-IMPORT-005's strict-decode
+// safety (#256): an imported draft carrying reported.commands re-parses CLEANLY under
+// the strict (DisallowUnknownFields) decoder — i.e. reported.commands is a declared
+// schema field, not a key strict decode would reject — and validates as a project-tier
+// playbook. This is the round-trip guarantee: import-then-parse never breaks.
+func TestImportReportedCommandsRoundTripStrictDecode(t *testing.T) {
+	src := writeFixture(t, `{
+  "name": "demo",
+  "initializeCommand": "echo init",
+  "postCreateCommand": "make"
+}`)
+	res, err := Import(src)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	// ParseFile uses the STRICT decoder (UnmarshalStrict). If reported.commands were
+	// not a declared field, this would fail with "unknown field" — the whole point.
+	pb, err := playbook.ParseFile(res.Draft)
+	if err != nil {
+		t.Fatalf("strict re-parse of imported draft failed (reported.commands must be a declared field): %v", err)
+	}
+	if err := pb.Validate(); err != nil {
+		t.Fatalf("re-parsed draft must validate: %v", err)
+	}
+	if pb.Reported == nil || len(pb.Reported.Commands) != 2 {
+		t.Fatalf("round-tripped reported.commands = %+v, want 2 captured commands", pb.Reported)
 	}
 }

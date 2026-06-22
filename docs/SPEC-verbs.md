@@ -235,9 +235,14 @@ draft; it never mutates the environment.
   per-project field), it does not "degrade to" the devcontainer's image (ADR-0003); the
   import surfaces the image + names `LOOM_BASE_IMAGE` as the override path. **Unrecognized
   or custom features are REPORTED** (surfaced for the human / the `import-enrich` skill),
-  never guessed. `commands` remain DEFERRED (no schema home — loom has no inline-command
-  field; the `import-enrich` skill surfaces them as review notes). Every non-mapped field
-  is REPORTED, never silently dropped. The optional `import-enrich` AI skill (ADR-0003
+  never guessed. The devcontainer LIFECYCLE `commands` (`initializeCommand`, `onCreateCommand`,
+  `updateContentCommand`, `postCreateCommand`, `postStartCommand`, `postAttachCommand`) are
+  **REPORTED** — captured verbatim into the draft's non-executable `reported.commands` (each
+  with its lifecycle hook + the command string(s), all of string/array/object form) for human
+  review; **loom NEVER auto-runs an imported command** (auto-running untrusted imported commands
+  is a code-execution surface the guardrails must not open — ADR-0005; the `import-enrich` skill
+  translates them into loom-native tools/setup). Every non-mapped field is REPORTED, never
+  silently dropped. The optional `import-enrich` AI skill (ADR-0003
   Stage-3) adds the judgment layer over this deterministic core — agent-run, not part of
   the verb (the engine never invokes the agent; ADR-0022).
 - Output is a draft, review-then-commit. Writes a DISTINCT draft file
@@ -251,25 +256,28 @@ draft; it never mutates the environment.
   (source, mapped fields, deferred fields, draft path). Idempotent (re-importing the
   same file yields the same draft); never mutates outside writing the draft. Exit codes
   per convention (`0` ok / `1` error / `2` needs-input).
-- Scope: deterministic import → draft (ports, env, recognized features→tools). OUT:
-  `commands` mapping (needs schema — no inline-command field), and `export` (later,
-  lossy). The `import-enrich` skill's judgment layer ships separately (Stage-3).
+- Scope: deterministic import → draft (ports, env, recognized features→tools, lifecycle
+  commands → `reported.commands`). OUT: any EXECUTION of imported commands (a separate,
+  security-reviewed slice — loom never auto-runs them), and `export` (later, lossy). The
+  `import-enrich` skill's judgment layer ships separately (Stage-3).
 
 ```json
 // loom import --json (shape)
 { "source": ".devcontainer/devcontainer.json",
   "mapped": { "ports": [3000], "env": ["NODE_ENV"], "tools": ["go@1.22"] },
   "reported": { "image": "mcr.microsoft.com/devcontainers/go:1.22",
-                "unmapped_features": "ghcr.io/acme/custom:1" },
-  "deferred": ["commands"],
+                "unmapped_features": "ghcr.io/acme/custom:1",
+                "commands": "postCreateCommand, postStartCommand" },
+  "deferred": [],
   "draft": "loom.imported.yml" }
 ```
 
 FRs: **FR-IMPORT-001..003** pin the deterministic field mapping, the names-only env
 rule, the draft-not-clobber output, and the e2e round-trip (devcontainer.json → draft
 → validates + feeds `plan`); **FR-IMPORT-004** pins the recognized-features→tools
-mapping + unrecognized-features reporting. `commands` mapping (needs schema) lands with
-a later slice; the `import-enrich` AI skill is a separate, prose-only artifact (no FR).
+mapping + unrecognized-features reporting; **FR-IMPORT-005** pins lifecycle-command
+capture into the non-executable `reported.commands` (lossless, never auto-run). The
+`import-enrich` AI skill is a separate, prose-only artifact (no FR).
 
 ## export  (later, lossy)
 

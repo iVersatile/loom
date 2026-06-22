@@ -81,11 +81,16 @@ type devcontainer struct {
 	RemoteEnv    map[string]string          `json:"remoteEnv"`
 	Features     map[string]json.RawMessage `json:"features"`
 
+	// Lifecycle commands (devcontainer.json). Each is string | array | object;
+	// they are CAPTURED into reported.commands for HUMAN REVIEW and NEVER executed
+	// by loom (FR-IMPORT-005, ADR-0005 worst-thing test). Declared in devcontainer
+	// lifecycle order so the captured list reads in execution order for the human.
+	InitializeCommand    json.RawMessage `json:"initializeCommand"`
+	OnCreateCommand      json.RawMessage `json:"onCreateCommand"`
+	UpdateContentCommand json.RawMessage `json:"updateContentCommand"`
 	PostCreateCommand    json.RawMessage `json:"postCreateCommand"`
 	PostStartCommand     json.RawMessage `json:"postStartCommand"`
 	PostAttachCommand    json.RawMessage `json:"postAttachCommand"`
-	OnCreateCommand      json.RawMessage `json:"onCreateCommand"`
-	UpdateContentCommand json.RawMessage `json:"updateContentCommand"`
 }
 
 // Import ingests a devcontainer.json into a reviewable DRAFT project-tier Loom
@@ -116,6 +121,14 @@ func Import(srcPath string) (ImportResult, error) {
 		name = "imported-project"
 	}
 
+	// REPORTED commands: the devcontainer LIFECYCLE commands captured verbatim into
+	// the DRAFT's reported.commands for human review — NEVER mapped to an executable
+	// field and NEVER run (FR-IMPORT-005, ADR-0005 worst-thing test). Auto-running a
+	// command from an imported (untrusted) devcontainer is a code-execution surface
+	// the guardrails must not open; this is the "image is REPORTED, not mapped"
+	// precedent applied to commands (ADR-0003 import-and-enrich-never-degrade-to).
+	commands := collectCommands(dc)
+
 	pb := playbook.Playbook{
 		Loom:  playbook.SchemaVersion,
 		Tier:  playbook.TierProject,
@@ -123,6 +136,12 @@ func Import(srcPath string) (ImportResult, error) {
 		Ports: ports,
 		Env:   env,
 		Tools: tools,
+	}
+	// The captured commands live in the draft's reported: section (declared schema,
+	// never executed). They are review DATA, not desired-state — Validate/Merge/build
+	// ignore them; they exist so the import is lossless and the draft round-trips.
+	if len(commands) > 0 {
+		pb.Reported = &playbook.Reported{Commands: commands}
 	}
 	if err := pb.Validate(); err != nil {
 		return ImportResult{}, fmt.Errorf("import: draft playbook invalid: %w", err)
@@ -139,15 +158,23 @@ func Import(srcPath string) (ImportResult, error) {
 	if len(unmappedFeatures) > 0 {
 		reported["unmapped_features"] = strings.Join(unmappedFeatures, ", ")
 	}
-
-	// DEFERRED: fields with no schema home yet — reported, never silently dropped.
-	// Non-nil so the --json `deferred` is [] not null when empty (AI-first shape).
-	// `features` are no longer deferred — recognized ones map to tools (above),
-	// unrecognized ones are reported; only `commands` (no schema home) defers.
-	deferred := []string{}
-	if hasCommand(dc) {
-		deferred = append(deferred, "commands")
+	// REPORTED: lifecycle commands — surfaced in --json as the lifecycle hook names
+	// captured (the bodies live in the draft's reported.commands). Commands are NO
+	// LONGER deferred: they have a home (the non-executable reported section), so the
+	// import is lossless without ever becoming auto-runnable.
+	if len(commands) > 0 {
+		hooks := make([]string, len(commands))
+		for i, c := range commands {
+			hooks[i] = c.Hook
+		}
+		reported["commands"] = strings.Join(hooks, ", ")
 	}
+
+	// DEFERRED: fields with no home at all — reported, never silently dropped.
+	// Non-nil so the --json `deferred` is [] not null when empty (AI-first shape).
+	// `features` map to tools / reported; `commands` are now REPORTED (above), not
+	// deferred — nothing remains in the deferred set for Stage-1 import.
+	deferred := []string{}
 
 	dir := draftDir(srcPath)
 	draft := filepath.Join(dir, importedPlaybookName)
@@ -361,13 +388,78 @@ func featureVersion(optsRaw json.RawMessage) string {
 	return cleanVersion(v.Version)
 }
 
-// hasCommand reports whether ANY devcontainer command field is present.
-func hasCommand(dc devcontainer) bool {
-	return len(dc.PostCreateCommand) > 0 ||
-		len(dc.PostStartCommand) > 0 ||
-		len(dc.PostAttachCommand) > 0 ||
-		len(dc.OnCreateCommand) > 0 ||
-		len(dc.UpdateContentCommand) > 0
+// collectCommands captures the present devcontainer LIFECYCLE commands into
+// []playbook.ReportedCommand — verbatim, in devcontainer lifecycle order, for
+// HUMAN REVIEW. It does NOT execute them and the result lands ONLY in the draft's
+// non-executable reported.commands (FR-IMPORT-005, ADR-0005 worst-thing test). A
+// hook whose value is present but yields no command strings is still captured (with
+// an empty Run) so the human sees the hook was declared — lossless, never dropped.
+func collectCommands(dc devcontainer) []playbook.ReportedCommand {
+	// Devcontainer lifecycle order: initialize → onCreate → updateContent →
+	// postCreate → postStart → postAttach (waitFor is a hook NAME, not a command,
+	// so it is intentionally not captured here as a command).
+	hooks := []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{"initializeCommand", dc.InitializeCommand},
+		{"onCreateCommand", dc.OnCreateCommand},
+		{"updateContentCommand", dc.UpdateContentCommand},
+		{"postCreateCommand", dc.PostCreateCommand},
+		{"postStartCommand", dc.PostStartCommand},
+		{"postAttachCommand", dc.PostAttachCommand},
+	}
+	var out []playbook.ReportedCommand
+	for _, h := range hooks {
+		if len(h.raw) == 0 {
+			continue
+		}
+		out = append(out, playbook.ReportedCommand{Hook: h.name, Run: commandStrings(h.raw)})
+	}
+	return out
+}
+
+// commandStrings normalizes a devcontainer command value — which is string | array
+// | object (parallel named commands) — into a flat list of literal command strings
+// for human review. It NEVER executes anything; it only renders the value:
+//   - "make build"                     -> ["make build"]
+//   - ["npm", "install"]               -> ["npm install"]   (argv joined for reading)
+//   - {"a": "cmd1", "b": ["x","y"]}    -> ["cmd1", "x y"]    (object values, key-sorted)
+//
+// A value it cannot interpret is preserved as its raw JSON token (lossless), never
+// silently dropped. The strings are DISPLAY DATA only — quoting is not shell-safe and
+// must never be fed to a shell (there is no execution path; this is the point).
+func commandStrings(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	// string form.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return []string{s}
+	}
+	// array form (argv): join into one readable command line.
+	var arr []string
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		return []string{strings.Join(arr, " ")}
+	}
+	// object form: parallel named commands; render each value (key-sorted for
+	// determinism), recursing so a named entry may itself be a string or argv array.
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		keys := make([]string, 0, len(obj))
+		for k := range obj {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var out []string
+		for _, k := range keys {
+			out = append(out, commandStrings(obj[k])...)
+		}
+		return out
+	}
+	// Uninterpretable: preserve the raw token verbatim (lossless), trimmed.
+	return []string{strings.TrimSpace(string(raw))}
 }
 
 // sanitizeName slugifies an imported devcontainer name into a docker-safe,
