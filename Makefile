@@ -14,8 +14,13 @@ GITLEAKS ?= $(shell command -v gitleaks 2>/dev/null)
 
 all: gate
 
+# CGO_ENABLED=0 → a fully static loom binary (no glibc/loader dependency). Required
+# by T20 S2b (ADR-0028 A1): `egress: allowlist` cp's the loom binary into a slim
+# sidecar and runs `loom __egress-proxy` there — a dynamically-linked binary may
+# fail to exec in a base with a different libc. There is no `import "C"` in-tree, so
+# this is a pure-Go build with the native net resolver; it never breaks the build.
 build:
-	$(GO) build -o $(BIN) ./cmd/loom
+	CGO_ENABLED=0 $(GO) build -o $(BIN) ./cmd/loom
 
 fmt:
 	gofmt -w .

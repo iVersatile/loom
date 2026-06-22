@@ -251,16 +251,16 @@ func (dockerRuntime) Ensure(spec ContainerSpec) (ContainerInfo, error) {
 		// Provision (tool/agent install) stays gated on its own digest: a
 		// dotfile-only change must not re-run apt/go-install (T7/T4 interplay).
 		if reprovision && (len(spec.Tools) > 0 || len(spec.Agents) > 0) {
-			// A converge-path re-provision only runs when the container is ALREADY
-			// confined (an allowlist container created on a prior build is on the
-			// internal network now). Re-provisioning a confined container would need to
-			// route through the proxy — provision-then-restrict is a CREATE-time trade;
-			// a policy/tool change that needs broad egress is a --force rebuild (the
-			// container.go create path re-runs the full provision-then-restrict). So
-			// pass clearProxyEnv=false here: on the bridge it is a no-op, and a confined
-			// container's re-provision honors the allowlist (the proxy carries the
-			// provision ∪ runtime union via the load-bearing floor; broad provision is
-			// --force). The allowlist confinement itself is NOT rebuilt on converge.
+			// Converge-path re-provision. provision-then-restrict is a CREATE-time
+			// trade, so the confinement is NOT rebuilt here. clearProxyEnv=false: a
+			// non-allowlist container is on the bridge (no proxy env to clear — a
+			// no-op); an ALREADY-confined allowlist container is on the internal net,
+			// so this re-provision routes through the proxy and reaches only the
+			// runtime allowlist — a tool-add needing a broad provision host (apt/go.dev,
+			// outside the load-bearing floor) will 403 and fail LOUD. That is by design
+			// (a tool/policy change needing broad egress is a `--force` rebuild, which
+			// re-runs the full provision-then-restrict on the create path), not a
+			// silent degrade.
 			if err := provision(spec.Name, provisionScript(spec.Tools, spec.Agents), false, spec.LogW); err != nil {
 				return ContainerInfo{}, err
 			}
