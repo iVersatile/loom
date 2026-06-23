@@ -83,26 +83,36 @@ percentages — prose only where a number can't carry it.
 
 Compose these sections, in order:
 
-1. **Shape** — the current spec→FR→thread map: embed or link
-   `docs/spec-map.md` (regenerate via `/specmap` first if registry or
-   threads changed this week; that lands as its own PR per that skill).
-2. **Confidence lens** — FR coverage % by `kind` × test tier, computed from
+1. **Shape** — the spec→FR→thread map: embed/link `docs/spec-map.md`
+   (now carries the **Workstream overlay**; regenerate via `/specmap` first
+   if the registry/threads changed this week — its own PR per that skill).
+2. **Workstream coverage** — the project-level lens (`docs/WORKSTREAMS.md`
+   "FR/ADR coverage" + the `docs/spec-map.md` "Workstream overlay"): FRs **and**
+   ADRs per stream (The Spine · AI-First · The Run · Target Env · Guardrails ·
+   Verification · Dogfood), as a small table with counts. **Flag the gap class
+   explicitly**: streams that are DESIGNED (hold ADRs) but UNBUILT (zero FRs) —
+   currently The Run + Target Env. This is the cross-stream balance signal; it
+   complements the SPEC-section Coverage map (§6, which is FR→test depth) by adding
+   the *breadth* view. Numbers come from the registry (`grep -c id: FR-…` by family
+   → stream per WORKSTREAMS.md) + the ADR set; if a `/specmap` regen ran this week,
+   refresh the overlay counts with it.
+3. **Confidence lens** — FR coverage % by `kind` × test tier, computed from
    `docs/FR-registry.yml` (`tests:` joints) crossed with `go test -json
    ./...` results: per kind (behavioral / invariant / guardrail / schema),
    how many FRs have all named tests present AND passing, at which tier
    (gate-local vs integration). Plus: gate status (last `make gate`), and
    evidence freshness (dates of guided-run / reviews / e2e artifacts cited
    by open rows).
-3. **Shipped** — the `/achievements` lifecycle dashboard over the week's
+4. **Shipped** — the `/achievements` lifecycle dashboard over the week's
    window (queue rows flipped done/in-review, PRs, threads, lessons).
-4. **Dependency graph** — the queue's `depends-on` column rendered as a
+5. **Dependency graph** — the queue's `depends-on` column rendered as a
    Mermaid digraph: nodes = live rows (queued / in progress / in review /
    blocked), edges = depends-on, human-owned gates marked distinctly. Done
    rows are omitted (the Shipped section owns them).
-5. **Coverage map** — FRs→tests→tiers shaded onto the SPEC sections they
+6. **Coverage map** — FRs→tests→tiers shaded onto the SPEC sections they
    cite (absorbs P8): per SPEC anchor, green (all FRs covered) / yellow
    (partial) / red (FRs with no automated coverage — ADR-0013 violations).
-6. **EXPERIMENTS** — one row per active or just-completed experiment:
+7. **EXPERIMENTS** — one row per active or just-completed experiment:
    `name | hypothesis | telemetry | status / verdict date | key numbers`.
    Seed set (issue 1, 2026-06-18):
    - **auto-trial (T22)** — acceptEdits→auto; S1/S2/S3 counts vs baselines
@@ -113,7 +123,7 @@ Compose these sections, in order:
      (docs/e2e/cold-start-continuity.md); loss classes; next run ad hoc.
    A completed experiment stays listed for ONE issue past its verdict, then
    graduates to the thread/LL record.
-7. **Trial/ops + human to-do** — ledger excerpt (docs/auto-trial.md
+8. **Trial/ops + human to-do** — ledger excerpt (docs/auto-trial.md
    evidence table) + flips.log tail for the week; the human-owned gate list
    from read mode, deduplicated.
 
