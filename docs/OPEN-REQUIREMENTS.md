@@ -132,3 +132,67 @@ the FR gate). The rest stay parked.
 
 **Open-decision closure order:** ADR-0019 §5 drift (RULES §2 violation — highest) →
 append-vs-STRICT (unblocks slice-5 host) → settings source-path hole (T28 surface).
+
+---
+
+## 7. Priority, organized by dependency chain (2026-06-23)
+
+Items don't sort by value alone — five sit in **chains** where the head must land
+before the tail is workable. Ordered by *unblocking power*.
+
+### The dependency chains (respect these)
+
+```
+Chain A — spec hygiene → non-root → autonomy clearance
+  D3 (ADR-0019 §5 drift) ─► 0019 Part-2 (drain-guard swap) ─► Part-3 (non-root flip) ─► auto-mode re-eval
+
+Chain B — STRICT decision → host hardening → unattended autopull
+  D1 (reframed; spike done) ─► slice-5 host hardening ─► autopull Shape-2 graduation
+
+Chain C — credentials → Writer autonomy → multi-agent
+  036 credential clear ─► ADR-0017 Writer-push ─► T18 multi-agent perms
+
+Chain D — externalize stack → second stack
+  R9 (stack knowledge in Go switches) ─► Phase-2 second stack (Python/TS)
+
+Chain E — base image → OOM durable fix
+  ADR-0012 prebuilt base image ─► #75 OOM class resolved
+
+Independent (no chain): D2 (settings hole 044) · update verb · export verb
+```
+
+> **D1 is settled empirically (2026-06-23 spike):** `chattr +a` is rejected on the
+> container overlayfs, so in-container append-only is impossible — Option A
+> (rewritability probe) is DEAD. Reframed ruling: STRICT polices only host-owned
+> read-only external-truth files (merged-refs/tick); the spawn-guard rate-ledger
+> stays agent-local (integrity via host reconciliation, not in-container append-only).
+> Author's independent read still queued (`q-1782254696`).
+
+### Priority tiers
+
+| Tier | Item | Why here / dependency |
+|---|---|---|
+| **P0 — now, cheap, fixes a violation or heads a chain** | **D3** ADR-0019 §5 amendment | RULES §2 violation; **head of Chain A**; spike-free |
+| | **D2** settings source-path hole (044) | open guardrail hole; independent; feeds T28 |
+| | **D1** STRICT reframe (spike done) | **head of Chain B** → slice-5 → Shape-2 |
+| **P1 — near-term features (pulled forward, no deps)** | **`update`** verb | closes review-finding R6; SPEC clause exists |
+| | **`export`** verb | after `update` (shares FR-INV conformance) |
+| **P1 — autonomy maturation (chain tails)** | **slice-5 host hardening** | needs D1 → graduates autopull Shape-2 |
+| | **0019 Part-2 + Part-3** | needs D3 → completes 0019 → unblocks auto-mode re-eval |
+| **P2 — unblock-gated (waiting on a lever)** | **036 → ADR-0017 → T18** | whole Chain C gated on the 036 credential clear |
+| | **re-run auto-mode evaluation** | gated on Chain A (non-root flip) |
+| **P2 — durable infra** | **R9 → second stack** | Chain D |
+| | **ADR-0012 prebuilt base image** | Chain E; durable fix for #75 OOM |
+| **P3 — design threads (need own ADR)** | T27 control/observability · T28 self-defense (fed by R1/R2/R3+D2) · ADR-0023 edit-guard · CTX-MGMT | no hard deps; spec/ADR pass before code |
+| **P3 — ops** | T34 (devenv quarantine, Slice D reaper) · T32 supervising-box (deferred behind cold-floor+T34) | sequenced, low urgency |
+| **P4 — parked (2026-07-12 review)** | R1–R10 · C1–C4 · P1–P11 | promote-early: R9, R1/R2/R3, R5 |
+
+### Critical path
+
+1. **Clear the 3 P0 decisions** (D3 / D2 / D1) — cheap, two close open holes, and
+   **D3 + D1 are chain heads** that unblock both autonomy chains.
+2. **Then `update`** (highest-value independent feature; closes R6).
+3. **Chain tails unlock** as heads land: D1→slice-5→Shape-2; D3→0019 Part-2/3→auto-mode.
+
+**Two highest-leverage single moves:** **D3** (a free RULES §2 fix that heads Chain A)
+and **clearing 036** (the sole lever on the entire Writer-autonomy chain C).
