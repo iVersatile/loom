@@ -1,5 +1,5 @@
 # ADR-0022 — Autonomy substrate: ephemeral worker + backlog-ready pull
-**Date:** 2026-06-14   **Status:** Proposed (advisor-drafted from in-session human-confirmed decisions 2026-06-14: "yes, auto-pull next ready FR"; "ephemeral-worker confirmed". **Red-teamed 2026-06-14 → BLOCK with 5 binding amendments; all folded in below** [the original "escalates NOTHING" framing was disproven — see Decision 4]. Acceptance = PR merge, per RULES §5 / C3. Extends ADR-0020.)
+**Date:** 2026-06-14   **Status:** Accepted (header reconciled 2026-06-23 — acceptance-by-merge already on record, #149 + slices 1–5; advisor-drafted from in-session human-confirmed decisions 2026-06-14: "yes, auto-pull next ready FR"; "ephemeral-worker confirmed". **Red-teamed 2026-06-14 → BLOCK with 5 binding amendments; all folded in below** [the original "escalates NOTHING" framing was disproven — see Decision 4]. Acceptance = PR merge, per RULES §5 / C3. Extends ADR-0020.)
 
 ## Context
 ADR-0020 gave the autonomy closed-loop (PARK → pull-next → re-surface), but

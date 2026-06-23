@@ -26,8 +26,11 @@ choices.
 - ADR-0018 — Harness trust/opt-in flags are declared playbook config, materialized at build
 - ADR-0019 — Container runs as a configurable, default-root non-root user
 - ADR-0020 — Autonomy closed-loop (PARK / pull-next / re-surface drain)
-- ADR-0021 — Role resolution under multi-role-per-container (Proposed)
-- ADR-0022 — Autonomy substrate: ephemeral worker + backlog-ready pull (Proposed)
+- ADR-0021 — Role resolution under multi-role-per-container (Accepted — Option A)
+- ADR-0022 — Autonomy substrate: ephemeral worker + backlog-ready pull (Accepted)
+- ADR-0023 — Shared-tree edit-guard + own-worktree topology (Accepted)
+- (ADR-0024 — number unused; no ADR was assigned 0024)
+- ADR-0025 — Author as an ephemeral headless fleet; advisor as the persistent supervisor (Accepted)
 - ADR-0026 — VCS credential volume: sibling `~/.config/gh` volume + gh credential helper (Accepted)
 - ADR-0027 — Per-project credential convention (all agents + gh); resolver deferred (Accepted)
 - ADR-0028 — Container networking policy: deny-by-default egress, declared hostname allowlist, provision-then-restrict (Accepted)
