@@ -102,6 +102,34 @@ func TestSpawnLoop(t *testing.T) {
 		}
 	})
 
+	// Built-but-unmerged steady state (the trial's headline loop finding): a READY
+	// row whose envelope is already worked (DONE) with nothing QUEUED. promote-next
+	// is idempotent ("already present"), but spawn-loop must NOT WAKE into it —
+	// readiness-decide reads main's PLAN, which shows a built row as "queued" until
+	// its PR merges, so an agent that cannot push would otherwise emit WAKE forever.
+	// It is an empty tick: WAKE-POLL under the bound (so the loop self-terminates via
+	// IDLE-STOP), never plain WAKE, and records no grant.
+	t.Run("already-built row, nothing QUEUED ⇒ WAKE-POLL not WAKE", func(t *testing.T) {
+		dir := t.TempDir()
+		plan := planFixture(t, dir, readyExecRow)
+		merged := writeFixture(t, dir, "merged.txt", "")
+		// the READY row's envelope already exists and is DONE; nothing is QUEUED.
+		inbox := writeFixture(t, dir, "inbox.md", "--- id: promote-demo-row\nstatus: DONE\n")
+		ledger := filepath.Join(dir, "ledger")
+		ticks := writeFixture(t, dir, "ticks", "1\n")
+		noHalt := filepath.Join(dir, "no-halt")
+		out := runSpawnLoop(t, allow, plan, merged, inbox, ledger, noHalt, ticks)
+		if !strings.HasPrefix(out, "WAKE-POLL") {
+			t.Fatalf("an already-built row with nothing QUEUED must be WAKE-POLL (empty tick), not WAKE: %s", out)
+		}
+		if readTicks(t, ticks) != "2" {
+			t.Errorf("WAKE-POLL must increment the empty-tick counter to 2, got %q", readTicks(t, ticks))
+		}
+		if countLines(t, ledger) != 0 {
+			t.Errorf("a non-WAKE tick must record no grant, ledger=%d", countLines(t, ledger))
+		}
+	})
+
 	t.Run("off-allow-list READY ⇒ NO-WAKE CONFIRM-REQUIRED", func(t *testing.T) {
 		dir := t.TempDir()
 		plan := planFixture(t, dir, readyExecRow)
