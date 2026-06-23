@@ -752,7 +752,7 @@ requirements:
       comments, and trailing commas — without mis-stripping comment-like sequences inside
       string values (e.g. a URL's //), so the mapping is correct on real devcontainer files.
     source: SPEC-verbs.md#import
-    tests: [engine.TestImportStripsJSONCCommentsRespectingStrings]
+    tests: [engine.TestImportStripsJSONCCommentsRespectingStrings, engine.TestImportMalformedInputNeverPanics]
     status: active
   - id: FR-IMPORT-004
     kind: behavioral

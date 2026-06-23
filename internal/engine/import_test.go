@@ -654,3 +654,95 @@ func TestImportCommandMappingPerCommandGranularity(t *testing.T) {
 		t.Errorf("reported entry = %+v, want only the unrecognized setup script under postCreateCommand", got)
 	}
 }
+
+// importNoPanic runs Import on a fixture body and converts any panic into a test
+// failure — the load-bearing N3 invariant: a malformed devcontainer.json must NEVER
+// panic the importer. Returns the (result, error); the caller asserts the chosen
+// graceful outcome (fail-loud error XOR a usable draft).
+func importNoPanic(t *testing.T, body string) (res ImportResult, err error) {
+	t.Helper()
+	src := writeFixture(t, body)
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Import PANICKED on malformed input (must fail-loud or skip, never panic): %v", r)
+		}
+	}()
+	return Import(src)
+}
+
+// TestImportMalformedInputNeverPanics locks the #234 JSONC-tolerant parser's
+// robustness (N3): every malformed / edge-case / garbage-typed devcontainer.json
+// parses GRACEFULLY — it either fails loud with a clean error OR produces a usable
+// draft (unrecognized bits skipped/reported), but NEVER panics and never silently
+// half-writes. The unifying invariant is the no-panic guarantee; per case we also pin
+// whether the right graceful outcome is a fail-loud error or a valid draft.
+//
+//	want: "err"   — must return a non-nil error (fail-loud), no draft expectation
+//	want: "draft" — must succeed and the draft must re-parse + validate (graceful skip)
+//	want: "any"   — either is acceptable; only the no-panic + (err XOR valid-draft) holds
+func TestImportMalformedInputNeverPanics(t *testing.T) {
+	cases := map[string]struct {
+		body string
+		want string
+	}{
+		// --- JSONC parser edge cases (the stripJSONC state machine) ---
+		"empty input":                    {``, "err"},
+		"whitespace only":                {"   \n\t  ", "err"},
+		"unterminated string":            {`{"name": "abc`, "err"},
+		"unterminated block comment":     {`{ /* never closes`, "err"},
+		"line comment at EOF no newline": {`{"name":"x"} //trailing`, "draft"},
+		"block comment only":             {`/* */`, "err"},
+		"lone slash":                     {`/`, "err"},
+		"trailing backslash in string":   {`{"name":"x\`, "err"},
+		"trailing comma object":          {`{"name":"x",}`, "draft"},
+		"trailing comma array":           {`{"forwardPorts":[8080,]}`, "draft"},
+		"comment markers inside string":  {`{"image":"https://x.io//a/*b*/c"}`, "draft"},
+		"not json at all":                {`just some text`, "err"},
+		"json array not object":          {`["a","b"]`, "err"},
+		"bare scalar":                    {`42`, "err"},
+		"empty object":                   {`{}`, "draft"},
+
+		// --- garbage-typed fields (wrong JSON type for the schema) ---
+		"forwardPorts as string":   {`{"forwardPorts":"8080"}`, "err"},  // []RawMessage vs string
+		"features as array":        {`{"features":["x"]}`, "err"},       // map vs array
+		"containerEnv numeric val": {`{"containerEnv":{"X":5}}`, "err"}, // map[string]string vs number
+		"name as number":           {`{"name":123}`, "err"},
+
+		// --- garbage that the RawMessage helpers must SKIP gracefully (valid draft) ---
+		"appPort garbage object":      {`{"appPort":{"weird":true}}`, "draft"},
+		"forwardPorts mixed garbage":  {`{"forwardPorts":[8080,"nope",{"x":1},null]}`, "draft"},
+		"feature value not an object": {`{"features":{"ghcr.io/devcontainers/features/go:1":"notobj"}}`, "draft"},
+		"feature value null":          {`{"features":{"ghcr.io/devcontainers/features/go:1":null}}`, "draft"},
+		"command as a number":         {`{"postCreateCommand":42}`, "draft"},
+		"command as null":             {`{"postCreateCommand":null}`, "draft"},
+		"command empty object":        {`{"postStartCommand":{}}`, "draft"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			res, err := importNoPanic(t, tc.body)
+
+			switch tc.want {
+			case "err":
+				if err == nil {
+					t.Errorf("want a fail-loud error, got nil (draft=%q)", res.Draft)
+				}
+			case "draft":
+				if err != nil {
+					t.Fatalf("want a graceful draft, got error: %v", err)
+				}
+			}
+
+			// Universal post-condition: a successful import must yield a draft that
+			// re-parses AND validates — never a half-baked/corrupt file.
+			if err == nil {
+				pb, perr := playbook.ParseFile(res.Draft)
+				if perr != nil {
+					t.Fatalf("import succeeded but draft does not re-parse: %v", perr)
+				}
+				if verr := pb.Validate(); verr != nil {
+					t.Fatalf("import succeeded but draft does not validate: %v", verr)
+				}
+			}
+		})
+	}
+}
