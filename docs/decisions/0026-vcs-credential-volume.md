@@ -8,6 +8,17 @@ formalizes the decision (the volume + helper code lands with it as ONE coherent 
 ADR-0017 it needs human acceptance, not auto-merge. Provisioning the token is a
 one-time human trust act (no headless device flow exists).
 
+> **Provisioning status — DONE (verified 2026-06-23).** The one-time human act
+> below has already happened: the fine-grained PAT is **live** at
+> `~/.config/gh/hosts.yml` (the `<container>-gh` volume; `HOME=/home/loom`),
+> provisioned **2026-06-17**, and is **shared by both seats** (same `loom`
+> user/container — `loom.yml:48` `user: loom`). `gh auth status` → logged in as
+> `iVersatile` via `github_pat_…` (no `GH_TOKEN`/`GITHUB_TOKEN` env). The advisor
+> pushes/opens PRs with it daily. **The token is NOT the Writer-push blocker** —
+> it is shared and present for both seats; the only gates are config
+> (`role-push-guard` + the author allow-list). See ADR-0017 + the staged
+> `docs/patches/0017-writer-push-autonomy.md`.
+
 > Drafted by an ephemeral loom-author behind the "agent drafts, human accepts"
 > pattern (cf. ADR-0015 §harness, ADR-0018, ADR-0023). Spec before code, RULES §2 /
 > ADR-0006: this records the decision ADR-0015 left open; the engine/gitconfig

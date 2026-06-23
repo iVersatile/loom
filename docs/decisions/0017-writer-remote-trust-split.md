@@ -28,6 +28,19 @@ and weak for **push-to-feature-branch** (reversible, contained by branch
 protection). The two should not share one rule.
 
 ## Decision
+
+> **Note (2026-06-23) — "036 credential blocker" is a misnomer; corrected.**
+> Verified: the gh credential is **already provisioned and shared** — a
+> fine-grained PAT at `~/.config/gh/hosts.yml` (the `<container>-gh` volume),
+> live since 2026-06-17, used by the advisor daily; both seats share it (same
+> `loom` user/container). The original "036" had two parts: the `.claude.json`
+> trust-flag durability hole (fixed by ADR-0018 #113) and the gh-token gap (now
+> provisioned, ADR-0026). So Decision 1 below is **no longer credential-blocked**
+> — it needs only the two config changes (the `loom-author` tier in
+> `role-push-guard` + the author allow-list) staged in
+> `docs/patches/0017-writer-push-autonomy.md`, applied by the human under
+> `ALLOW_TRUST_CHANGE`. No `gh auth login` is required.
+
 1. **Target state (takes effect when the 036 credential blocker clears):**
    the Writer may `git push` to feature branches and `gh pr create`.
    Allow-list entries scoped accordingly (push to non-main refs, PR create)
