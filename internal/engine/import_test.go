@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -482,5 +483,70 @@ func TestImportReportedCommandsRoundTripStrictDecode(t *testing.T) {
 	}
 	if pb.Reported == nil || len(pb.Reported.Commands) != 2 {
 		t.Fatalf("round-tripped reported.commands = %+v, want 2 captured commands", pb.Reported)
+	}
+}
+
+// TestImportNeverExecutesLifecycleCommands is FR-IMPORT-005's BEHAVIORAL boundary
+// proof (ADR-0005 worst-thing test, #257 lock-in). TestImportCapturesLifecycleCommandsAsReported
+// asserts a captured command is absent from the executable FIELDS; this asserts the
+// STRONGER claim — that import never hands a command to a shell at ALL. Every one of
+// the six devcontainer lifecycle hooks carries a command that WOULD create an
+// observable sentinel file in a writable temp dir IF a shell ever ran it (across the
+// string / array(argv) / object(parallel) forms). After Import, not one sentinel
+// exists: loom captured all six into reported.commands and EXECUTED none of them. The
+// sentinel dir is real and writable, so the test would catch a regression that shelled
+// out — it is not vacuously passing on an unreachable path.
+func TestImportNeverExecutesLifecycleCommands(t *testing.T) {
+	dir := t.TempDir()
+	sentinel := func(n string) string { return filepath.Join(dir, "ran-"+n) }
+
+	// Each hook's command would `touch` its own sentinel IF executed. Forms are
+	// mixed deliberately to cover every normalization path: string, array(argv),
+	// and object(parallel named commands).
+	body := fmt.Sprintf(`{
+  "name": "demo",
+  "initializeCommand": "touch %s",
+  "onCreateCommand": ["touch", "%s"],
+  "updateContentCommand": "touch %s && echo go",
+  "postCreateCommand": "touch %s",
+  "postStartCommand": { "a": "touch %s", "b": ["touch", "%s"] },
+  "postAttachCommand": "touch %s"
+}`,
+		sentinel("initialize"), sentinel("oncreate"), sentinel("updatecontent"),
+		sentinel("postcreate"), sentinel("poststart-a"), sentinel("poststart-b"),
+		sentinel("postattach"))
+
+	res, err := Import(writeFixture(t, body))
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	// BEHAVIORAL boundary: not a single imported command was executed.
+	if ran, _ := filepath.Glob(filepath.Join(dir, "ran-*")); len(ran) != 0 {
+		t.Fatalf("import EXECUTED an imported command — sentinel(s) created: %v (the worst-thing boundary is broken)", ran)
+	}
+
+	// And every hook was CAPTURED into reported.commands, in devcontainer lifecycle order.
+	pb, err := playbook.ParseFile(res.Draft)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	if pb.Reported == nil {
+		t.Fatal("draft reported is nil, want all six lifecycle hooks captured")
+	}
+	gotHooks := make([]string, 0, len(pb.Reported.Commands))
+	for _, c := range pb.Reported.Commands {
+		gotHooks = append(gotHooks, c.Hook)
+	}
+	wantHooks := []string{
+		"initializeCommand", "onCreateCommand", "updateContentCommand",
+		"postCreateCommand", "postStartCommand", "postAttachCommand",
+	}
+	if !reflect.DeepEqual(gotHooks, wantHooks) {
+		t.Errorf("captured hooks = %v, want all six in lifecycle order %v", gotHooks, wantHooks)
+	}
+	// Commands have a (non-executable) home — never silently deferred/dropped.
+	if slices.Contains(res.Deferred, "commands") {
+		t.Errorf("Deferred = %v, want commands REPORTED not deferred", res.Deferred)
 	}
 }
