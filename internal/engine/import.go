@@ -36,6 +36,29 @@ var featureToTool = map[string][]string{
 	"terraform": {"terraform"}, "kubectl-helm-minikube": {"kubectl", "helm"},
 }
 
+// recognizedInstall maps an installer family to the set of package names whose clean
+// install maps to a loom tool intent (SPEC-playbook "commands mapping", #259 — the
+// declarative-only contract, mirroring features→tools FR-IMPORT-004). ONLY these
+// packages map; a package outside the set leaves the WHOLE command in reported.commands,
+// never guessed. Package name == tool intent for every entry (no silent renames) so
+// the mapping stays transparent and auditable. Conservative by design and meant to
+// grow: an unrecognized package/installer is always safely REPORTED, never wrong.
+var recognizedInstall = map[string]map[string]struct{}{
+	"apt": setOf("git", "curl", "wget", "jq", "make", "cmake", "tmux", "vim",
+		"ripgrep", "shellcheck", "tree", "htop"),
+	"npm": setOf("typescript", "prettier", "eslint", "yarn", "pnpm"),
+	"pip": setOf("black", "flake8", "ruff", "poetry", "pipenv"),
+}
+
+// setOf builds a string set.
+func setOf(xs ...string) map[string]struct{} {
+	m := make(map[string]struct{}, len(xs))
+	for _, x := range xs {
+		m[x] = struct{}{}
+	}
+	return m
+}
+
 // ImportResult is the documented --json shape (docs/SPEC-verbs.md#import):
 // source, mapped:{ports,env}, reported, deferred, draft.
 type ImportResult struct {
@@ -112,6 +135,12 @@ func Import(srcPath string) (ImportResult, error) {
 	env := collectEnvNames(dc)
 	tools, unmappedFeatures := collectTools(dc)
 
+	// COMMANDS mapping (#259, declarative-only): recognized clean installs lift to
+	// tool intents; everything else stays verbatim in reported.commands (below). The
+	// command-derived tools union into the feature-derived tools (deduped + sorted).
+	cmdTools, commands := collectCommandTools(dc)
+	tools = unionTools(tools, cmdTools)
+
 	name := sanitizeName(dc.Name)
 	if name == "" {
 		// Project-root basename (sanitized): the dir the draft is written into.
@@ -121,14 +150,12 @@ func Import(srcPath string) (ImportResult, error) {
 		name = "imported-project"
 	}
 
-	// REPORTED commands: the devcontainer LIFECYCLE commands captured verbatim into
-	// the DRAFT's reported.commands for human review — NEVER mapped to an executable
-	// field and NEVER run (FR-IMPORT-005, ADR-0005 worst-thing test). Auto-running a
-	// command from an imported (untrusted) devcontainer is a code-execution surface
-	// the guardrails must not open; this is the "image is REPORTED, not mapped"
-	// precedent applied to commands (ADR-0003 import-and-enrich-never-degrade-to).
-	commands := collectCommands(dc)
-
+	// `commands` (from collectCommandTools above) are the lifecycle commands that did
+	// NOT map to a declarative field — captured verbatim into the DRAFT's
+	// reported.commands for human review, NEVER mapped to an executable field and NEVER
+	// run (FR-IMPORT-005, ADR-0005 worst-thing test). Auto-running a command from an
+	// imported (untrusted) devcontainer is a code-execution surface the guardrails must
+	// not open; this is the "image is REPORTED, not mapped" precedent applied to commands.
 	pb := playbook.Playbook{
 		Loom:  playbook.SchemaVersion,
 		Tier:  playbook.TierProject,
@@ -345,6 +372,27 @@ func collectTools(dc devcontainer) (tools []string, unmapped []string) {
 	return tools, unmapped
 }
 
+// unionTools merges two tool-intent lists into one deduped + sorted list (feature-
+// derived ∪ command-derived). Either may be nil; the result is nil only when both are.
+func unionTools(a, b []string) []string {
+	if len(a) == 0 && len(b) == 0 {
+		return a
+	}
+	set := make(map[string]struct{}, len(a)+len(b))
+	for _, t := range a {
+		set[t] = struct{}{}
+	}
+	for _, t := range b {
+		set[t] = struct{}{}
+	}
+	out := make([]string, 0, len(set))
+	for t := range set {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // featureName recognizes an OFFICIAL devcontainers/features ref and returns its
 // feature name (the segment after "features/", tag stripped). It requires the EXACT
 // shape `<host>/devcontainers/features/<name>[:tag]` — a host-anchored boundary
@@ -417,6 +465,136 @@ func collectCommands(dc devcontainer) []playbook.ReportedCommand {
 		out = append(out, playbook.ReportedCommand{Hook: h.name, Run: commandStrings(h.raw)})
 	}
 	return out
+}
+
+// collectCommandTools applies the declarative-only `commands` mapping (SPEC-playbook
+// "commands mapping", #259, follow-on to features→tools FR-IMPORT-004). Each lifecycle
+// command that is, IN ITS ENTIRETY, a deterministically-recognized clean install of
+// recognized packages is mapped to tool intents; every other command is captured
+// VERBATIM into reported.commands (FR-IMPORT-005), never executed. Import introduces NO
+// execution surface — it only ever produces declarative fields.
+//
+// Granularity is per-command-string: within one lifecycle hook the recognized installs
+// are lifted to tools: and the remaining commands stay in that hook's reported entry; a
+// hook whose every command maps is consumed (it has a declarative home), and a present-
+// but-empty hook is still surfaced (lossless). Returns (tool intents, reported commands),
+// both deterministic (deduped + sorted / lifecycle order).
+func collectCommandTools(dc devcontainer) (tools []string, reported []playbook.ReportedCommand) {
+	toolSet := map[string]struct{}{}
+	for _, rc := range collectCommands(dc) {
+		var keep []string
+		for _, cmd := range rc.Run {
+			if mapped, ok := classifyInstallCommand(cmd); ok {
+				for _, t := range mapped {
+					toolSet[t] = struct{}{}
+				}
+				continue
+			}
+			keep = append(keep, cmd)
+		}
+		// Keep the hook in reported when it still has an unmapped command, OR when it
+		// was present-but-empty (lossless: the human still sees the hook was declared).
+		// A hook whose every command mapped is consumed into tools: and dropped here.
+		if len(keep) > 0 || len(rc.Run) == 0 {
+			reported = append(reported, playbook.ReportedCommand{Hook: rc.Hook, Run: keep})
+		}
+	}
+	for t := range toolSet {
+		tools = append(tools, t)
+	}
+	sort.Strings(tools)
+	return tools, reported
+}
+
+// classifyInstallCommand recognizes a SINGLE, non-compound clean package install of
+// recognized packages and returns the tool intents it maps to. It returns ok=false —
+// leaving the command to be REPORTED verbatim — for anything not deterministically a
+// clean install: a compound/redirected/substituted command (ANY shell metacharacter),
+// an unrecognized installer, an unknown flag, or an unrecognized package.
+//
+// The mapping is ALL-OR-NOTHING per command: a recognized-installer command with even
+// one unrecognized package (or unknown flag) is reported WHOLE, never split. This is
+// the load-bearing safety rule — import must never lift a recognized prefix and
+// silently drop the rest (e.g. the `&& curl evil | sh` tail of a poisoned install).
+func classifyInstallCommand(cmd string) (tools []string, ok bool) {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" || hasShellMeta(cmd) {
+		return nil, false
+	}
+	fields := strings.Fields(cmd)
+	var family string
+	var args []string
+	switch {
+	case len(fields) >= 3 && (fields[0] == "apt-get" || fields[0] == "apt") && fields[1] == "install":
+		family, args = "apt", fields[2:]
+	case len(fields) >= 3 && fields[0] == "npm" && (fields[1] == "install" || fields[1] == "i"):
+		family, args = "npm", fields[2:]
+	case len(fields) >= 3 && (fields[0] == "pip" || fields[0] == "pip3") && fields[1] == "install":
+		family, args = "pip", fields[2:]
+	default:
+		return nil, false
+	}
+	allow := recognizedInstall[family]
+	sawGlobal := false
+	var names []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			if !recognizedInstallFlag(family, a) {
+				return nil, false // unknown flag → not deterministic, report whole
+			}
+			if a == "-g" || a == "--global" {
+				sawGlobal = true
+			}
+			continue
+		}
+		if _, known := allow[a]; !known {
+			return nil, false // unrecognized package → report whole command, never guess
+		}
+		names = append(names, a)
+	}
+	// A GLOBAL npm install is what puts a tool on PATH; a local `npm i` populates a
+	// project's node_modules and is NOT a tool intent — report it instead.
+	if family == "npm" && !sawGlobal {
+		return nil, false
+	}
+	if len(names) == 0 {
+		return nil, false
+	}
+	sort.Strings(names)
+	return names, true
+}
+
+// recognizedInstallFlag reports whether flag is a known, side-effect-free flag for the
+// installer family — the only flags allowed in a mappable install command. An unknown
+// flag forces the command to be reported (deterministic-only).
+func recognizedInstallFlag(family, flag string) bool {
+	switch family {
+	case "apt":
+		switch flag {
+		case "-y", "--yes", "--no-install-recommends", "-q", "-qq":
+			return true
+		}
+	case "npm":
+		switch flag {
+		case "-g", "--global":
+			return true
+		}
+	case "pip":
+		switch flag {
+		case "--user", "-q", "--no-cache-dir":
+			return true
+		}
+	}
+	return false
+}
+
+// hasShellMeta reports whether s contains any shell metacharacter that would make a
+// command compound, redirected, substituted, quoted, or globbed — i.e. more than a
+// single plain invocation. Its presence forces the command to be REPORTED verbatim
+// rather than mapped: import must never split a command to map a prefix and drop the
+// rest. Conservative by design — when in doubt, do not map.
+func hasShellMeta(s string) bool {
+	return strings.ContainsAny(s, "&|;<>`$(){}*?!\\\"'\n\r\t")
 }
 
 // commandStrings normalizes a devcontainer command value — which is string | array
