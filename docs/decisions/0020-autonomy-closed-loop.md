@@ -1,6 +1,6 @@
 # ADR-0020 — Autonomy closed-loop: PARK / pull-next / re-surface
 
-**Date:** 2026-06-14   **Status:** Proposed (authorship chain: **human-decided to
+**Date:** 2026-06-14   **Status:** Accepted (header reconciled 2026-06-23 — acceptance-by-merge already on record, #136; authorship chain: **human-decided to
 build** — "tackle this earlier than later", 2026-06-14 — → **author↔advisor
 converged** — rounds 1–3 with prototypes, `.scratch/autonomy-loop-experiment.md`,
 risk ledger exhausted — → **agent-transcribed** — this ADR — → **human-accepted**;

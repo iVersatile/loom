@@ -1,5 +1,5 @@
 # ADR-0018 — Harness trust/opt-in flags are declared playbook config, materialized at build
-**Date:** 2026-06-12   **Status:** Proposed (authorship chain: **human-decided** — 036 ruled "2-plus" in-session 2026-06-12, queue row merged PR #103 — → **agent-transcribed** — this ADR + the `trust:` implementation — → **human-accepted**; acceptance = PR merge, per RULES §5/C3)
+**Date:** 2026-06-12   **Status:** Accepted (header reconciled 2026-06-23 — acceptance-by-merge already on record, #113; authorship chain: **human-decided** — 036 ruled "2-plus" in-session 2026-06-12, queue row merged PR #103 — → **agent-transcribed** — this ADR + the `trust:` implementation — → **human-accepted**; acceptance = PR merge, per RULES §5/C3)
 
 ## Context
 The agent harness stores its trust/opt-in flags (auto-mode acceptance,
