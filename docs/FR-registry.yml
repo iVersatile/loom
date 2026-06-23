@@ -792,6 +792,26 @@ requirements:
     source: SPEC-verbs.md#import
     tests: [engine.TestImportCapturesLifecycleCommandsAsReported, engine.TestImportCapturesCommandFormsArrayObject, engine.TestImportReportedCommandsRoundTripStrictDecode, playbook.TestMergeDropsReported]
     status: active
+  - id: FR-IMPORT-006
+    kind: behavioral
+    # Target Env: the DECLARATIVE-ONLY commands mapping (SPEC-playbook "commands mapping", #259,
+    # follow-on to features->tools FR-IMPORT-004). Recognized clean installs map to tools:; the
+    # rest stay in reported.commands (FR-IMPORT-005). The load-bearing safety rule is ALL-OR-NOTHING
+    # per command: a command with ANY shell metacharacter (compound/redirect/substitution) or any
+    # unrecognized installer/flag/package is reported VERBATIM, never split — import must never lift
+    # a recognized prefix and silently drop a poisoned tail (`apt-get install -y git && curl|sh`).
+    # Import introduces NO execution surface; command-mapping only ever produces declarative fields.
+    statement: >-
+      loom import maps a devcontainer lifecycle command that is, IN ITS ENTIRETY, a
+      deterministically-recognized clean install of recognized packages (apt/apt-get install,
+      npm install -g, pip install — package in the recognized allow-list) to loom tool intents
+      (deduped + sorted, unioned with feature-derived tools) and CONSUMES it from reported.commands;
+      every other command — compound/redirected/substituted (any shell metacharacter), unrecognized
+      installer/flag/package, or a recognized+unrecognized mix — is captured VERBATIM into
+      reported.commands, never split and never executed (mirrors features->tools, FR-IMPORT-004).
+    source: SPEC-playbook.md#commands
+    tests: [engine.TestImportMapsRecognizedInstallCommandsToTools, engine.TestImportCommandMappingDeterministicBoundary, engine.TestImportCommandMappingPerCommandGranularity]
+    status: active
 
   # --- AI-first invariants (RULES §5; global, parametrized suite) ---
   # start is a mutating verb subject to the invariants (NOT --json-exempt), so it
