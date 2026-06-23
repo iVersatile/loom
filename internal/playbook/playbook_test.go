@@ -333,6 +333,62 @@ func TestParseRejectsUnknownKey(t *testing.T) {
 	}
 }
 
+// TestParseRejectsUnknownKeyInEachSection locks in the strict-decode invariant
+// (#256 / FR-SCHEMA-013) SECTION BY SECTION: an unrecognized key must fail loud
+// AND name the offending key in EVERY declared schema struct, not just at the
+// top level. TestParseRejectsUnknownKey proves the typo'd-key behavior; this
+// table proves COVERAGE — each nested section the schema declares (Networking,
+// HarnessAgent, Credential, ConfigSource, Reported, ReportedCommand) is exercised,
+// so a future field added to any one of them can't silently re-open the LOW-2 hole
+// for that section. Each case uses a section-unique bogus key so the name-the-key
+// assertion can't pass on a coincidental mention of a different field.
+func TestParseRejectsUnknownKeyInEachSection(t *testing.T) {
+	cases := map[string]struct {
+		in     string
+		badKey string
+	}{
+		"top-level Playbook section": {
+			in:     "loom: 1\ntier: base\nbogus_toplevel: x\n",
+			badKey: "bogus_toplevel",
+		},
+		"Networking section (networking:)": {
+			in:     "loom: 1\ntier: base\nnetworking:\n  bogus_net: x\n",
+			badKey: "bogus_net",
+		},
+		"HarnessAgent section (harness.<agent>:)": {
+			in:     "loom: 1\ntier: base\nharness:\n  claude:\n    bogus_harness: x\n",
+			badKey: "bogus_harness",
+		},
+		"Credential section (harness.<agent>.credential:)": {
+			in:     "loom: 1\ntier: base\nharness:\n  claude:\n    credential:\n      bogus_cred: x\n",
+			badKey: "bogus_cred",
+		},
+		"ConfigSource section (config_source:)": {
+			in:     "loom: 1\ntier: base\nconfig_source:\n  bogus_cfgsrc: x\n",
+			badKey: "bogus_cfgsrc",
+		},
+		"Reported section (reported:)": {
+			in:     "loom: 1\ntier: base\nreported:\n  bogus_reported: x\n",
+			badKey: "bogus_reported",
+		},
+		"ReportedCommand section (reported.commands[]:)": {
+			in:     "loom: 1\ntier: base\nreported:\n  commands:\n    - hook: postCreateCommand\n      bogus_cmd: x\n",
+			badKey: "bogus_cmd",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(tc.in))
+			if err == nil {
+				t.Fatalf("section %s: expected parse to REJECT unknown key %q, got nil error (this section silently drops unknown keys — the LOW-2 hole re-opened)", name, tc.badKey)
+			}
+			if !strings.Contains(err.Error(), tc.badKey) {
+				t.Errorf("section %s: error must NAME the offending key %q so the typo is loud; got: %v", name, tc.badKey, err)
+			}
+		})
+	}
+}
+
 // TestParseAcceptsKnownGood covers FR-SCHEMA-013's complement: a fully-declared
 // playbook — every declared field, with comments and a YAML anchor/alias — still
 // parses cleanly under strict decoding. Strictness must reject only keys with no
