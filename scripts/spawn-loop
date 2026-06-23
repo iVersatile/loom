@@ -123,7 +123,27 @@ case "$refill" in
 		echo "NO-WAKE CONFIRM-REQUIRED (promoted for human confirmation — not auto-wakeable)"
 		exit 0 ;;
 	*"status QUEUED"*|*"already present"*)
-		: ;;  # eligible work present (just minted, or minted on a prior cycle) — proceed
+		# Eligible per promote-next — but only WAKE if there is an UNDELIVERED
+		# QUEUED envelope for the drain to deliver. "already present" fires when a
+		# READY row's envelope was minted on a prior cycle; if that envelope is now
+		# TAKEN/DONE (already worked) and nothing else is QUEUED, waking is a
+		# pointless spin. STEADY-STATE built-but-unmerged case: an agent that cannot
+		# push leaves every deliverable's PLAN row reading "queued" in main until its
+		# PR merges, so readiness-decide keeps reporting it READY forever. Treat "no
+		# QUEUED envelope" as an empty tick so the loop self-terminates (IDLE-STOP)
+		# instead of emitting WAKE every cycle.
+		if ! grep -q '^status: QUEUED' "$INBOX" 2>/dev/null; then
+			t=$(read_ticks); t=$((t + 1))
+			if [ "$t" -ge "$MAX_EMPTY" ]; then
+				write_ticks 0
+				echo "IDLE-STOP (eligible rows already built/delivered, nothing QUEUED; gave up after $MAX_EMPTY empty ticks — external/human event re-wakes)"
+			else
+				write_ticks "$t"
+				echo "WAKE-POLL delay=$(clamp "$IDLE_DELAY") (built-but-unmerged work, nothing QUEUED — self-poll tick $t/$MAX_EMPTY)"
+			fi
+			exit 0
+		fi
+		;;  # an undelivered QUEUED envelope exists — proceed to the rate gate -> WAKE
 	*)
 		echo "NO-WAKE UNKNOWN (unrecognized promote-next outcome — fail-safe)"
 		exit 0 ;;
