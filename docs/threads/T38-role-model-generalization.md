@@ -1,4 +1,4 @@
-# T38 — Role-model generalization: identity + layered boundaries   🟡 open
+# T38 — Role-model generalization: identity + layered boundaries   🟢 recommendation drafted (cross-seat converged 2026-06-24; pending human acceptance)
 
 > **Design draft — NOT scoped, NOT an ADR.** Captures the 2026-06-24 advisor↔human
 > discussion so it resumes without loss. Promotes to an ADR (and gates D3) only on an
@@ -108,6 +108,66 @@ D3 is **downstream of this thread and PARKED + human-gated.** Under this model D
 *shrinks*: "valid role" relaxes to "any well-formed identity," and the only loom-side
 check is whether an identity is in loom's **own** Level-2/3 maps (git-tier); downstream
 boundaries never enter D3. Do not un-park D3 without explicit human go-ahead.
+
+## Convergence (cross-seat confer, 2026-06-24 — advisor + loom-author, `q-1782329857` → `q-1782332725`)
+**Winner: C (fixed capability tiers) + route-scoped-creds.** The author's independent
+read did not merely agree — it **dissolved the one break that could have pushed C → B**,
+and corrected three things in the draft above.
+
+**The decisive break (why C won, not just "preferred"):** my C-break was "C can't express
+selective/branch-scoped merge (supervisor cherry-picks SOME features to PROD) → slides to B."
+The author showed this is **structurally not loom's to enforce**: `role-push-guard` governs only
+the *local in-container command line*; it cannot govern a merge landing via the forge API from
+elsewhere, or the same forge token used differently. A loom-enforced branch-scoped merge tier is
+therefore a **weaker, bypassable copy** (the DB lesson, generalized) — branch-scope MUST live in
+the forge (branch-protection + CODEOWNERS + environment rules). **loom's merge authority is
+necessarily COARSE** ("may this seat initiate a merge at all + which scoped forge cred") — and that
+coarseness is the *real boundary of what loom can enforce*, not a C ceiling. B's only advantage
+evaporates; C is reinforced.
+
+**Three model corrections (the draft taxonomy above is superseded on these points):**
+1. **exec is NOT the universal lever — the container ENVELOPE (L1) is.** The frozen exec spec is
+   "doors, not checkpoints": exec confers no authority beyond the container's guard envelope.
+   Standing L3 capabilities (network reach, mounted cred volumes, project FS) are set by **L1
+   build/create-time config** (network mode, `-v` mounts, the `:ro` cred attach that binds only at
+   create) and reachable by **any** in-container process (harness, long-lived agent, backgrounded
+   job) — not just a fresh `exec`. **Fix: L2 gates *invocations*; the L1 *envelope* bounds L3 reach.**
+2. **Credentials are DUAL-HOMED.** Routing ("which scoped cred for which seat") is L3; the
+   *injection mechanism* is **L1 and load-bearing** (ADR-0027 fail-closed: token at exec time, never
+   `-e`-leaked, absent volume ⇒ exec fail-closed). The cred bundle is an L3 *seam* AND an L1
+   *mechanism* — filing it pure-L3 under-protects the L1 invariant.
+3. **Egress is the ONE L3 loom MUST self-enforce** (the answer to the q-328509 "non-redundant +
+   non-bypassable" challenge): there is **no downstream enforcer** for "this container may not reach
+   the internet" (DB has Postgres GRANT; egress has nothing). `egress: none|allowlist` is enforced
+   by loom's own mechanism (`--network none` / proxy sidecar); the network namespace IS the only
+   path. So egress is L3-by-resource but **L1-by-enforcement**.
+
+**Sharpened bright line (adopt — supersedes the draft's "downstream enforces L3"):**
+> loom enforces an L3 boundary **only where no downstream enforcer exists** (egress: deny-by-default
+> network). Where a downstream enforcer **does** exist (DB GRANT, cloud IAM, forge branch-protection),
+> loom **routes a scoped credential + gates the path, and never reimplements that domain's authz**.
+
+Scope-creep (the charter non-goal) = the moment loom enforces an L3 domain that already has a
+downstream owner. The residual loom self-enforces (egress) is small and bounded ⇒ a **deepening**,
+not an IAM platform.
+
+**The de-hardcode `role→git-tier` map — 4 binding conditions (from the author, who edits the guard
+daily and notes it is brittle: it false-blocked `git push -u`, `--json mergeStateStatus`, indirection):**
+1. the map is a **protect-path** (human-signed, ALLOW_TRUST_CHANGE) — else a seat maps its own
+   role→merge-tier and self-elevates;
+2. the **marker stays root-owned/unforgeable** (ADR-0021) — the *name* the guard looks up must be
+   non-forgeable;
+3. **unknown role fails CLOSED to the floor** (no-push), never a default-open lookup;
+4. the lookup stays a **dead-simple exact name→tier-enum match** — NOT a policy-language parse
+   (any conditionals/branch-scope/globs = B's mini-IAM rebuilt in `sh` = a fail-open bug farm).
+
+**Residual question for the human (the one open acceptance call):** is loom *self-enforcing egress*
+(the single no-downstream L3) inside the bright line, or does even that smell like scope-creep? Both
+seats lean **in** (no downstream owner ⇒ loom's to own; the residual is small + bounded). Human's call.
+
+**Status:** cross-seat converged; **NOT scoped, NOT an ADR** — promotes to an ADR + un-parks D3 only
+on explicit human acceptance of (a) the C+route-creds model, (b) the sharpened bright line, (c) the
+egress-residual ruling.
 
 ## Pointers
 ADR-0021 (role resolution; trust-role union vs session-role) · ADR-0017 (writer push tier)
