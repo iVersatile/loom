@@ -389,6 +389,43 @@ func TestProvisionScriptInstallsAgent(t *testing.T) {
 	}
 }
 
+// TestProvisionScriptInstallsGeminiPeer pins B3 (the agent-side analogue of B1's
+// tool-side guard): the gemini peer's provision plan must produce BOTH halves of
+// its prerequisite chain in one script — a Node>=20 toolchain (gemini-cli's
+// package.json pins Node>=20; apt's Node 18 is too old) AND the
+// `@google/gemini-cli` npm-global install — so the peer provisions without a
+// typo'd or too-old Node. Declarative plan assertion over provisionScript's
+// generated POSIX-sh; no real install, no network, no credentials.
+func TestProvisionScriptInstallsGeminiPeer(t *testing.T) {
+	// The coupled plan: the `nodejs` tool (NodeSource-20 source, set by the
+	// resolver — see TestProvisionScriptCoversSources / resolver_test.go) plus
+	// the `gemini` agent (npm-global source, set by agentSource).
+	s := provisionScript(
+		[]ToolInstall{{Name: "nodejs", Source: "nodejs-20"}},
+		[]AgentInstall{{Name: "gemini", Source: "npm-global"}},
+	)
+	for _, want := range []string{
+		// (a) Node>=20 toolchain — from the NodeSource setup_20.x script, NOT apt.
+		"deb.nodesource.com/setup_20.x",
+		// (b) the gemini-cli npm package, installed globally into the SHARED,
+		// world-exec /usr/local/bin so the non-root runtime user can run `gemini`.
+		"npm config set prefix /usr/local",
+		"npm install -g @google/gemini-cli",
+		"retry ", // wrapped in the resilience retry helper
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("gemini peer provision missing %q\n---\n%s", want, s)
+		}
+	}
+	// Guard the "too-old / typo'd Node" failure mode B3 exists to catch: the peer
+	// must never resolve Node from a sub-20 NodeSource line.
+	for _, never := range []string{"setup_18.x", "setup_16.x", "setup_14.x"} {
+		if strings.Contains(s, never) {
+			t.Errorf("gemini peer must not provision a sub-20 Node (%q)\n---\n%s", never, s)
+		}
+	}
+}
+
 // TestShellInitWiresBothShells pins T4's converged shell-init: ONE loader,
 // written to BOTH login (.profile) and interactive (.bashrc) init files, so a
 // dotfile-set PATH applies regardless of how the shell is invoked. $HOME-based
@@ -431,14 +468,16 @@ func TestProvisionDigestCoversAgents(t *testing.T) {
 }
 
 // TestAgentInstalls pins the resolution→install mapping: every resolved agent is
-// emitted, sorted, with claude-code carrying the native-installer source.
+// emitted, sorted, with claude-code carrying the native-installer source and the
+// gemini peer carrying npm-global (B3).
 func TestAgentInstalls(t *testing.T) {
 	r := &resolver.Resolution{Agents: map[string]lock.LockedAgent{
 		"codex":       {},
 		"claude-code": {},
+		"gemini":      {},
 	}}
 	got := agentInstalls(r)
-	if len(got) != 2 || got[0].Name != "claude-code" || got[1].Name != "codex" {
+	if len(got) != 3 || got[0].Name != "claude-code" || got[1].Name != "codex" || got[2].Name != "gemini" {
 		t.Fatalf("agentInstalls not sorted/complete: %+v", got)
 	}
 	if got[0].Source != "native-installer" {
@@ -446,6 +485,10 @@ func TestAgentInstalls(t *testing.T) {
 	}
 	if got[1].Source != "" {
 		t.Errorf("unknown agent should have empty source, got %q", got[1].Source)
+	}
+	// B3: the gemini peer installs via npm global (the nodejs tool provides node+npm).
+	if got[2].Source != "npm-global" {
+		t.Errorf("gemini source = %q, want npm-global", got[2].Source)
 	}
 }
 
