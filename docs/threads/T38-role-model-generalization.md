@@ -326,8 +326,33 @@ no-push floor`.
 **MIGRATION (breaking; deferred behind ratification + the explicit D3 go-ahead — NOT done now):** the
 rename touches the marker string (`/var/lib/loom/role`), ~7 guard files (`role-push-guard`,
 `role-inject`, `spawn-guard`, `checkpoint-inject`, `schema.go`, `exec.go`, `doctor_rolemarker.go`),
-`loom.yml role:`, `LOOM_SESSION_ROLE` values, and ADR-0017/0021/0025 prose. Needs a compatibility plan
-(accept old + new during transition, or a clean cut) — to be designed when un-parked.
+`loom.yml role:`, `LOOM_SESSION_ROLE` values, and ADR-0017/0021/0025 prose.
+
+**Migration — CLEAN CUT via one atomic `build --force` (cross-seat converged, `q-1782336472` →
+`q-1782336693`).** The marker AND the guards are both **Envelope** — they materialize together at
+build/create — so a single `build --force` recreate swaps both **atomically**: no running container
+ever straddles new-guards/old-marker, so there is **no transition window**. The fail-closed floor
+makes the only failure mode a *safe under-privilege* (an old/unknown marker → `*) fail-closed` →
+floor; never over-privilege). **`accept-both` is REJECTED — it's the riskier option:** recognizing
+`loom-advisor` as a legacy elevated *alias* keeps a second elevation name alive, and since
+`LOOM_SESSION_ROLE` is a settable override, `LOOM_SESSION_ROLE=loom-advisor` would still elevate via
+the alias — a *widened-trust* surface, violating narrow-not-widen (ADR-0021) for a window the atomic
+rebuild already eliminates. Lean into the fail-closed floor, don't blunt it with aliases.
+
+**Action item the rename surfaced (non-negotiable, independent of which name wins):** neither the new
+name nor the tier-map carries the orchestrator's **review-before-merge duty** (review is process/trust
+per RULES + designer≠builder, not a guard mechanism). The name foregrounds spawn/coordinate (the least
+security-critical facet); a holder self-conceiving as "orchestrator" can under-weight the gate-keeper
+mindset (rubber-stamp merges to keep the fleet moving). **Pin "review-before-merge = the orchestrator's
+defining duty" explicitly in RULES / ADR-0025.** With that pinned, the name's gap is acceptable.
+
+**Counter-offer logged for the human (author, `q-1782336693`):** `loom-contributor` / `loom-maintainer`
+— the *forge-native* pair names the enforced truth more precisely ("maintainer" carries review+merge
+implicitly + universally) and speaks the forge's vocabulary, consistent with the bright line (loom
+delegates merge-semantics richness to the forge). Cost: drops ADR-0025's "one orchestrator + many
+workers" fleet framing. Net (both seats): **either is fine; the review-duty pin is the non-negotiable,
+not the word.** Human's final micro-call: `worker`/`orchestrator` (+ pin review) for fleet-consistency,
+or `contributor`/`maintainer` for gate-precision.
 
 ## Pointers
 ADR-0021 (role resolution; trust-role union vs session-role) · ADR-0017 (writer push tier)
