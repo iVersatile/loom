@@ -1,9 +1,11 @@
 agents:
   claude-code:
-    resolved: 2.1.183 (Claude Code)
-base_image: debian:bookworm-slim@sha256:96e378d7e6531ac9a15ad505478fcc2e69f371b10f5cdf87857c4b8188404716
+    resolved: 2.1.187 (Claude Code)
+  gemini:
+    resolved: 0.47.0
+base_image: debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
 loom_lock: 1
-resolved_at: "2026-06-19T13:39:55Z"
+resolved_at: "2026-06-24T15:31:27Z"
 tools:
   gh:
     intent: latest
@@ -44,6 +46,10 @@ tools:
     intent: latest
     resolved: GNU Make 4.3
     source: apt
+  nodejs:
+    intent: latest
+    resolved: v20.20.2
+    source: nodejs-20
   ripgrep:
     intent: latest
     resolved: ripgrep 13.0.0
