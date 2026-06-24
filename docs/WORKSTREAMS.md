@@ -89,43 +89,46 @@ first runnable slice."*
 - **Audit / reviewable trail** → **Guardrails** + **Verification**.
 - **Playbook / lockfile / reconcile** → **The Spine**.
 
-## FR / ADR → workstream coverage (2026-06-19)
+## FR / ADR → workstream coverage (2026-06-24)
 The mapping is **latent** — FR family prefixes already cluster by concern — so this
 is a lens over the existing registry, not new metadata. (A queryable per-FR
 `workstream:` field is a deferred option; this index is the lightweight version.)
 
-**FRs by workstream** (81 total; counts current to #237):
+**FRs by workstream** (94 total; counts current to #287):
 | Workstream | FR families | ~FRs |
 | --- | --- | --- |
-| The Spine | BUILD 16 · SCHEMA 11 · EXEC 4 · ENTRY 4 · TEARDOWN 4 · PLAN 3 · DETECT 2 · SHELL 1 | **45** (60%) |
-| AI-First | LOOP 4 · INV 5 (the `--json`/idempotent/auditable invariants) | 9 |
-| Guardrails | GUARD 9 (the 3 `role:`/`user:` SCHEMA FRs also lean here) | 9 |
+| The Spine | BUILD 16 · SCHEMA 13 · EXEC 4 · ENTRY 4 · TEARDOWN 4 · PLAN 3 · DETECT 2 · SHELL 1 | **47** (50%) |
+| AI-First | LOOP 4 · INV 4 (the `--json`/idempotent/auditable invariants) | 8 |
+| Guardrails | GUARD 9 (the 3 `role:`/`user:` SCHEMA FRs also lean here) · NET 3 (egress policy, ADR-0028) | 12 |
 | Verification | DOCTOR 6 (the verb lives in The Spine; *serves* verification) · LOG 2 (observability) | 8 |
-| **The Run** | RUN 8 (start · 1–4; `--emit-playbook` continuity · 5–6; `--migrate` cred-move · 7–8) | **8** |
-| **Target Env** | IMPORT 4 (import Stage-1 · 1–3; features→tools · 4) | **4** |
+| **The Run** | RUN 8 (start · 1–4; `--emit-playbook` · 5–6; `--migrate` cred-move · 7–8) · CRED 5 (credential adapters, ADR-0014/0026/0027) | **13** |
+| **Target Env** | IMPORT 6 (devcontainer import Stage-1, features→tools, + extensions) | **6** |
 | **Dogfood** | — (governed by RULES/TEAM, not FRs by nature) | **0** |
 
-**ADRs by workstream** (25 total; listed by *primary* — several are multi-stream):
+**ADRs by workstream** (27 total; listed by *primary* — several are multi-stream; 0024 is a numbering gap):
 | Workstream | ADRs |
 | --- | --- |
 | The Spine | 0001 isolation · 0002 playbook+lockfile · 0004 two-tier config · 0006 engine/policy · 0008 Go · 0011 sentinel · 0012 base image · 0015 harness home · 0016 entry verbs |
 | AI-First | 0005 AI-first user · 0020 closed-loop · 0022 substrate · 0025 fleet/supervisor |
-| Guardrails | 0017 remote trust · 0018 trust flags · 0019 non-root · 0021 role resolution · 0023 edit-guard |
+| Guardrails | 0017 remote trust · 0018 trust flags · 0019 non-root · 0021 role resolution · 0023 edit-guard · 0028 networking policy |
 | Target Env | 0003 devcontainer import · 0007 cloud sandbox |
-| The Run | 0014 in-container cred login · 0026 VCS cred volume |
+| The Run | 0014 in-container cred login · 0026 VCS cred volume · 0027 per-project cred convention |
 | Verification | 0010 audit+diag logs · 0013 FR registry |
 | Dogfood | 0009 dogfood-stack Go |
-*(multi-stream examples: 0016 also Verification (audit); 0017/0021/0023 also Dogfood; 0019 also The Spine; 0014/0026 also AI-First git autonomy.)*
+*(multi-stream examples: 0016 also Verification (audit); 0017/0021/0023 also Dogfood; 0019 also The Spine; 0014/0026/0027 also AI-First git autonomy.)*
 
 **The coverage signal — sharper than prose:**
-- **The Spine holds ~60% of all FRs** — the requirement mass *is* the product engine.
-- **The Run holds 8 FRs** (scenario 1 `loom start` #227 + scenario 2 both halves:
-  `detect --emit-playbook` #229, `detect --migrate` #231) — charter Goal 1 largely met.
-- **Target Env now holds 4 FRs** — devcontainer `import` (Stage-1 #234 + features→tools
+- **The Spine holds ~50% of all FRs** — the requirement mass *is* the product engine.
+- **The Run holds 13 FRs** — scenario 1 `loom start` #227 + scenario 2 (`detect
+  --emit-playbook` #229, `detect --migrate` #231) + the CRED credential-adapter family
+  (M1 volume-token / M2 apiKeyHelper / oauth-file, ADR-0014/0026/0027) — charter Goal 1 met.
+- **Target Env now holds 6 FRs** — devcontainer `import` (Stage-1 #234 + features→tools
   #237) + the `import-enrich` AI skill (#236, loom's first product skill, no FR by nature).
   **Every feature stream now has FRs;** the remaining Target Env work is *designed, not
   built*: `commands` mapping (needs schema), windows-dev validation (hardware-gated), and
   the cloud sandbox sibling (Phase 5).
+- **Guardrails gained the NET egress family** (ADR-0028) — `networking.egress`
+  none/allowlist + a doctor `container:egress` claim.
 - **Dogfood = 1 ADR + 0 FRs** — expected: it lives in RULES/TEAM as process.
 
 ## Resolved (human, 2026-06-19)
