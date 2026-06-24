@@ -169,6 +169,61 @@ seats lean **in** (no downstream owner ⇒ loom's to own; the residual is small 
 on explicit human acceptance of (a) the C+route-creds model, (b) the sharpened bright line, (c) the
 egress-residual ruling.
 
+## Convergence round 2 — the capability model (cross-seat, 2026-06-24; `q-1782333610` → `q-1782334531`)
+The human flagged that the L1/L2/L3 taxonomy mixed abstraction levels. Diagnosis (advisor):
+the ladder secretly sorted by THREE criteria at once — who-owns (L1), which-mechanism (L2),
+where-the-resource-lives (L3) — which is why cred read "dual-homed" and egress "L3-resource/
+L1-enforcement." Advisor seed: drop the ladder; a role = **envelope + gates + credential-bundle**,
+with loom's own integrity as a **constant floor**. The author named the single axis that makes
+it coherent and dissolves the straddles:
+
+**One axis: the CONTROL POINT in an action's lifecycle → a DERIVED enforcer** (is there a
+downstream owner at that point?):
+
+| Part | Control point | Acts against | Enforcer | Consequence |
+|---|---|---|---|---|
+| **ENVELOPE** | **create**-time | the container (network posture, mounts, cred-volume attach) | **loom** (no downstream) | loom self-enforces |
+| **GATES** | **invoke**-time | a command (git push/merge tier, shell/exec limits, **spawn authority**) | **loom** (the guards) | loom self-enforces |
+| **BUNDLE** | **use**-time | a downstream system (scoped DB/cloud/forge keys) | **downstream** (DB GRANT, cloud IAM, branch-protection) | loom routes key + gates path, NEVER reimplements |
+| **FLOOR** | **always** | loom itself (audit, trust files, role marker, agent-fabric) | **loom**, role-invariant | non-negotiable constant |
+
+This is ONE ladder where L1/L2/L3 was three: who-owns / which-mechanism / where-resource all
+collapse into *"at which control point, and is there a downstream enforcer there."*
+
+**The straddles dissolve (nothing is dual-homed under this cut):**
+- **Credential** = two capabilities sharing a word: *"is the cred file reachable"* = create-time =
+  ENVELOPE (a mount); *"what authority the key carries"* = use-time = BUNDLE (downstream-scoped).
+  Coupling (the mount is a precondition for the key), not straddling.
+- **spawn / reaping** = mechanism vs authority: the spawn SUBSTRATE (drain/self-wake/fabric) = FLOOR;
+  the AUTHORITY to spawn = an INVOKE-time GATE (`spawn-guard` already is one). Same split as git
+  (the binary is floor; push/merge authority is a gate). The split IS the rule.
+
+**No 4th part:** time/lifecycle is not a part — it IS the axis. Audit/observability is FLOOR
+(role-invariant; you can't define a role with "no audit"). read/visibility resolves to ENVELOPE
+(reachability includes read via mount perms; intra-container per-seat read isolation = an OS-perms
+property the envelope sets at create).
+
+**The bright line becomes one sentence:**
+> loom **self-enforces at create + invoke**; at **use** it only hands a scoped key and the
+> downstream system enforces; the **floor** is constant and role-invariant.
+
+(Egress = create-time, no downstream → loom enforces — consistent, no longer an exception. DB authz
+= use-time, downstream exists → loom never touches it — consistent. The round-1 egress-residual is
+subsumed.)
+
+**The kernel zoom-out is safe IFF the control-point set is CLOSED.** loom is honestly a
+capability *kernel* (envelope+gates+creds keyed by identity) — but "kernel" carries scope-creep
+gravity (plugins / a policy language / per-project mechanisms = the B-style IAM platform). So the
+load-bearing guardrail, generalized from round-1's "flat exact-match map, not a policy parse":
+**the kernel is a CLOSED set (exactly 3 dials + 1 floor); projects parameterize IDENTITIES onto
+existing dials, and NEVER declare new control mechanisms.** Closed-set kernel = a deepening of a
+dev-env tool; open/extensible kernel = the IAM platform = a charter non-goal.
+
+**Residual for the human (the single charter-level ratification):** accept *"closed control-point
+set — 3 dials + 1 floor — projects key identities only, never mechanisms"* as a bright line. That
+one line is what keeps loom a deepening and not a new product. On acceptance, T38 promotes to an
+ADR and D3 un-parks.
+
 ## Pointers
 ADR-0021 (role resolution; trust-role union vs session-role) · ADR-0017 (writer push tier)
 · ADR-0014/0026/0027 (credential adapters — the Level-3 routing seam) · ADR-0019 §5 +
