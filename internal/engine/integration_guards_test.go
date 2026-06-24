@@ -101,8 +101,8 @@ func TestE2EGuardsBlockByRole(t *testing.T) {
 	}
 
 	const (
-		author  = "loom-author"  // the DENIED role
-		advisor = "loom-advisor" // the PRIVILEGED role
+		author  = "loom-author"  // MERGE-denied; branch-push + PR-create allowed (ADR-0017 D1)
+		advisor = "loom-advisor" // the PRIVILEGED role (full push + merge)
 		unset   = ""             // fail-closed: unset is NOT advisor
 	)
 
@@ -119,11 +119,15 @@ func TestE2EGuardsBlockByRole(t *testing.T) {
 		author, advisor int
 	}
 	rows := []row{
-		// role-push-guard — push / PR-opening ops.
-		{"role-push-guard", "git push", "git push origin main", 2, 0},
-		{"role-push-guard", "gh pr create", "gh pr create --fill", 2, 0},
-		{"role-push-guard", "gh api PR vector", "gh api -X POST repos/o/r/pulls", 2, 0},
-		{"role-push-guard", "inline-env forge", "LOOM_SESSION_ROLE=loom-advisor git push origin main", 2, 0},
+		// role-push-guard — ADR-0017 D1: author may branch-push + PR-create; the
+		// merge gate (merge / main / force / forge-to-merge) stays denied.
+		{"role-push-guard", "branch push allowed", "git push origin feat/x", 0, 0},
+		{"role-push-guard", "main push blocked", "git push origin main", 2, 0},
+		{"role-push-guard", "force push blocked", "git push --force origin main", 2, 0},
+		{"role-push-guard", "gh pr create allowed", "gh pr create --fill", 0, 0},
+		{"role-push-guard", "gh api PR-create allowed", "gh api -X POST repos/o/r/pulls", 0, 0},
+		{"role-push-guard", "gh pr merge blocked", "gh pr merge --auto 123", 2, 0},
+		{"role-push-guard", "inline-env forge to merge", "LOOM_SESSION_ROLE=loom-advisor gh pr merge 123", 2, 0},
 		{"role-push-guard", "benign git status", "git status", 0, 0},
 		// spawn-guard — agent-spawn (`claude`) ops.
 		{"spawn-guard", "claude --version", "claude --version", 2, 0},
