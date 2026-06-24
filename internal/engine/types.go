@@ -162,6 +162,39 @@ func (r BuildResult) Human() string {
 		r.Result, r.Container.Name, r.LockWritten, len(r.Materialized), r.Written)
 }
 
+// --- update ---------------------------------------------------------------
+
+// UpdateResult is the --json contract for `loom update` (docs/SPEC-verbs.md
+// "update"): reconcile a running env to the current playbook by applying the
+// plan delta. Slice 1 applies the additions (create/install) and re-pins the
+// lock; real removal is deferred to Slice 2 (Install/Create carry the delta,
+// Remove stays empty — plan.go).
+type UpdateResult struct {
+	// Result is the convergence verdict: "noop" when the env already matches the
+	// playbook (no delta), "converged" when a delta was applied. This makes the
+	// result enum reachable (review-finding R6): build never returns "noop", but
+	// update gates on the plan and reports the converged-vs-already-converged fact.
+	Result  string        `json:"result"`  // converged | noop
+	Target  string        `json:"target"`  // the graded/reconciled container
+	Install []InstallItem `json:"install"` // the additions applied (delta); empty on noop
+	Create  []CreateItem  `json:"create"`  // env objects created (delta); empty on noop
+	// LockWritten reports whether the reconcile rewrote loom.lock.
+	LockWritten bool     `json:"lock_written"`
+	Actions     []string `json:"actions"` // audit entry ids for this run
+
+	// LogPath is the diagnostic log for this run. Excluded from --json (the
+	// shape is the converged set above); the CLI surfaces it on stderr.
+	LogPath string `json:"-"`
+	// Warnings carries non-fatal advisories the CLI surfaces on stderr (mirrors
+	// build — e.g. a githooks-wiring skip). Excluded from --json.
+	Warnings []string `json:"-"`
+}
+
+func (r UpdateResult) Human() string {
+	return fmt.Sprintf("update: %s (container %s, +%d install, +%d create, lock_written=%t)",
+		r.Result, r.Target, len(r.Install), len(r.Create), r.LockWritten)
+}
+
 // --- teardown -------------------------------------------------------------
 
 type Removed struct {

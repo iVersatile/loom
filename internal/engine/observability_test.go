@@ -31,6 +31,19 @@ func TestMutatingVerbsAreObservable(t *testing.T) {
 	}
 	requireNonEmpty(t, filepath.Join(rootT, ".loom", "actions.log"))
 	requireExists(t, filepath.Join(rootT, ".loom", "logs", "teardown.log"))
+
+	// update applies the delta via the shared convergence path, but stamps its OWN
+	// verb identity in both logs (buildImplVerb) — a fresh project has a delta, so
+	// this run mutates and must produce update's audit + diagnostic logs.
+	rootU := tempProject(t)
+	if _, err := updateImpl(
+		UpdateOpts{PlaybookPath: filepath.Join(rootU, "loom.yml")},
+		fakeRuntime{exists: false, ensureInfo: ContainerInfo{Name: "loom-dev", Status: "created"}}, fixedClock,
+	); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	requireNonEmpty(t, filepath.Join(rootU, ".loom", "actions.log"))
+	requireExists(t, filepath.Join(rootU, ".loom", "logs", "update.log"))
 }
 
 func requireExists(t *testing.T, path string) {

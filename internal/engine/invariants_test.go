@@ -37,6 +37,22 @@ func TestMutatingVerbsIdempotent(t *testing.T) {
 				t.Fatalf("teardown: %v", err)
 			}
 		}},
+		{"update", func(t *testing.T, root string, first bool) {
+			// First run: no container yet → plan reports a delta → update applies it
+			// (lock + home + container audits). Re-run: the now-converged container
+			// (built host side, every tool/agent present, home synced) → plan is a
+			// noop → update writes nothing (the reachable "noop", R6).
+			var rt fakeRuntime
+			if first {
+				rt = fakeRuntime{exists: false, ensureInfo: ContainerInfo{Name: "loom-dev", Status: "created"}, probeVersions: fixtureProbes()}
+			} else {
+				rt = fakeRuntime{exists: true, running: true, probeVersions: fixtureProbes(),
+					homeSentinel: homeDigest(filepath.Join(root, ".loom", "home"))}
+			}
+			if _, err := updateImpl(UpdateOpts{PlaybookPath: filepath.Join(root, "loom.yml")}, rt, fixedClock); err != nil {
+				t.Fatalf("update: %v", err)
+			}
+		}},
 	}
 	for _, c := range cases {
 		t.Run(c.verb, func(t *testing.T) {
