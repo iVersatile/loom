@@ -15,7 +15,7 @@ func (f fakeProbe) Version(binary string) (string, bool) {
 
 func TestResolveSourcesAndPins(t *testing.T) {
 	pb := &playbook.Playbook{
-		Tools:  []string{"go@1.26", "git", "uv", "gopls", "ripgrep", "golangci-lint", "gh", "lazygit"},
+		Tools:  []string{"go@1.26", "git", "uv", "gopls", "ripgrep", "golangci-lint", "gh", "lazygit", "nodejs"},
 		Agents: []string{"claude-code"},
 	}
 	vp := fakeProbe{
@@ -41,6 +41,10 @@ func TestResolveSourcesAndPins(t *testing.T) {
 		"golangci-lint": "go-install",
 		"gh":            "go-install", // GitHub CLI builds via go install (env-tier, T34)
 		"lazygit":       "go-install", // lazygit TUI builds via go install (project-tier)
+		// nodejs MUST pin the NodeSource-20 source, NOT apt — debian:bookworm-slim's
+		// apt nodejs is v18, below gemini-cli's Node>=20 engines pin (B1). A regression
+		// to "apt" here would silently provision Node 18 and break the gemini peer.
+		"nodejs": "nodejs-20",
 	}
 	for tool, src := range wantSource {
 		got, ok := r.Tools[tool]
