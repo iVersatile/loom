@@ -224,6 +224,86 @@ set — 3 dials + 1 floor — projects key identities only, never mechanisms"* a
 one line is what keeps loom a deepening and not a new product. On acceptance, T38 promotes to an
 ADR and D3 un-parks.
 
+## Capability buckets → what a ROLE *is* (the role-design implication)
+The four buckets are **not equal** as role dials — and that asymmetry IS the role design:
+
+| Bucket | Role-design meaning | Set per |
+|---|---|---|
+| **Floor** | **NOT a role dial** — constant under every role (no role can disable audit, edit trust files, or forge its identity) | baseline (nobody) |
+| **Gates** | **THE per-role dial:** git-tier (none/push/merge), spawn authority, shell/exec limits — the de-hardcoded `role→tier` map | **session** (the seat) |
+| **Bundle** | **a key-list:** which scoped downstream creds the role receives. `DB-owner` vs `data-manager` differ **only here** | **container** (attached at create) |
+| **Envelope** | **reach needs:** egress hosts, mounts | **container** (create) |
+
+So a **role = `{gate-tiers} + {credential needs} + {envelope needs}`** — small by construction.
+Heavy authority (schema-vs-data, branch-scoped merge) lives **downstream** (Bundle) or in the
+**forge**, never in the role. That smallness is the design goal, not an accident.
+
+**The structural rule (ADR-0021 union/narrow):** Gates are **per-session**; Envelope + Bundle are
+**per-container**. A container hosts a **union** of roles (root-owned marker) ⇒ its envelope = the
+union of reach needs (built **once** at create), its creds = the union of key needs. Each **session
+narrows to one role**; Gates enforce **per command** against the session role (narrow-within, never
+widen). Floor holds for all. Two-layer design: **declare roles** (gate+cred+envelope) → **a
+container picks a union** → **each seat runs as one**. Topology is a choice: container-per-role
+(clean isolation) or one container hosting a union of seats.
+
+## Consolidated role & security design
+**A loom role is a generic, forge-proof IDENTITY → a small policy across one closed, control-point-
+sorted capability set.** End to end:
+1. **Identity** — a root-owned, unforgeable marker carrying the *union* of roles a container may act
+   as (ADR-0021); a session narrows to one (`session-role`), never widens. Unknown identity ⇒
+   fail-closed floor.
+2. **The capability set (closed: exactly 4, sorted by control point → derived enforcer):**
+   **Envelope** (create / loom) · **Gates** (invoke / loom) · **Bundle** (use / downstream) ·
+   **Floor** (always / loom-constant).
+3. **The bright line (one sentence):** loom **self-enforces at create + invoke**; at **use** it only
+   routes a scoped key and the **downstream system enforces**; the **floor** is constant.
+4. **The closed-set guardrail (charter-level):** projects parameterize **identities** onto existing
+   dials; they NEVER declare new control mechanisms. Closed-set ⇒ a deepening of a dev-env tool;
+   open/pluggable ⇒ the IAM platform (charter non-goal).
+5. **Most of it already exists** — the floor (audit/trust/marker), egress (ADR-0028), and credential
+   routing (ADR-0014/0026/0027) are built; the *only* genuinely new mechanism is the **de-hardcoded,
+   signed, flat `role→git-tier` map** (one Gate).
+
+## Proposed FR / ADR breakdown
+> **PROPOSED — nothing created yet.** This is the design-doc breakdown the human asked for; it is NOT
+> implementation. Creating these ADRs/FRs (and building any of it, incl. D3) awaits (a) human
+> ratification of the closed-set bright line and (b) the explicit, still-outstanding D3 go-ahead.
+
+**ADRs:**
+- **NEW (proposed `ADR-0029`) — Capability model: the closed control-point set.** The four buckets,
+  the control-point→derived-enforcer axis, the one-sentence bright line, and the closed-set property.
+  Builds on **ADR-0021** (identity/union/narrow). The headline decision.
+- **Amend `ADR-0017`** (writer remote-trust) — generalize the two hardcoded roles
+  (`loom-author`/`loom-advisor`) into a signed `role→git-tier` map; today's tiers become two rows.
+- **Reference `ADR-0021`** — the four-bucket model is *how* the union marker resolves to capabilities
+  (per-session Gates vs per-container Envelope+Bundle).
+- **Charter / RULES** — record the **closed-set bright line** as a charter-level non-goal guardrail
+  ("loom is a closed capability kernel, not an open policy engine").
+
+**FRs** (★ = new; the rest EXIST and are mapped to a bucket — showing the design is mostly built):
+- **Gates / the de-hardcode (the one near-term build):**
+  - ★ **FR-GUARD-TIER-001** — `role-push-guard` resolves role→git-tier by **exact-match** lookup in
+    the signed tier-map; **unknown role → no-push floor** (fail-closed). *(No policy-language parse —
+    flat dict only; the round-1 condition.)*
+  - ★ **FR-GUARD-TIER-002** — the tier-map is a **protect-path** (ALLOW_TRUST_CHANGE) and the marker
+    stays **root-owned/unforgeable**; an agent cannot self-elevate by editing the map.
+  - `FR-GUARD-PUSH` (exists, #282) — becomes one row in the map (the `loom-author` tier).
+  - `FR-GUARD-SPAWN-RATE` / `FR-GUARD-REAP` (exist) — spawn **authority** = an invoke-time Gate.
+- **Envelope (create-time):** `FR-NET` (exists, ADR-0028) — egress is the create-time envelope;
+  ★ **FR-ENV-001** (proposed) — build derives the container envelope from the **union** of hosted
+  roles' reach needs.
+- **Bundle (use-time):** `FR-CRED-*` (exist, ADR-0014/0026/0027) — per-role scoped-cred routing;
+  downstream enforces. ★ **FR-CRED-ROLE** (proposed) — a role's declared cred needs determine which
+  scoped creds attach.
+- **Floor (already built):** `FR-INV-002` (audit), `FR-GUARD-PROTECT-PATHS`, `FR-GUARD-TRUST-CONFIG`,
+  `FR-BUILD-016` + `FR-SCHEMA-010` (marker unforgeable) — the floor is **role-invariant**, no new FR.
+- **Identity / validation (the shrunk D3):** ★ generalize the `role:` schema FR + define **"valid
+  role = a name present in the signed tier-map"** (fail-closed otherwise). This is all D3 becomes.
+
+**Near-term implementable slice (when un-parked):** the **de-hardcode tier-map** (`FR-GUARD-TIER-*`)
+— small, closed, the only genuinely new mechanism; everything else exists or is the `ADR-0029`
+conceptual consolidation.
+
 ## Pointers
 ADR-0021 (role resolution; trust-role union vs session-role) · ADR-0017 (writer push tier)
 · ADR-0014/0026/0027 (credential adapters — the Level-3 routing seam) · ADR-0019 §5 +
