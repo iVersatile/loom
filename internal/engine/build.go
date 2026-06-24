@@ -94,7 +94,18 @@ func Build(opts BuildOpts) (BuildResult, error) {
 	return buildImpl(opts, defaultRuntime(), time.Now)
 }
 
+// buildImpl is the build-verb entrypoint; buildImplVerb is the shared convergence
+// mechanism, parametrized by the verb name so a reusing verb (update) stamps its
+// OWN identity in the audit + diagnostic logs (RULES §5: a mutation names the verb
+// that caused it). Empty defaults to "build".
 func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (BuildResult, error) {
+	return buildImplVerb(opts, rt, now, "build")
+}
+
+func buildImplVerb(opts BuildOpts, rt ContainerRuntime, now func() time.Time, verb string) (BuildResult, error) {
+	if verb == "" {
+		verb = "build"
+	}
 	path := opts.PlaybookPath
 	if path == "" {
 		path = defaultPlaybookPath
@@ -168,7 +179,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		res.LockWritten = true
 		changed = true
 		if id, err := log.Append(audit.Entry{
-			TS: ts, Verb: "build", Action: "lock.write", Target: "loom.lock",
+			TS: ts, Verb: verb, Action: "lock.write", Target: "loom.lock",
 			After: map[string]any{"base_image": newLock.BaseImage}, Result: "written", Actor: "cli",
 		}); err == nil {
 			res.Actions = append(res.Actions, id)
@@ -215,7 +226,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		res.Written++
 		changed = true
 		if id, err := log.Append(audit.Entry{
-			TS: ts, Verb: "build", Action: "materialize", Target: m.Display,
+			TS: ts, Verb: verb, Action: "materialize", Target: m.Display,
 			Result: "written", Actor: "cli",
 		}); err == nil {
 			res.Actions = append(res.Actions, id)
@@ -236,7 +247,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 	} else if wired {
 		changed = true
 		if id, aerr := log.Append(audit.Entry{
-			TS: ts, Verb: "build", Action: "githooks.wire", Target: root,
+			TS: ts, Verb: verb, Action: "githooks.wire", Target: root,
 			After: map[string]any{"core.hooksPath": ".githooks"}, Result: "written", Actor: "cli",
 		}); aerr == nil {
 			res.Actions = append(res.Actions, id)
@@ -246,11 +257,11 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 	// Diagnostic log for troubleshooting (ADR-0010): raw docker + provision output,
 	// written always, separate from the structured action log.
 	var logw io.Writer
-	if lf, path := openDiagLog(root, "build"); lf != nil {
+	if lf, path := openDiagLog(root, verb); lf != nil {
 		defer func() { _ = lf.Close() }()
 		logw = lf
 		res.LogPath = path
-		_, _ = fmt.Fprintf(lf, "loom build %s base=%s\n", ts, img)
+		_, _ = fmt.Fprintf(lf, "loom %s %s base=%s\n", verb, ts, img)
 		for _, w := range res.Warnings {
 			_, _ = fmt.Fprintf(lf, "loom: WARNING %s\n", w)
 		}
@@ -292,7 +303,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 	case "created":
 		changed = true
 		if id, err := log.Append(audit.Entry{
-			TS: ts, Verb: "build", Action: "container.create", Target: cname,
+			TS: ts, Verb: verb, Action: "container.create", Target: cname,
 			After: map[string]any{"image": info.Image}, Result: "created", Actor: "cli",
 		}); err == nil {
 			res.Actions = append(res.Actions, id)
@@ -304,7 +315,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		// mutation, so audit it (RULES §5).
 		changed = true
 		if id, err := log.Append(audit.Entry{
-			TS: ts, Verb: "build", Action: "container.reconcile", Target: cname,
+			TS: ts, Verb: verb, Action: "container.reconcile", Target: cname,
 			After: map[string]any{"image": info.Image}, Result: "converged", Actor: "cli",
 		}); err == nil {
 			res.Actions = append(res.Actions, id)
@@ -319,7 +330,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 	if info.HomeSynced {
 		changed = true
 		if id, err := log.Append(audit.Entry{
-			TS: ts, Verb: "build", Action: "home.sync", Target: cname,
+			TS: ts, Verb: verb, Action: "home.sync", Target: cname,
 			After:  map[string]any{"files": res.Materialized, "digest": homeDigest(home)},
 			Result: "synced", Actor: "cli",
 		}); err == nil {
@@ -341,7 +352,7 @@ func buildImpl(opts BuildOpts, rt ContainerRuntime, now func() time.Time) (Build
 		res.LockWritten = true
 		changed = true
 		if id, err := log.Append(audit.Entry{
-			TS: ts, Verb: "build", Action: "lock.write", Target: "loom.lock",
+			TS: ts, Verb: verb, Action: "lock.write", Target: "loom.lock",
 			After: map[string]any{"base_image": finalLock.BaseImage, "repinned": "container"}, Result: "written", Actor: "cli",
 		}); err == nil {
 			res.Actions = append(res.Actions, id)

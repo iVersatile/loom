@@ -265,6 +265,27 @@ requirements:
     source: [SPEC-playbook.md#role, SPEC-verbs.md#build, SPEC-verbs.md#doctor]
     tests: [engine.TestValidRole, engine.TestRoleMarkerScript, engine.TestNeedsRoleMarker, engine.TestRoleMarkerPlan, engine.TestBuildPopulatesRole, engine.TestBuildRoleLoudFail, engine.TestDoctorContainerUser]
     status: active
+  - id: FR-UPDATE-001
+    kind: behavioral
+    # `update` verb — Slice 1 (converge + noop; real removal deferred to Slice 2,
+    # which populates Plan.Remove after an advisor /spike on uninstall-per-source).
+    # Reuses the planner (the one grader) + the shared build/provision path, stamping
+    # its own verb identity in the audit + diagnostic logs (buildImplVerb). Scoped to
+    # ADDITIONS — the statement does not claim removal (SPEC-verbs.md#update prose says
+    # removal is real; that half is Slice 2). Lights up the RED Spine `update` node.
+    statement: update reconciles a running env to the current playbook — it computes the plan delta and applies the additions (create/install) via the shared provision path, then re-resolves and rewrites loom.lock. (Slice 1: real removal deferred — the planner leaves Plan.Remove empty.)
+    source: SPEC-verbs.md#update
+    tests: [engine.TestUpdateAppliesDeltaConverges]
+    status: active
+  - id: FR-UPDATE-002
+    kind: behavioral
+    # Closes review-finding R6 (makes the result enum reachable): build never
+    # returns "noop", but update gates on PlanResult.Changed() — a converged env
+    # writes nothing and returns "noop", a delta returns "converged".
+    statement: update's result is "noop" when the env already matches the playbook (no plan delta — no lock rewrite, no audit entry), and "converged" when a delta was applied.
+    source: SPEC-verbs.md#update
+    tests: [engine.TestUpdateNoopWhenConverged, engine.TestUpdateAppliesDeltaConverges]
+    status: active
   - id: FR-SCHEMA-008
     kind: schema
     # T16 PR 2: the base-authored rule is enforced at Load per non-base LAYER
@@ -828,13 +849,13 @@ requirements:
     kind: invariant
     statement: every mutating verb is audit-logged and diagnostic-logged.
     source: RULES.md#§5
-    tests: { suite: engine.TestMutatingVerbsAreObservable, covers: [build, teardown, start] }
+    tests: { suite: engine.TestMutatingVerbsAreObservable, covers: [build, teardown, start, update] }
     status: active
   - id: FR-INV-003
     kind: invariant
     statement: every mutating verb is idempotent; re-running converges.
     source: RULES.md#§5
-    tests: { suite: engine.TestMutatingVerbsIdempotent, covers: [build, teardown, start] }
+    tests: { suite: engine.TestMutatingVerbsIdempotent, covers: [build, teardown, start, update] }
     status: active
   - id: FR-INV-004
     kind: invariant

@@ -36,6 +36,11 @@ type BuildOpts struct {
 	Force        bool   // --force: rebuild from scratch
 }
 
+type UpdateOpts struct {
+	PlaybookPath string // --playbook/-f; falls back to defaultPlaybookPath
+	Force        bool   // --force: rebuild from scratch while applying the delta
+}
+
 type TeardownOpts struct {
 	PlaybookPath string // --playbook/-f; falls back to defaultPlaybookPath
 	Level        string // stop | volumes | reset
