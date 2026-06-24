@@ -57,6 +57,24 @@ is_push_op() {
 	return 1
 }
 
+# is_merge_op SEG — a merge-to-main / land op that NO agent seat may do (the merge
+# gate: "no seat merges its own work"). loom-author is allowed push/PR-create but
+# NEVER these. Deny BROADLY, fail-closed (parity with is_push_op): `gh pr merge`
+# and the `gh api .../merge|/merges` REST vector (any -X); and, belt-and-suspenders
+# over GitHub's server-side branch protection, a `git push` that targets main or
+# force-pushes. Anything uncertain is treated as a merge by the caller.
+is_merge_op() {
+	case " $1 " in
+	*" gh "*" merge"*) return 0 ;;
+	esac
+	case "$1" in
+	*"/merge"*|*"/merges"*) return 0 ;;
+	*"git push"*main*) return 0 ;;
+	*"git push"*" -f"*|*"git push"*"--force"*) return 0 ;;
+	esac
+	return 1
+}
+
 # Detect, fail-closed: per-segment when the split is CERTAIN, AND whole-line
 # always (the deny floor never shrinks for adversarial input). Substring matching
 # makes whole-line a superset, but the segment pass mirrors guard-bash and keeps
@@ -104,6 +122,18 @@ if [ -z "$role" ] && [ -r "$marker" ]; then
 fi
 
 [ "$role" = "loom-advisor" ] && exit 0
+
+# loom-author (ADR-0017 Decision 1): may push to feature branches + open PRs, but
+# the merge gate stays — MERGE is always denied. Fail-closed: an author push/PR op
+# is allowed ONLY when it is NOT a merge op; under indirection taint (the push was
+# only inferred, not seen literally) treat it as a merge and block.
+if [ "$role" = "loom-author" ]; then
+	if is_merge_op "$cmd" || indirection_taint "$cmd"; then
+		echo "role-push-guard: BLOCKED merge op for loom-author (branch-push/PR-create OK, merge stays advisor/human): $raw" >&2
+		exit 2
+	fi
+	exit 0
+fi
 
 echo "role-push-guard: BLOCKED push/PR op for non-advisor session (role='${role:-unset}', only loom-advisor may push): $raw" >&2
 # exit 2: Claude Code's PreToolUse BLOCK signal. A non-2 non-zero (exit 1) is a
