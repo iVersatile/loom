@@ -196,6 +196,7 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 		{Name: "gitleaks", Source: "go-install"},
 		{Name: "golangci-lint", Source: "go-install"},
 		{Name: "uv", Source: "uv-installer"},
+		{Name: "nodejs", Source: "nodejs-20"},
 	}
 	s := provisionScript(tools, nil)
 	for _, want := range []string{
@@ -204,6 +205,9 @@ func TestProvisionScriptCoversSources(t *testing.T) {
 		"go install github.com/zricethezav/gitleaks/v8@latest",
 		"go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest",
 		"astral.sh/uv/install.sh",
+		// nodejs MUST come from the NodeSource setup_20.x script, NOT apt (Node 18) —
+		// the gemini-cli Node>=20 prerequisite (B1).
+		"deb.nodesource.com/setup_20.x",
 		// adv-065: go-built tools, uv, and the harness all land in the SHARED
 		// /usr/local/bin (reachable by the non-root runtime user), not root's home.
 		"export GOBIN=/usr/local/bin",
