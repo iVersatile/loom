@@ -304,6 +304,31 @@ sorted capability set.** End to end:
 — small, closed, the only genuinely new mechanism; everything else exists or is the `ADR-0029`
 conceptual consolidation.
 
+## Native roles + naming (CHOSEN: worker / orchestrator — human 2026-06-24)
+loom ships exactly **two** native roles (the human is the out-of-band ceiling, not a container role).
+The old `author`/`advisor` names are **renamed** because they mislead: they name a *persona* (writes
+vs advises), **invert the hierarchy** ("advisor" sounds weaker but holds merge+spawn), and carry none
+of the real axes (floor/elevated, push/merge, ephemeral/persistent).
+
+| was | → now | bucket meaning |
+|---|---|---|
+| `loom-author` | **`loom-worker`** | the fail-closed **FLOOR** / default; **ephemeral**; Gates: **push-no-merge**, no spawn |
+| `loom-advisor` | **`loom-orchestrator`** | the **ELEVATED** role (opt-up via env); **persistent**; Gates: **merge** + **may spawn** the worker fleet |
+
+**Rationale:** "one orchestrator + many workers" is the canonical pairing for ADR-0025's topology (a
+persistent coordinator spawning an ephemeral fleet); names capability/relationship, not persona; correct
+hierarchy. **Caveat (accepted at decision time):** "orchestrator" foregrounds spawn/coordinate over the
+*merge gate* (the actually-enforced capability) and the *review* duty — accepted because the merge truth
+is carried precisely by the tier-map row, so the name need not. The two become the first rows of the
+signed `role→git-tier` map: `loom-orchestrator → merge` · `loom-worker → push-no-merge` · `unknown →
+no-push floor`.
+
+**MIGRATION (breaking; deferred behind ratification + the explicit D3 go-ahead — NOT done now):** the
+rename touches the marker string (`/var/lib/loom/role`), ~7 guard files (`role-push-guard`,
+`role-inject`, `spawn-guard`, `checkpoint-inject`, `schema.go`, `exec.go`, `doctor_rolemarker.go`),
+`loom.yml role:`, `LOOM_SESSION_ROLE` values, and ADR-0017/0021/0025 prose. Needs a compatibility plan
+(accept old + new during transition, or a clean cut) — to be designed when un-parked.
+
 ## Pointers
 ADR-0021 (role resolution; trust-role union vs session-role) · ADR-0017 (writer push tier)
 · ADR-0014/0026/0027 (credential adapters — the Level-3 routing seam) · ADR-0019 §5 +
