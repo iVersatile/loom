@@ -304,7 +304,11 @@ sorted capability set.** End to end:
 — small, closed, the only genuinely new mechanism; everything else exists or is the `ADR-0029`
 conceptual consolidation.
 
-## Native roles + naming (CHOSEN: worker / orchestrator — human 2026-06-24)
+## Native roles + naming (FINAL: worker / orchestrator + review-duty pin — human 2026-06-24)
+> **Decided 2026-06-24:** keep `worker` / `orchestrator` (counter-offer `contributor`/`maintainer`
+> declined — fleet-topology consistency chosen over forge-vocabulary precision) **AND pin the
+> review duty** (the non-negotiable both seats required). Proposed pin wording below, staged for
+> `ALLOW_SPEC_CHANGE`.
 loom ships exactly **two** native roles (the human is the out-of-band ceiling, not a container role).
 The old `author`/`advisor` names are **renamed** because they mislead: they name a *persona* (writes
 vs advises), **invert the hierarchy** ("advisor" sounds weaker but holds merge+spawn), and carry none
@@ -353,6 +357,19 @@ delegates merge-semantics richness to the forge). Cost: drops ADR-0025's "one or
 workers" fleet framing. Net (both seats): **either is fine; the review-duty pin is the non-negotiable,
 not the word.** Human's final micro-call: `worker`/`orchestrator` (+ pin review) for fleet-consistency,
 or `contributor`/`maintainer` for gate-precision.
+
+## Review-duty pin (FINAL — proposed wording; frozen paths → staged for human `ALLOW_SPEC_CHANGE`, applied on the T38→ADR promotion)
+Neither the `orchestrator` name nor the `role→git-tier` map carries the role's review obligation, so
+pin it explicitly. Proposed clause, to land in **ADR-0025** (and mirror in **RULES / `docs/TEAM.md`**):
+
+> **The orchestrator's defining duty is review-before-merge.** It independently reviews every worker
+> branch before integrating it (designer≠builder); the merge gate is a **trust obligation, not a
+> coordination convenience** — the orchestrator never rubber-stamps a worker's PR to keep the fleet
+> moving. The role's *name* foregrounds coordination (spawn/orchestrate the fleet); this clause ensures
+> the review duty does not ride on the name.
+
+This is the agreed mitigation for the one gap the rename exposed (`q-1782336693`). It is NOT applied
+now (frozen-path, human-only) and rides the same gate as the rest of T38.
 
 ## Pointers
 ADR-0021 (role resolution; trust-role union vs session-role) · ADR-0017 (writer push tier)
