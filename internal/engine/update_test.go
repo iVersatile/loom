@@ -66,3 +66,33 @@ func TestUpdateNoopWhenConverged(t *testing.T) {
 		t.Errorf("noop update appended %d audit entries, want 0", after-before)
 	}
 }
+
+// TestUpdateForceBypassesNoop: `update --force` reconciles REGARDLESS of whether
+// there is a delta (mirrors `build --force`). The noop gate is bypassed when Force
+// is set, so a fully-converged env still does the forced reconcile — Result is
+// "converged", not "noop", and the work is audited.
+func TestUpdateForceBypassesNoop(t *testing.T) {
+	pbPath, root := builtProject(t, fixtureProbes())
+	before := countLogLines(t, root)
+	// Same fully-converged setup as TestUpdateNoopWhenConverged (a plain update
+	// would noop), but Force:true — and Ensure recreates the container (force).
+	rt := fakeRuntime{
+		exists: true, running: true,
+		probeVersions: fixtureProbes(),
+		homeSentinel:  homeDigest(filepath.Join(root, ".loom", "home")),
+		ensureInfo:    ContainerInfo{Name: "loom-dev", Status: "created"},
+	}
+	res, err := updateImpl(UpdateOpts{PlaybookPath: pbPath, Force: true}, rt, fixedClock)
+	if err != nil {
+		t.Fatalf("update --force: %v", err)
+	}
+	if res.Result == "noop" {
+		t.Error("update --force on a converged env must not noop")
+	}
+	if res.Result != "converged" {
+		t.Errorf("result = %q, want converged (force did the reconcile)", res.Result)
+	}
+	if after := countLogLines(t, root); after <= before {
+		t.Errorf("forced reconcile appended %d audit entries, want > 0", after-before)
+	}
+}

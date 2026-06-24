@@ -282,9 +282,9 @@ requirements:
     # Closes review-finding R6 (makes the result enum reachable): build never
     # returns "noop", but update gates on PlanResult.Changed() — a converged env
     # writes nothing and returns "noop", a delta returns "converged".
-    statement: update's result is "noop" when the env already matches the playbook (no plan delta — no lock rewrite, no audit entry), and "converged" when a delta was applied.
+    statement: update's result is "noop" when the env already matches the playbook (no plan delta) AND --force is not set (no lock rewrite, no audit entry); it is "converged" when a delta was applied OR --force forced a full reconcile.
     source: SPEC-verbs.md#update
-    tests: [engine.TestUpdateNoopWhenConverged, engine.TestUpdateAppliesDeltaConverges]
+    tests: [engine.TestUpdateNoopWhenConverged, engine.TestUpdateAppliesDeltaConverges, engine.TestUpdateForceBypassesNoop]
     status: active
   - id: FR-SCHEMA-008
     kind: schema

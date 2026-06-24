@@ -23,10 +23,12 @@ func updateImpl(opts UpdateOpts, rt ContainerRuntime, now func() time.Time) (Upd
 		return UpdateResult{}, fmt.Errorf("update: plan: %w", err)
 	}
 
-	// 2. No delta → noop. Side-effect-free and idempotent: a converged env writes
-	//    nothing (no lock rewrite, no audit entry), so a 2nd `update` is a clean
-	//    no-op (FR-INV-003). This is the reachable "noop" the result enum needs (R6).
-	if !plan.Changed() {
+	// 2. No delta → noop, UNLESS --force. Side-effect-free and idempotent: a
+	//    converged env writes nothing (no lock rewrite, no audit entry), so a 2nd
+	//    plain `update` is a clean no-op (FR-INV-003) — the reachable "noop" the
+	//    result enum needs (R6). --force bypasses the gate (mirrors `build --force`):
+	//    it falls through to a full reconcile even with an empty delta.
+	if !plan.Changed() && !opts.Force {
 		return UpdateResult{Result: "noop", Target: plan.Target}, nil
 	}
 
