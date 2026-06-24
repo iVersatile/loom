@@ -914,6 +914,19 @@ requirements:
     tests: { suite: engine.TestE2EGuardsBlockByRole + engine.TestGuardFixtureParity, patterns: all }
     status: active
 
+  - id: FR-GUARD-PUSH
+    kind: guardrail
+    # ADR-0017 Decision 1: the Writer (loom-author) may push to feature branches +
+    # open PRs, but the merge gate stays — no seat lands its own work. role-push-guard
+    # is the client-side half (GitHub branch protection on main is the server-side
+    # other); is_merge_op is fail-closed — an indirection-tainted author push blocks.
+    # The gh fine-grained PAT is shared/provisioned (ADR-0026), so this is a CONFIG
+    # gate, not a credential gate. Closes the "no FR-PUSH" gap (OPEN-REQUIREMENTS §2).
+    statement: role-push-guard exempts a loom-advisor session for all push/PR ops; permits a loom-author session to push to feature branches and open PRs (git push to non-main refs, gh pr create, gh api POST .../pulls) but BLOCKS (exit 2) every merge/land vector (gh pr merge, gh api .../merge|/merges, git push to main, force-push) and any indirection-tainted author push (fail-closed); and fails closed (BLOCK) for an unset/other role. An inline LOOM_SESSION_ROLE=... in the command text is inert — the hook reads its own launch env.
+    source: [RULES.md#§5, docs/decisions/0017-writer-remote-trust-split.md, config/hooks/role-push-guard]
+    tests: [guard.TestRolePushGuardAuthorAllowedForBranchPush, guard.TestRolePushGuardAuthorBlockedForMerge, guard.TestRolePushGuardAllowsAdvisor, guard.TestRolePushGuardFailClosedWhenRoleUnset, guard.TestRolePushGuardIgnoresNonPush]
+    status: active
+
   # --- Behavioral: autonomy closed-loop (ADR-0020) ---
   - id: FR-LOOP-001
     kind: behavioral
