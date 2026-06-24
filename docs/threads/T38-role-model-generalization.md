@@ -1,4 +1,12 @@
-# T38 — Role-model generalization: identity + layered boundaries   🟢 recommendation drafted (cross-seat converged 2026-06-24; pending human acceptance)
+# T38 — Role-model generalization: identity + layered boundaries   ✅ RATIFIED (human 2026-06-24)
+
+> **RATIFIED 2026-06-24 (human):** the **closed-set bright line** is accepted as a charter-level
+> guardrail (*loom is a closed capability kernel — exactly Envelope/Gates/Bundle/Floor; projects
+> parameterize identities, never declare new control mechanisms*), and the **D3 go-ahead** is given.
+> This thread now **promotes to ADR-0029** (capability model) + the ADR-0017/0021 amendments, and the
+> staged role/rename batch (`adv-role-rename-batch`) **activates**. The frozen-spec + trust-path
+> edits still land via human `ALLOW_SPEC_CHANGE` / `ALLOW_TRUST_CHANGE` per piece (advisor stages,
+> author builds the non-trust half, advisor reviews).
 
 > **Design draft — NOT scoped, NOT an ADR.** Captures the 2026-06-24 advisor↔human
 > discussion so it resumes without loss. Promotes to an ADR (and gates D3) only on an
